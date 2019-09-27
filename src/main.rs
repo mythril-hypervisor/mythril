@@ -4,8 +4,6 @@
 #[macro_use]
 extern crate log;
 
-extern crate uefi_services;
-
 #[no_mangle]
 pub static _fltused: u32 = 0;
 
@@ -17,6 +15,4 @@ fn efi_main(handle: Handle, system_table: SystemTable<Boot>) -> Status {
 
     info!("here");
     loop {}
-
-    Status::SUCCESS
 }
