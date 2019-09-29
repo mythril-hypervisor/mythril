@@ -1,3 +1,5 @@
 /boot
 /target
+_boot.img
+scripts/
 **/*.rs.bk

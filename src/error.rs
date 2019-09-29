@@ -1,7 +1,7 @@
 #[derive(Debug)]
 pub enum Error {
-    VmWriteError,
-    VmReadError,
+    VmFailInvalid,
+    VmFailValid,
     AllocError(&'static str)
 }
 
