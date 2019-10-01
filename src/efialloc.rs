@@ -1,7 +1,7 @@
 use uefi::table::boot::{AllocateType, BootServices, MemoryType};
 use x86_64::structures::paging::frame::PhysFrame;
-use x86_64::structures::paging::page::Size4KiB;
 use x86_64::structures::paging::page::PageSize;
+use x86_64::structures::paging::page::Size4KiB;
 use x86_64::structures::paging::{FrameAllocator, FrameDeallocator};
 use x86_64::PhysAddr;
 
@@ -27,7 +27,9 @@ unsafe impl<'a> FrameAllocator<Size4KiB> for EfiAllocator<'a> {
 
         //FIXME: For now, zero every frame we allocate
         let ptr = pg as *mut u8;
-        unsafe {core::ptr::write_bytes(ptr, 0, Size4KiB::SIZE as usize);}
+        unsafe {
+            core::ptr::write_bytes(ptr, 0, Size4KiB::SIZE as usize);
+        }
 
         PhysFrame::from_start_address(PhysAddr::new(pg)).ok()
     }

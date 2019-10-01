@@ -11,6 +11,7 @@ uefi = "0.3.2"
 uefi-services = "0.1.0"
 x86_64 = "0.7.5"
 log = { version = "0.4.8", default-features = false }
+bitflags = "1.2.0"
 
 
 [profile.dev]

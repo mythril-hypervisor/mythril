@@ -2,8 +2,8 @@ use crate::error::{Error, Result};
 use crate::vmx;
 use x86_64::registers::rflags;
 use x86_64::registers::rflags::RFlags;
-use x86_64::structures::paging::page::Size4KiB;
 use x86_64::structures::paging::frame::PhysFrame;
+use x86_64::structures::paging::page::Size4KiB;
 use x86_64::structures::paging::{FrameAllocator, FrameDeallocator};
 use x86_64::PhysAddr;
 
@@ -167,16 +167,15 @@ fn vmcs_read(field: u64) -> Result<u64> {
 }
 
 pub struct Vmcs {
-    frame: PhysFrame<Size4KiB>
+    frame: PhysFrame<Size4KiB>,
 }
 
 impl Vmcs {
     pub fn new(alloc: &mut impl FrameAllocator<Size4KiB>) -> Result<Self> {
-        let vmcs_region = alloc.allocate_frame()
+        let vmcs_region = alloc
+            .allocate_frame()
             .ok_or(Error::AllocError("Failed to allocate vmcs frame"))?;
-        Ok(Vmcs {
-            frame: vmcs_region
-        })
+        Ok(Vmcs { frame: vmcs_region })
     }
 
     pub fn activate(self, vmx: &mut vmx::Vmx) -> Result<ActiveVmcs> {
@@ -201,14 +200,17 @@ impl Vmcs {
         } else if rflags.contains(RFlags::ZERO_FLAG) {
             Err(Error::VmFailValid)
         } else {
-            Ok(ActiveVmcs{vmx: vmx, vmcs: self})
+            Ok(ActiveVmcs {
+                vmx: vmx,
+                vmcs: self,
+            })
         }
     }
 }
 
 pub struct ActiveVmcs<'a> {
     vmcs: Vmcs,
-    vmx: &'a mut vmx::Vmx
+    vmx: &'a mut vmx::Vmx,
 }
 
 impl<'a> ActiveVmcs<'a> {
@@ -225,7 +227,6 @@ impl<'a> ActiveVmcs<'a> {
         self.vmcs
     }
 }
-
 
 struct VmcsHost {
     stack: PhysAddr,

@@ -11,16 +11,16 @@ extern crate log;
 #[no_mangle]
 pub static _fltused: u32 = 0;
 
-use x86_64::registers::model_specific::Msr;
 use uefi::prelude::*;
+use x86_64::registers::model_specific::Msr;
 
 mod efialloc;
 mod error;
 mod memory;
+mod vm;
 #[allow(dead_code)]
 mod vmcs;
 mod vmx;
-mod vm;
 
 #[entry]
 fn efi_main(_handle: Handle, system_table: SystemTable<Boot>) -> Status {
@@ -46,16 +46,47 @@ fn efi_main(_handle: Handle, system_table: SystemTable<Boot>) -> Status {
              : "={rax}"(current_cr4)
              ::: "volatile");
 
-        (cr0_fixed.read() | Cr0::read().bits(),
-         cr4_fixed.read() | current_cr4)
+        (
+            cr0_fixed.read() | Cr0::read().bits(),
+            cr4_fixed.read() | current_cr4,
+        )
     };
 
     vmcs.write_field(vmcs::HOST_CR0 as u64, new_cr0).unwrap();
     vmcs.write_field(vmcs::HOST_CR4 as u64, new_cr4).unwrap();
 
-    vmcs.write_field(vmcs::HOST_ES_SELECTOR as u64, 0x10).unwrap();
+    vmcs.write_field(vmcs::HOST_ES_SELECTOR as u64, 0x10)
+        .unwrap();
     let var = vmcs.read_field(vmcs::HOST_ES_SELECTOR as u64).unwrap();
 
     info!("{}", var);
+
+    use memory::EptPml4Table;
+    use x86_64::structures::paging::FrameAllocator;
+    let mut ept_pml4_frame = alloc
+        .allocate_frame()
+        .expect("Failed to allocate pml4 frame");
+    let mut ept_pml4 = EptPml4Table::new(&mut ept_pml4_frame).expect("Failed to create pml4 table");
+
+    let mut host_frame = alloc
+        .allocate_frame()
+        .expect("Failed to allocate host frame");
+
+    use x86_64::VirtAddr;
+    memory::map_guest_memory(
+        &mut alloc,
+        &mut ept_pml4,
+        memory::GuestPhysAddr(VirtAddr::new(0)),
+        host_frame,
+    ).expect("Failed to map guest physical address");
+    info!("We didn't crash!");
+
+    memory::map_guest_memory(
+        &mut alloc,
+        &mut ept_pml4,
+        memory::GuestPhysAddr(VirtAddr::new(0)),
+        host_frame,
+    )
+    .expect("Failed to map page twice (YAY!)");
     loop {}
 }

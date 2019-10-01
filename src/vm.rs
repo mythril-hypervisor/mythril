@@ -10,14 +10,14 @@ use x86_64::PhysAddr;
 
 pub struct VirtualMachineConfig {
     images: Vec<(Vec<u8>, PhysAddr)>,
-    memory: u64 // number of 4k pages
+    memory: u64, // number of 4k pages
 }
 
 impl VirtualMachineConfig {
     pub fn new(memory: u64) -> VirtualMachineConfig {
         VirtualMachineConfig {
             images: vec![],
-            memory: memory
+            memory: memory,
         }
     }
 
@@ -27,10 +27,9 @@ impl VirtualMachineConfig {
     }
 }
 
-
 pub struct VirtualMachine {
     vmcs: vmcs::Vmcs,
-    config: VirtualMachineConfig
+    config: VirtualMachineConfig,
 }
 
 impl VirtualMachine {
@@ -47,7 +46,7 @@ impl VirtualMachine {
 
         Ok(Self {
             vmcs: vmcs,
-            config: config
+            config: config,
         })
     }
 
@@ -64,9 +63,9 @@ impl VirtualMachine {
         let rflags = rflags::RFlags::from_bits_truncate(rflags);
 
         if rflags.contains(RFlags::CARRY_FLAG) {
-            return Err(Error::VmFailInvalid)
+            return Err(Error::VmFailInvalid);
         } else if rflags.contains(RFlags::ZERO_FLAG) {
-            return Err(Error::VmFailValid)
+            return Err(Error::VmFailValid);
         }
 
         Ok(VirtualMachineRunning {

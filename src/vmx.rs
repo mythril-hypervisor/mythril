@@ -1,12 +1,12 @@
 use crate::error::{Error, Result};
 use x86_64::registers::rflags;
 use x86_64::registers::rflags::RFlags;
+use x86_64::structures::paging::frame::PhysFrame;
 use x86_64::structures::paging::page::Size4KiB;
 use x86_64::structures::paging::{FrameAllocator, FrameDeallocator};
-use x86_64::structures::paging::frame::PhysFrame;
 
 pub struct Vmx {
-    vmxon_region: PhysFrame<Size4KiB>
+    vmxon_region: PhysFrame<Size4KiB>,
 }
 
 impl Vmx {
@@ -29,7 +29,8 @@ impl Vmx {
 
         let revision_id = Self::revision();
 
-        let vmxon_region = alloc.allocate_frame()
+        let vmxon_region = alloc
+            .allocate_frame()
             .ok_or(Error::AllocError("Failed to allocate vmxon frame"))?;
         let vmxon_region_addr = vmxon_region.start_address().as_u64();
 
@@ -54,8 +55,8 @@ impl Vmx {
         } else if rflags.contains(RFlags::ZERO_FLAG) {
             Err(Error::VmFailValid)
         } else {
-            Ok(Vmx{
-                vmxon_region: vmxon_region
+            Ok(Vmx {
+                vmxon_region: vmxon_region,
             })
         }
     }
