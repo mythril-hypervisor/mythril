@@ -68,27 +68,27 @@ impl VirtualMachine {
             )
         };
 
-        vmcs.write_field(vmcs::HOST_CR0 as u64, new_cr0)?;
-        vmcs.write_field(vmcs::HOST_CR4 as u64, new_cr4)?;
+        vmcs.write_field(vmcs::VmcsField::HOST_CR0, new_cr0)?;
+        vmcs.write_field(vmcs::VmcsField::HOST_CR4, new_cr4)?;
 
-        vmcs.write_field(vmcs::HOST_ES_SELECTOR as u64, 0x10)?;
-        vmcs.write_field(vmcs::HOST_CS_SELECTOR as u64, 0x08)?;
-        vmcs.write_field(vmcs::HOST_SS_SELECTOR as u64, 0x10)?;
-        vmcs.write_field(vmcs::HOST_DS_SELECTOR as u64, 0x10)?;
-        vmcs.write_field(vmcs::HOST_FS_SELECTOR as u64, 0x10)?;
+        vmcs.write_field(vmcs::VmcsField::HOST_ES_SELECTOR, 0x10)?;
+        vmcs.write_field(vmcs::VmcsField::HOST_CS_SELECTOR, 0x08)?;
+        vmcs.write_field(vmcs::VmcsField::HOST_SS_SELECTOR, 0x10)?;
+        vmcs.write_field(vmcs::VmcsField::HOST_DS_SELECTOR, 0x10)?;
+        vmcs.write_field(vmcs::VmcsField::HOST_FS_SELECTOR, 0x10)?;
 
-        vmcs.write_field(vmcs::HOST_GS_SELECTOR as u64, 0x10)?;
-        vmcs.write_field(vmcs::HOST_TR_SELECTOR as u64, 0x28)?;
+        vmcs.write_field(vmcs::VmcsField::HOST_GS_SELECTOR, 0x10)?;
+        vmcs.write_field(vmcs::VmcsField::HOST_TR_SELECTOR, 0x28)?;
 
-        vmcs.write_field(vmcs::HOST_IA32_SYSENTER_CS as u64, 0x00)?;
-        vmcs.write_field(vmcs::HOST_IA32_SYSENTER_ESP as u64, 0x00)?;
-        vmcs.write_field(vmcs::HOST_IA32_SYSENTER_EIP as u64, 0x00)?;
+        vmcs.write_field(vmcs::VmcsField::HOST_IA32_SYSENTER_CS, 0x00)?;
+        vmcs.write_field(vmcs::VmcsField::HOST_IA32_SYSENTER_ESP, 0x00)?;
+        vmcs.write_field(vmcs::VmcsField::HOST_IA32_SYSENTER_EIP, 0x00)?;
 
-        vmcs.write_field(vmcs::HOST_IDTR_BASE as u64, IdtrBase::read().as_u64())?;
-        vmcs.write_field(vmcs::HOST_GDTR_BASE as u64, GdtrBase::read().as_u64())?;
+        vmcs.write_field(vmcs::VmcsField::HOST_IDTR_BASE, IdtrBase::read().as_u64())?;
+        vmcs.write_field(vmcs::VmcsField::HOST_GDTR_BASE, GdtrBase::read().as_u64())?;
 
-        vmcs.write_field(vmcs::HOST_FS_BASE as u64, FsBase::read().as_u64())?;
-        vmcs.write_field(vmcs::HOST_GS_BASE as u64, GsBase::read().as_u64())?;
+        vmcs.write_field(vmcs::VmcsField::HOST_FS_BASE, FsBase::read().as_u64())?;
+        vmcs.write_field(vmcs::VmcsField::HOST_GS_BASE, GsBase::read().as_u64())?;
 
         Ok(())
     }
