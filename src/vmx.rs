@@ -5,6 +5,15 @@ use x86_64::structures::paging::frame::PhysFrame;
 use x86_64::structures::paging::page::Size4KiB;
 use x86_64::structures::paging::{FrameAllocator, FrameDeallocator};
 
+extern "C" {
+    pub fn vmexit_handler_wrapper();
+}
+
+#[no_mangle]
+pub extern "C" fn vmexit_handler() {
+   info!("reached vmexit handler");
+}
+
 pub struct Vmx {
     vmxon_region: PhysFrame<Size4KiB>,
 }
