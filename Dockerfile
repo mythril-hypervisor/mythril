@@ -22,3 +22,5 @@ USER root
 RUN rustup toolchain install nightly
 RUN rustup component add rust-src
 RUN cargo install cargo-xbuild
+
+WORKDIR /src
