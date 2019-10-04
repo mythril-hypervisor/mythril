@@ -3,6 +3,9 @@
 use x86_64::registers::model_specific::Msr;
 use x86_64::VirtAddr;
 
+pub const IA32_VMX_CR0_FIXED0_MSR: u32 = 0x486;
+pub const IA32_VMX_CR4_FIXED0_MSR: u32 = 0x488;
+
 #[repr(C)]
 #[repr(packed)]
 struct IdtInfo {
