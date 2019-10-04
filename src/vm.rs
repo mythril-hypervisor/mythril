@@ -78,34 +78,31 @@ impl VirtualMachine {
             )
         };
 
-        vmcs.write_field(vmcs::VmcsField::HOST_CR0, host_cr0)?;
-        vmcs.write_field(vmcs::VmcsField::HOST_CR4, host_cr4)?;
+        vmcs.write_field(vmcs::VmcsField::HostCr0, host_cr0)?;
+        vmcs.write_field(vmcs::VmcsField::HostCr4, host_cr4)?;
 
-        vmcs.write_field(vmcs::VmcsField::HOST_ES_SELECTOR, 0x00)?;
-        vmcs.write_field(vmcs::VmcsField::HOST_CS_SELECTOR, 0x00)?;
-        vmcs.write_field(vmcs::VmcsField::HOST_SS_SELECTOR, 0x00)?;
-        vmcs.write_field(vmcs::VmcsField::HOST_DS_SELECTOR, 0x00)?;
-        vmcs.write_field(vmcs::VmcsField::HOST_FS_SELECTOR, 0x00)?;
-        vmcs.write_field(vmcs::VmcsField::HOST_GS_SELECTOR, 0x00)?;
-        vmcs.write_field(vmcs::VmcsField::HOST_TR_SELECTOR, 0x00)?;
+        vmcs.write_field(vmcs::VmcsField::HostEsSelector, 0x00)?;
+        vmcs.write_field(vmcs::VmcsField::HostCsSelector, 0x00)?;
+        vmcs.write_field(vmcs::VmcsField::HostSsSelector, 0x00)?;
+        vmcs.write_field(vmcs::VmcsField::HostDsSelector, 0x00)?;
+        vmcs.write_field(vmcs::VmcsField::HostFsSelector, 0x00)?;
+        vmcs.write_field(vmcs::VmcsField::HostGsSelector, 0x00)?;
+        vmcs.write_field(vmcs::VmcsField::HostTrSelector, 0x00)?;
 
-        vmcs.write_field(vmcs::VmcsField::HOST_IA32_SYSENTER_CS, 0x00)?;
-        vmcs.write_field(vmcs::VmcsField::HOST_IA32_SYSENTER_ESP, 0x00)?;
-        vmcs.write_field(vmcs::VmcsField::HOST_IA32_SYSENTER_EIP, 0x00)?;
+        vmcs.write_field(vmcs::VmcsField::HostIa32SysenterCs, 0x00)?;
+        vmcs.write_field(vmcs::VmcsField::HostIa32SysenterEsp, 0x00)?;
+        vmcs.write_field(vmcs::VmcsField::HostIa32SysenterEip, 0x00)?;
 
-        vmcs.write_field(vmcs::VmcsField::HOST_IDTR_BASE, IdtrBase::read().as_u64())?;
-        vmcs.write_field(vmcs::VmcsField::HOST_GDTR_BASE, GdtrBase::read().as_u64())?;
+        vmcs.write_field(vmcs::VmcsField::HostIdtrBase, IdtrBase::read().as_u64())?;
+        vmcs.write_field(vmcs::VmcsField::HostGdtrBase, GdtrBase::read().as_u64())?;
 
-        vmcs.write_field(vmcs::VmcsField::HOST_FS_BASE, FsBase::read().as_u64())?;
-        vmcs.write_field(vmcs::VmcsField::HOST_GS_BASE, GsBase::read().as_u64())?;
+        vmcs.write_field(vmcs::VmcsField::HostFsBase, FsBase::read().as_u64())?;
+        vmcs.write_field(vmcs::VmcsField::HostGsBase, GsBase::read().as_u64())?;
 
-        vmcs.write_field(vmcs::VmcsField::HOST_RSP, stack.start_address().as_u64())?;
-        vmcs.write_field(vmcs::VmcsField::HOST_IA32_EFER, Efer::read().bits())?;
+        vmcs.write_field(vmcs::VmcsField::HostRsp, stack.start_address().as_u64())?;
+        vmcs.write_field(vmcs::VmcsField::HostIa32Efer, Efer::read().bits())?;
 
-        let exit_handler = unsafe {
-            vmx::vmexit_handler_wrapper as u64
-        };
-        vmcs.write_field(vmcs::VmcsField::HOST_RIP, exit_handler)?;
+        vmcs.write_field(vmcs::VmcsField::HostRip, vmx::vmexit_handler_wrapper as u64)?;
 
         Ok(())
     }
