@@ -3,7 +3,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn main() {
-    let out_dir = env::var_os("OUT_DIR").map(PathBuf::from)
+    let out_dir = env::var_os("OUT_DIR")
+        .map(PathBuf::from)
         .expect("Missing output directory");
 
     Command::new("x86_64-w64-mingw32-gcc")

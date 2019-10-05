@@ -15,8 +15,8 @@ use uefi::prelude::*;
 
 mod efialloc;
 mod error;
-mod registers;
 mod memory;
+mod registers;
 mod vm;
 #[allow(dead_code)]
 mod vmcs;
@@ -49,8 +49,9 @@ fn efi_main(_handle: Handle, system_table: SystemTable<Boot>) -> Status {
         &mut ept_pml4,
         memory::GuestPhysAddr::new(0),
         host_frame,
-        false
-    ).expect("Failed to map guest physical address");
+        false,
+    )
+    .expect("Failed to map guest physical address");
     info!("We didn't crash!");
 
     if !memory::map_guest_memory(
@@ -58,8 +59,10 @@ fn efi_main(_handle: Handle, system_table: SystemTable<Boot>) -> Status {
         &mut ept_pml4,
         memory::GuestPhysAddr::new(0),
         host_frame,
-        false
-    ).is_ok() {
+        false,
+    )
+    .is_ok()
+    {
         info!("Failed to map page twice (YAY!)");
     } else {
         panic!("Allowed duplicate page mapping")

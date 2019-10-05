@@ -11,7 +11,7 @@ extern "C" {
 
 #[no_mangle]
 pub extern "C" fn vmexit_handler() {
-   info!("reached vmexit handler");
+    info!("reached vmexit handler");
 }
 
 pub struct Vmx {

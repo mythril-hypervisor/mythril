@@ -38,7 +38,6 @@ impl GuestPhysAddr {
     }
 }
 
-
 #[repr(align(4096))]
 pub struct EptTable<T> {
     entries: [T; 512],
@@ -192,7 +191,7 @@ pub fn map_guest_memory(
     guest_ept_base: &mut EptPml4Table,
     guest_addr: GuestPhysAddr,
     host_frame: PhysFrame<Size4KiB>,
-    readonly: bool
+    readonly: bool,
 ) -> Result<()> {
     let default_flags = EptTableFlags::READ_ACCESS
         | EptTableFlags::WRITE_ACCESS
@@ -236,17 +235,14 @@ pub fn map_guest_memory(
     }
 
     let mut page_flags = EptTableFlags::WRITE_ACCESS
-            | EptTableFlags::PRIV_EXEC_ACCESS
-            | EptTableFlags::USERMODE_EXEC_ACCESS
-            | EptTableFlags::IGNORE_PAT;
+        | EptTableFlags::PRIV_EXEC_ACCESS
+        | EptTableFlags::USERMODE_EXEC_ACCESS
+        | EptTableFlags::IGNORE_PAT;
     if !readonly {
         page_flags |= EptTableFlags::READ_ACCESS;
     }
 
-    ept_pte.set_addr(
-        host_frame.start_address(),
-        page_flags,
-    );
+    ept_pte.set_addr(host_frame.start_address(), page_flags);
     ept_pte.set_mem_type(EptMemoryType::WriteBack);
 
     Ok(())

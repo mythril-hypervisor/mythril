@@ -21,6 +21,7 @@ RUN yay -S --noconfirm mingw-w64-gcc-bin
 USER root
 RUN rustup toolchain install nightly
 RUN rustup component add rust-src
+RUN rustup component add rustfmt
 RUN cargo install cargo-xbuild
 
 WORKDIR /src

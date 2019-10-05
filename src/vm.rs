@@ -5,7 +5,7 @@ use crate::vmcs;
 use crate::vmx;
 use alloc::vec::Vec;
 use x86_64::registers::control::Cr0;
-use x86_64::registers::model_specific::{FsBase, GsBase, Msr, Efer};
+use x86_64::registers::model_specific::{Efer, FsBase, GsBase, Msr};
 use x86_64::registers::rflags;
 use x86_64::registers::rflags::RFlags;
 use x86_64::structures::paging::frame::PhysFrame;
@@ -50,7 +50,7 @@ impl VirtualMachine {
             .allocate_frame()
             .ok_or(Error::AllocError("Failed to allocate VM stack"))?;
 
-        vmcs.with_active_vmcs(vmx, |mut vmcs|{
+        vmcs.with_active_vmcs(vmx, |mut vmcs| {
             //TODO: initialize the vmcs from the config
             Self::initialize_host_vmcs(&mut vmcs, &stack)?;
             Self::initialize_guest_vmcs(&mut vmcs)?;
@@ -145,7 +145,7 @@ impl VirtualMachine {
         vmcs.write_field(vmcs::VmcsField::GuestCsArBytes, 0xc093)?; // exec/read
 
         vmcs.write_field(vmcs::VmcsField::GuestLdtrArBytes, 0x0082)?; // LDT
-        vmcs.write_field(vmcs::VmcsField::GuestTrArBytes, 0x008b)?;   // TSS (busy)
+        vmcs.write_field(vmcs::VmcsField::GuestTrArBytes, 0x008b)?; // TSS (busy)
 
         vmcs.write_field(vmcs::VmcsField::GuestInterruptibilityInfo, 0x00)?;
         vmcs.write_field(vmcs::VmcsField::GuestActivityState, 0x00)?;
@@ -159,8 +159,10 @@ impl VirtualMachine {
         vmcs.write_field(vmcs::VmcsField::GuestIa32Efer, 0x00)?;
 
         let (cr0_fixed, cr4_fixed) = unsafe {
-            (Msr::new(registers::IA32_VMX_CR0_FIXED0_MSR).read(),
-             Msr::new(registers::IA32_VMX_CR4_FIXED0_MSR).read())
+            (
+                Msr::new(registers::IA32_VMX_CR0_FIXED0_MSR).read(),
+                Msr::new(registers::IA32_VMX_CR4_FIXED0_MSR).read(),
+            )
         };
 
         vmcs.write_field(vmcs::VmcsField::GuestCr4, cr4_fixed)?;

@@ -10,14 +10,17 @@ pub const IA32_VMX_CR4_FIXED0_MSR: u32 = 0x488;
 #[repr(packed)]
 struct IdtInfo {
     limit: u16,
-    base_addr: u64
+    base_addr: u64,
 }
 
 pub struct IdtrBase;
 impl IdtrBase {
     pub fn read() -> VirtAddr {
         let addr = unsafe {
-            let mut info = IdtInfo { limit: 0, base_addr: 0 };
+            let mut info = IdtInfo {
+                limit: 0,
+                base_addr: 0,
+            };
             asm!("sidt ($0)"
                  :
                  : "a"(&mut info)
@@ -32,7 +35,7 @@ impl IdtrBase {
 #[repr(packed)]
 struct GdtInfo {
     size: u16,
-    offset: u64
+    offset: u64,
 }
 
 pub struct GdtrBase;
@@ -49,7 +52,6 @@ impl GdtrBase {
         VirtAddr::new(addr)
     }
 }
-
 
 pub struct Cr4;
 impl Cr4 {
