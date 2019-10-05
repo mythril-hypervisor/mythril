@@ -237,7 +237,7 @@ impl Vmcs {
         Ok(Vmcs { frame: vmcs_region })
     }
 
-    pub fn activate(self, vmx: &mut vmx::Vmx) -> Result<ActiveVmcs> {
+    pub fn activate(self, vmx: vmx::Vmx) -> Result<ActiveVmcs> {
         let revision_id = vmx::Vmx::revision();
         let vmcs_region_addr = self.frame.start_address().as_u64();
         let region_revision = vmcs_region_addr as *mut u32;
@@ -265,14 +265,17 @@ impl Vmcs {
             })
         }
     }
+
+    //TODO: maybe add a 'with_active_vmcs' to make this cleaner for VM
+    //      initialization
 }
 
-pub struct ActiveVmcs<'a> {
+pub struct ActiveVmcs {
     vmcs: Vmcs,
-    vmx: &'a mut vmx::Vmx,
+    vmx: vmx::Vmx,
 }
 
-impl<'a> ActiveVmcs<'a> {
+impl ActiveVmcs {
     pub fn read_field(&self, field: VmcsField) -> Result<u64> {
         vmcs_read(field)
     }
@@ -281,9 +284,9 @@ impl<'a> ActiveVmcs<'a> {
         vmcs_write(field, value)
     }
 
-    pub fn deactivate(self) -> Vmcs {
+    pub fn deactivate(self) -> (Vmcs, vmx::Vmx) {
         //TODO: should we set the VMCS to NULL?
-        self.vmcs
+        (self.vmcs, self.vmx)
     }
 }
 

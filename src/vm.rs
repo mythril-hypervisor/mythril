@@ -40,10 +40,10 @@ pub struct VirtualMachine {
 
 impl VirtualMachine {
     pub fn new(
-        vmx: &mut vmx::Vmx,
+        vmx: vmx::Vmx,
         alloc: &mut impl FrameAllocator<Size4KiB>,
         config: VirtualMachineConfig,
-    ) -> Result<Self> {
+    ) -> Result<(Self, vmx::Vmx)> {
         let mut vmcs = vmcs::Vmcs::new(alloc)?.activate(vmx)?;
         let stack = alloc
             .allocate_frame()
@@ -53,13 +53,13 @@ impl VirtualMachine {
         Self::initialize_host_vmcs(&mut vmcs, &stack)?;
         Self::initialize_guest_vmcs(&mut vmcs)?;
 
-        let vmcs = vmcs.deactivate();
+        let (vmcs, vmx) = vmcs.deactivate();
 
-        Ok(Self {
+        Ok((Self {
             vmcs: vmcs,
             config: config,
             stack: stack,
-        })
+        }, vmx))
     }
 
     fn initialize_host_vmcs(
@@ -156,8 +156,6 @@ impl VirtualMachine {
         //TODO: get actual EFER (use MSR for vt-x v1)
         vmcs.write_field(vmcs::VmcsField::GuestIa32Efer, 0x00)?;
 
-        vmcs.write_field(vmcs::VmcsField::GuestCr3, 0x00)?;
-
         let (cr0_fixed, cr4_fixed) = unsafe {
             (Msr::new(registers::IA32_VMX_CR0_FIXED0_MSR).read(),
              Msr::new(registers::IA32_VMX_CR4_FIXED0_MSR).read())
@@ -167,6 +165,7 @@ impl VirtualMachine {
 
         //TODO: start in real mode? (so clear PE bit)
         vmcs.write_field(vmcs::VmcsField::GuestCr0, cr0_fixed)?;
+        vmcs.write_field(vmcs::VmcsField::GuestCr3, 0x00)?;
 
         //TODO: set to a value from the config
         vmcs.write_field(vmcs::VmcsField::GuestRip, 0x00)?;
@@ -174,7 +173,7 @@ impl VirtualMachine {
         Ok(())
     }
 
-    pub fn launch(self, vmx: &mut vmx::Vmx) -> Result<VirtualMachineRunning> {
+    pub fn launch(self, vmx: vmx::Vmx) -> Result<VirtualMachineRunning> {
         let rflags = unsafe {
             let rflags: u64;
             asm!("vmlaunch; pushfq; popq $0"
@@ -198,6 +197,6 @@ impl VirtualMachine {
     }
 }
 
-pub struct VirtualMachineRunning<'a> {
-    vmcs: vmcs::ActiveVmcs<'a>,
+pub struct VirtualMachineRunning {
+    vmcs: vmcs::ActiveVmcs,
 }

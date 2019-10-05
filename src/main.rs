@@ -30,7 +30,7 @@ fn efi_main(_handle: Handle, system_table: SystemTable<Boot>) -> Status {
 
     let mut vmx = vmx::Vmx::enable(&mut alloc).expect("Failed to enable vmx");
     let vmcs = vmcs::Vmcs::new(&mut alloc).expect("Failed to allocate vmcs");
-    let vmcs = vmcs.activate(&mut vmx).expect("Failed to activate vmcs");
+    let vmcs = vmcs.activate(vmx).expect("Failed to activate vmcs");
 
     use memory::EptPml4Table;
     use x86_64::structures::paging::FrameAllocator;
