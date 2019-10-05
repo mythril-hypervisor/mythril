@@ -68,8 +68,8 @@ impl VirtualMachine {
         vmcs: &mut vmcs::TemporaryActiveVmcs,
         stack: &PhysFrame<Size4KiB>,
     ) -> Result<()> {
-        let cr0_fixed = Msr::new(registers::IA32_VMX_CR0_FIXED0_MSR);
-        let cr4_fixed = Msr::new(registers::IA32_VMX_CR4_FIXED0_MSR);
+        let cr0_fixed = Msr::new(registers::MSR_IA32_VMX_CR0_FIXED0);
+        let cr4_fixed = Msr::new(registers::MSR_IA32_VMX_CR4_FIXED0);
 
         let (host_cr0, host_cr4) = unsafe {
             (
@@ -160,8 +160,8 @@ impl VirtualMachine {
 
         let (cr0_fixed, cr4_fixed) = unsafe {
             (
-                Msr::new(registers::IA32_VMX_CR0_FIXED0_MSR).read(),
-                Msr::new(registers::IA32_VMX_CR4_FIXED0_MSR).read(),
+                Msr::new(registers::MSR_IA32_VMX_CR0_FIXED0).read(),
+                Msr::new(registers::MSR_IA32_VMX_CR4_FIXED0).read(),
             )
         };
 
