@@ -266,8 +266,14 @@ impl Vmcs {
         }
     }
 
-    //TODO: maybe add a 'with_active_vmcs' to make this cleaner for VM
-    //      initialization
+    pub fn with_active_vmcs(
+        &mut self,
+        vmx: &mut vmx::Vmx,
+        callback: impl Fn(&mut TemporaryActiveVmcs) -> Result<()>,
+    ) -> Result<()> {
+        let mut vmcs = TemporaryActiveVmcs {vmx: vmx};
+        (callback)(&mut vmcs)
+    }
 }
 
 pub struct ActiveVmcs {
@@ -276,17 +282,31 @@ pub struct ActiveVmcs {
 }
 
 impl ActiveVmcs {
-    pub fn read_field(&self, field: VmcsField) -> Result<u64> {
+    pub fn read_field(&mut self, field: VmcsField) -> Result<u64> {
         vmcs_read(field)
     }
 
-    pub fn write_field(&self, field: VmcsField, value: u64) -> Result<()> {
+    pub fn write_field(&mut self, field: VmcsField, value: u64) -> Result<()> {
         vmcs_write(field, value)
     }
 
     pub fn deactivate(self) -> (Vmcs, vmx::Vmx) {
         //TODO: should we set the VMCS to NULL?
         (self.vmcs, self.vmx)
+    }
+}
+
+pub struct TemporaryActiveVmcs<'a> {
+    vmx: &'a mut vmx::Vmx,
+}
+
+impl<'a> TemporaryActiveVmcs<'a> {
+    pub fn read_field(&mut self, field: VmcsField) -> Result<u64> {
+        vmcs_read(field)
+    }
+
+    pub fn write_field(&mut self, field: VmcsField, value: u64) -> Result<()> {
+        vmcs_write(field, value)
     }
 }
 

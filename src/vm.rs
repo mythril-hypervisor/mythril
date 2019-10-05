@@ -40,30 +40,32 @@ pub struct VirtualMachine {
 
 impl VirtualMachine {
     pub fn new(
-        vmx: vmx::Vmx,
+        vmx: &mut vmx::Vmx,
         alloc: &mut impl FrameAllocator<Size4KiB>,
         config: VirtualMachineConfig,
-    ) -> Result<(Self, vmx::Vmx)> {
-        let mut vmcs = vmcs::Vmcs::new(alloc)?.activate(vmx)?;
+    ) -> Result<Self> {
+        let mut vmcs = vmcs::Vmcs::new(alloc)?;
+
         let stack = alloc
             .allocate_frame()
             .ok_or(Error::AllocError("Failed to allocate VM stack"))?;
 
-        //TODO: initialize the vmcs from the config
-        Self::initialize_host_vmcs(&mut vmcs, &stack)?;
-        Self::initialize_guest_vmcs(&mut vmcs)?;
+        vmcs.with_active_vmcs(vmx, |mut vmcs|{
+            //TODO: initialize the vmcs from the config
+            Self::initialize_host_vmcs(&mut vmcs, &stack)?;
+            Self::initialize_guest_vmcs(&mut vmcs)?;
+            Ok(())
+        })?;
 
-        let (vmcs, vmx) = vmcs.deactivate();
-
-        Ok((Self {
+        Ok(Self {
             vmcs: vmcs,
             config: config,
             stack: stack,
-        }, vmx))
+        })
     }
 
     fn initialize_host_vmcs(
-        vmcs: &mut vmcs::ActiveVmcs,
+        vmcs: &mut vmcs::TemporaryActiveVmcs,
         stack: &PhysFrame<Size4KiB>,
     ) -> Result<()> {
         let cr0_fixed = Msr::new(registers::IA32_VMX_CR0_FIXED0_MSR);
@@ -105,7 +107,7 @@ impl VirtualMachine {
         Ok(())
     }
 
-    fn initialize_guest_vmcs(vmcs: &mut vmcs::ActiveVmcs) -> Result<()> {
+    fn initialize_guest_vmcs(vmcs: &mut vmcs::TemporaryActiveVmcs) -> Result<()> {
         vmcs.write_field(vmcs::VmcsField::GuestEsSelector, 0x00)?;
         vmcs.write_field(vmcs::VmcsField::GuestCsSelector, 0x00)?;
         vmcs.write_field(vmcs::VmcsField::GuestSsSelector, 0x00)?;
