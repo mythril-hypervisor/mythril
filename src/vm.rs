@@ -51,9 +51,9 @@ impl VirtualMachine {
             .ok_or(Error::AllocError("Failed to allocate VM stack"))?;
 
         vmcs.with_active_vmcs(vmx, |mut vmcs| {
-            //TODO: initialize the vmcs from the config
             Self::initialize_host_vmcs(&mut vmcs, &stack)?;
             Self::initialize_guest_vmcs(&mut vmcs)?;
+            Self::initialize_ctrl_vmcs(&mut vmcs)?;
             Ok(())
         })?;
 
@@ -142,7 +142,7 @@ impl VirtualMachine {
         vmcs.write_field(vmcs::VmcsField::GuestDsArBytes, 0xc093)?;
         vmcs.write_field(vmcs::VmcsField::GuestFsArBytes, 0xc093)?;
         vmcs.write_field(vmcs::VmcsField::GuestGsArBytes, 0xc093)?;
-        vmcs.write_field(vmcs::VmcsField::GuestCsArBytes, 0xc093)?; // exec/read
+        vmcs.write_field(vmcs::VmcsField::GuestCsArBytes, 0xc09b)?; // exec/read
 
         vmcs.write_field(vmcs::VmcsField::GuestLdtrArBytes, 0x0082)?; // LDT
         vmcs.write_field(vmcs::VmcsField::GuestTrArBytes, 0x008b)?; // TSS (busy)
@@ -177,7 +177,16 @@ impl VirtualMachine {
         Ok(())
     }
 
-    pub fn launch(self, vmx: vmx::Vmx) -> Result<VirtualMachineRunning> {
+    fn initialize_ctrl_vmcs(vmcs: &mut vmcs::TemporaryActiveVmcs) -> Result<()> {
+        Ok(())
+    }
+
+    pub fn launch(self, vmx: vmx::Vmx) -> Result<!> {
+        // TODO: make this and store it in a per-cpu variable
+        // Ok(VirtualMachineRunning {
+        //     vmcs: self.vmcs.activate(vmx)?,
+        // })
+
         let rflags = unsafe {
             let rflags: u64;
             asm!("vmlaunch; pushfq; popq $0"
@@ -195,9 +204,7 @@ impl VirtualMachine {
             return Err(Error::VmFailValid);
         }
 
-        Ok(VirtualMachineRunning {
-            vmcs: self.vmcs.activate(vmx)?,
-        })
+        panic!("Failed to launch the vm!")
     }
 }
 

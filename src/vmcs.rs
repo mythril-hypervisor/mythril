@@ -1,5 +1,6 @@
 use crate::error::{Error, Result};
 use crate::vmx;
+use bitflags::bitflags;
 use x86_64::registers::rflags;
 use x86_64::registers::rflags::RFlags;
 use x86_64::structures::paging::frame::PhysFrame;
@@ -189,6 +190,92 @@ pub enum VmcsField {
     HostRip = 0x00006c16,
 }
 
+bitflags! {
+    pub struct PinBasedCtrlFlags: u64 {
+        const PIN_BASED_EXT_INTR_MASK =        0x00000001;
+        const PIN_BASED_NMI_EXITING =          0x00000008;
+        const PIN_BASED_VIRTUAL_NMIS =         0x00000020;
+        const PIN_BASED_PREEMPT_TIMER =        0x00000040;
+        const PIN_BASED_POSTED_INTERRUPT =     0x00000080;
+    }
+}
+
+bitflags! {
+    pub struct CpuBasedCtrlFlags: u64 {
+        const CPU_BASED_VIRTUAL_INTR_PENDING =        0x00000004;
+        const CPU_BASED_USE_TSC_OFFSETING =           0x00000008;
+        const CPU_BASED_HLT_EXITING =                 0x00000080;
+        const CPU_BASED_INVLPG_EXITING =              0x00000200;
+        const CPU_BASED_MWAIT_EXITING =               0x00000400;
+        const CPU_BASED_RDPMC_EXITING =               0x00000800;
+        const CPU_BASED_RDTSC_EXITING =               0x00001000;
+        const CPU_BASED_CR3_LOAD_EXITING =            0x00008000;
+        const CPU_BASED_CR3_STORE_EXITING =           0x00010000;
+        const CPU_BASED_CR8_LOAD_EXITING =            0x00080000;
+        const CPU_BASED_CR8_STORE_EXITING =           0x00100000;
+        const CPU_BASED_TPR_SHADOW =                  0x00200000;
+        const CPU_BASED_VIRTUAL_NMI_PENDING =         0x00400000;
+        const CPU_BASED_MOV_DR_EXITING =              0x00800000;
+        const CPU_BASED_UNCOND_IO_EXITING =           0x01000000;
+        const CPU_BASED_ACTIVATE_IO_BITMAP =          0x02000000;
+        const CPU_BASED_MONITOR_TRAP_FLAG =           0x08000000;
+        const CPU_BASED_ACTIVATE_MSR_BITMAP =         0x10000000;
+        const CPU_BASED_MONITOR_EXITING =             0x20000000;
+        const CPU_BASED_PAUSE_EXITING =               0x40000000;
+        const CPU_BASED_ACTIVATE_SECONDARY_CONTROLS = 0x80000000;
+    }
+}
+
+bitflags! {
+    pub struct VmExitCtrlFlags: u64 {
+        const VM_EXIT_SAVE_DEBUG_CNTRLS =      0x00000004;
+        const VM_EXIT_IA32E_MODE =             0x00000200;
+        const VM_EXIT_LOAD_PERF_GLOBAL_CTRL =  0x00001000;
+        const VM_EXIT_ACK_INTR_ON_EXIT =       0x00008000;
+        const VM_EXIT_SAVE_GUEST_PAT =         0x00040000;
+        const VM_EXIT_LOAD_HOST_PAT =          0x00080000;
+        const VM_EXIT_SAVE_GUEST_EFER =        0x00100000;
+        const VM_EXIT_LOAD_HOST_EFER =         0x00200000;
+        const VM_EXIT_SAVE_PREEMPT_TIMER =     0x00400000;
+        const VM_EXIT_CLEAR_BNDCFGS =          0x00800000;
+    }
+}
+
+bitflags! {
+    pub struct VmEntryCtrlFlags: u64 {
+        const VM_ENTRY_IA32E_MODE =            0x00000200;
+        const VM_ENTRY_SMM =                   0x00000400;
+        const VM_ENTRY_DEACT_DUAL_MONITOR =    0x00000800;
+        const VM_ENTRY_LOAD_PERF_GLOBAL_CTRL = 0x00002000;
+        const VM_ENTRY_LOAD_GUEST_PAT =        0x00004000;
+        const VM_ENTRY_LOAD_GUEST_EFER =       0x00008000;
+        const VM_ENTRY_LOAD_BNDCFGS =          0x00010000;
+    }
+}
+
+bitflags! {
+    pub struct SecondaryExecFlags: u64 {
+        const SECONDARY_EXEC_VIRTUALIZE_APIC_ACCESSES = 0x00000001;
+        const SECONDARY_EXEC_ENABLE_EPT =               0x00000002;
+        const SECONDARY_EXEC_DESCRIPTOR_TABLE_EXITING = 0x00000004;
+        const SECONDARY_EXEC_ENABLE_RDTSCP =            0x00000008;
+        const SECONDARY_EXEC_VIRTUALIZE_X2APIC_MODE =   0x00000010;
+        const SECONDARY_EXEC_ENABLE_VPID =              0x00000020;
+        const SECONDARY_EXEC_WBINVD_EXITING =           0x00000040;
+        const SECONDARY_EXEC_UNRESTRICTED_GUEST =       0x00000080;
+        const SECONDARY_EXEC_APIC_REGISTER_VIRT =       0x00000100;
+        const SECONDARY_EXEC_VIRTUAL_INTR_DELIVERY =    0x00000200;
+        const SECONDARY_EXEC_PAUSE_LOOP_EXITING =       0x00000400;
+        const SECONDARY_EXEC_ENABLE_INVPCID =           0x00001000;
+        const SECONDARY_EXEC_ENABLE_VM_FUNCTIONS =      0x00002000;
+        const SECONDARY_EXEC_ENABLE_VMCS_SHADOWING =    0x00004000;
+        const SECONDARY_EXEC_ENABLE_PML =               0x00020000;
+        const SECONDARY_EXEC_ENABLE_VIRT_EXCEPTIONS =   0x00040000;
+        const SECONDARY_EXEC_XSAVES =                   0x00100000;
+        const SECONDARY_EXEC_TSC_SCALING =              0x02000000;
+    }
+}
+
 fn vmcs_write(field: VmcsField, value: u64) -> Result<()> {
     let rflags = unsafe {
         let rflags: u64;
@@ -269,10 +356,10 @@ impl Vmcs {
     pub fn with_active_vmcs(
         &mut self,
         vmx: &mut vmx::Vmx,
-        callback: impl Fn(&mut TemporaryActiveVmcs) -> Result<()>,
+        callback: impl Fn(TemporaryActiveVmcs) -> Result<()>,
     ) -> Result<()> {
-        let mut vmcs = TemporaryActiveVmcs { vmx: vmx };
-        (callback)(&mut vmcs)
+        let vmcs = TemporaryActiveVmcs { vmx: vmx };
+        (callback)(vmcs)
     }
 }
 

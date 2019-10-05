@@ -71,6 +71,8 @@ impl Vmx {
     }
 
     pub fn disable(self, alloc: &mut impl FrameDeallocator<Size4KiB>) -> Result<()> {
+        //TODO: this should panic when done from a different core than it
+        //      was originally activated from
         let rflags = unsafe {
             let rflags: u64;
             asm!("vmxoff; pushfq; popq $0"
