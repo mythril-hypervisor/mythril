@@ -186,13 +186,13 @@ impl VirtualMachine {
         vmcs.write_with_fixed(
             vmcs::VmcsField::VmExitControls,
             0,
-            registers::MSR_IA32_VMX_EXIT_CTLS
+            registers::MSR_IA32_VMX_EXIT_CTLS,
         )?;
 
         vmcs.write_with_fixed(
             vmcs::VmcsField::VmEntryControls,
             0,
-            registers::MSR_IA32_VMX_ENTRY_CTLS
+            registers::MSR_IA32_VMX_ENTRY_CTLS,
         )?;
 
         let field = vmcs.read_field(vmcs::VmcsField::CpuBasedVmExecControl)?;
@@ -200,18 +200,29 @@ impl VirtualMachine {
         let flags = vmcs::CpuBasedCtrlFlags::from_bits_truncate(field);
         info!("Flags: {:?}", flags);
 
-
         //FIXME: this leaks the bitmap frames
-        let bitmap_a = alloc.allocate_frame()
+        let bitmap_a = alloc
+            .allocate_frame()
             .ok_or(Error::AllocError("Failed to allocate IO bitmap"))?;
-        let bitmap_b = alloc.allocate_frame()
+        let bitmap_b = alloc
+            .allocate_frame()
             .ok_or(Error::AllocError("Failed to allocate IO bitmap"))?;
-        vmcs.write_field(vmcs::VmcsField::IoBitmapA, bitmap_a.start_address().as_u64())?;
-        vmcs.write_field(vmcs::VmcsField::IoBitmapB, bitmap_b.start_address().as_u64())?;
+        vmcs.write_field(
+            vmcs::VmcsField::IoBitmapA,
+            bitmap_a.start_address().as_u64(),
+        )?;
+        vmcs.write_field(
+            vmcs::VmcsField::IoBitmapB,
+            bitmap_b.start_address().as_u64(),
+        )?;
 
-        let vapic_frame = alloc.allocate_frame()
+        let vapic_frame = alloc
+            .allocate_frame()
             .ok_or(Error::AllocError("Failed to allocate VAPIC frame"))?;
-        vmcs.write_field(vmcs::VmcsField::VirtualApicPageAddr, vapic_frame.start_address().as_u64())?;
+        vmcs.write_field(
+            vmcs::VmcsField::VirtualApicPageAddr,
+            vapic_frame.start_address().as_u64(),
+        )?;
         vmcs.write_field(vmcs::VmcsField::TprThreshold, 0)?;
 
         Ok(())
