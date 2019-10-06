@@ -30,43 +30,13 @@ fn efi_main(_handle: Handle, system_table: SystemTable<Boot>) -> Status {
     let mut alloc = efialloc::EfiAllocator::new(system_table.boot_services());
 
     let mut vmx = vmx::Vmx::enable(&mut alloc).expect("Failed to enable vmx");
-    let vmcs = vmcs::Vmcs::new(&mut alloc).expect("Failed to allocate vmcs");
-    let vmcs = vmcs.activate(vmx).expect("Failed to activate vmcs");
 
-    use memory::EptPml4Table;
-    use x86_64::structures::paging::FrameAllocator;
-    let mut ept_pml4_frame = alloc
-        .allocate_frame()
-        .expect("Failed to allocate pml4 frame");
-    let mut ept_pml4 = EptPml4Table::new(&mut ept_pml4_frame).expect("Failed to create pml4 table");
+    let config = vm::VirtualMachineConfig::new(memory::GuestPhysAddr::new(0), 1);
+    let vm = vm::VirtualMachine::new(&mut vmx, &mut alloc, config).expect("Failed to create vm");
 
-    let mut host_frame = alloc
-        .allocate_frame()
-        .expect("Failed to allocate host frame");
+    info!("Constructed VM!");
 
-    use x86_64::VirtAddr;
-    memory::map_guest_memory(
-        &mut alloc,
-        &mut ept_pml4,
-        memory::GuestPhysAddr::new(0),
-        host_frame,
-        false,
-    )
-    .expect("Failed to map guest physical address");
-    info!("We didn't crash!");
+    vm.launch(vmx).expect("Failed to launch vm");
 
-    if !memory::map_guest_memory(
-        &mut alloc,
-        &mut ept_pml4,
-        memory::GuestPhysAddr::new(0),
-        host_frame,
-        false,
-    )
-    .is_ok()
-    {
-        info!("Failed to map page twice (YAY!)");
-    } else {
-        panic!("Allowed duplicate page mapping")
-    }
     loop {}
 }

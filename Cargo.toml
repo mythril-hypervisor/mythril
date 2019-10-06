@@ -12,6 +12,10 @@ x86_64 = "0.7.5"
 log = { version = "0.4.8", default-features = false }
 bitflags = "1.2.0"
 
+[dependencies.num_enum]
+version = "0.4.2"
+default-features = false
+
 [profile.dev]
 panic = "abort"
 

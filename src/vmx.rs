@@ -1,4 +1,4 @@
-use crate::error::{Error, Result};
+use crate::error::{self, Error, Result};
 use x86_64::registers::rflags;
 use x86_64::registers::rflags::RFlags;
 use x86_64::structures::paging::frame::PhysFrame;
@@ -12,6 +12,7 @@ extern "C" {
 #[no_mangle]
 pub extern "C" fn vmexit_handler() {
     info!("reached vmexit handler");
+    loop {}
 }
 
 pub struct Vmx {
@@ -55,19 +56,14 @@ impl Vmx {
                  : "=r"(rflags)
                  : "m"(vmxon_region_addr)
                  : "rflags");
-            rflags::RFlags::from_bits_truncate(rflags)
+            rflags
         };
 
         // FIXME: this leaks the page on error
-        if rflags.contains(RFlags::CARRY_FLAG) {
-            Err(Error::VmFailInvalid)
-        } else if rflags.contains(RFlags::ZERO_FLAG) {
-            Err(Error::VmFailValid)
-        } else {
-            Ok(Vmx {
-                vmxon_region: vmxon_region,
-            })
-        }
+        error::check_vm_insruction(rflags, "Failed to enable vmx".into())?;
+        Ok(Vmx {
+            vmxon_region: vmxon_region,
+        })
     }
 
     pub fn disable(self, alloc: &mut impl FrameDeallocator<Size4KiB>) -> Result<()> {
@@ -79,25 +75,20 @@ impl Vmx {
                  : "=r"(rflags)
                  :
                  : "rflags");
-            rflags::RFlags::from_bits_truncate(rflags)
+            rflags
         };
 
-        if rflags.contains(RFlags::CARRY_FLAG) {
-            Err(Error::VmFailInvalid)
-        } else if rflags.contains(RFlags::ZERO_FLAG) {
-            Err(Error::VmFailValid)
-        } else {
-            alloc.deallocate_frame(self.vmxon_region);
-            Ok(())
-        }
+        error::check_vm_insruction(rflags, "Failed to disable vmx".into())?;
+        alloc.deallocate_frame(self.vmxon_region);
+        Ok(())
     }
 
     pub fn revision() -> u32 {
         //FIXME: this is currently returning very strange values
         // see https://software.intel.com/en-us/forums/virtualization-software-development/topic/293175
+        use crate::registers::MSR_IA32_VMX_BASIC;
         use x86_64::registers::model_specific::Msr;
-        const IA32_VMX_BASIC_MSR: u32 = 0x480;
-        let vmx_basic = Msr::new(IA32_VMX_BASIC_MSR);
+        let vmx_basic = Msr::new(MSR_IA32_VMX_BASIC);
         unsafe { vmx_basic.read() as u32 }
     }
 }

@@ -1,4 +1,4 @@
-use crate::error::{Error, Result};
+use crate::error::{self, Error, Result};
 use crate::memory::GuestPhysAddr;
 use crate::registers::{self, Cr4, GdtrBase, IdtrBase};
 use crate::vmcs;
@@ -68,18 +68,16 @@ impl VirtualMachine {
         vmcs: &mut vmcs::TemporaryActiveVmcs,
         stack: &PhysFrame<Size4KiB>,
     ) -> Result<()> {
-        let cr0_fixed = Msr::new(registers::MSR_IA32_VMX_CR0_FIXED0);
-        let cr4_fixed = Msr::new(registers::MSR_IA32_VMX_CR4_FIXED0);
-
-        let (host_cr0, host_cr4) = unsafe {
-            (
-                cr0_fixed.read() | Cr0::read().bits(),
-                cr4_fixed.read() | Cr4::read(),
-            )
-        };
-
-        vmcs.write_field(vmcs::VmcsField::HostCr0, host_cr0)?;
-        vmcs.write_field(vmcs::VmcsField::HostCr4, host_cr4)?;
+        vmcs.write_with_fixed(
+            vmcs::VmcsField::HostCr0,
+            Cr0::read().bits(),
+            registers::MSR_IA32_VMX_CR0_FIXED0,
+        )?;
+        vmcs.write_with_fixed(
+            vmcs::VmcsField::HostCr4,
+            Cr4::read(),
+            registers::MSR_IA32_VMX_CR4_FIXED0,
+        )?;
 
         vmcs.write_field(vmcs::VmcsField::HostEsSelector, 0x00)?;
         vmcs.write_field(vmcs::VmcsField::HostCsSelector, 0x00)?;
@@ -158,17 +156,18 @@ impl VirtualMachine {
         //TODO: get actual EFER (use MSR for vt-x v1)
         vmcs.write_field(vmcs::VmcsField::GuestIa32Efer, 0x00)?;
 
-        let (cr0_fixed, cr4_fixed) = unsafe {
-            (
-                Msr::new(registers::MSR_IA32_VMX_CR0_FIXED0).read(),
-                Msr::new(registers::MSR_IA32_VMX_CR4_FIXED0).read(),
-            )
-        };
-
-        vmcs.write_field(vmcs::VmcsField::GuestCr4, cr4_fixed)?;
+        vmcs.write_with_fixed(
+            vmcs::VmcsField::GuestCr4,
+            0,
+            registers::MSR_IA32_VMX_CR4_FIXED0,
+        )?;
 
         //TODO: start in real mode? (so clear PE bit)
-        vmcs.write_field(vmcs::VmcsField::GuestCr0, cr0_fixed)?;
+        vmcs.write_with_fixed(
+            vmcs::VmcsField::GuestCr0,
+            0,
+            registers::MSR_IA32_VMX_CR0_FIXED0,
+        )?;
         vmcs.write_field(vmcs::VmcsField::GuestCr3, 0x00)?;
 
         //TODO: set to a value from the config
@@ -178,6 +177,21 @@ impl VirtualMachine {
     }
 
     fn initialize_ctrl_vmcs(vmcs: &mut vmcs::TemporaryActiveVmcs) -> Result<()> {
+        vmcs.write_with_fixed(
+            vmcs::VmcsField::PinBasedVmExecControl,
+            (vmcs::PinBasedCtrlFlags::EXT_INTR_MASK
+                | vmcs::PinBasedCtrlFlags::NMI_EXITING
+                | vmcs::PinBasedCtrlFlags::VIRTUAL_NMIS)
+                .bits(),
+            registers::MSR_IA32_VMX_PINBASED_CTLS,
+        )?;
+
+        vmcs.write_with_fixed(
+            vmcs::VmcsField::CpuBasedVmExecControl,
+            vmcs::CpuBasedCtrlFlags::VIRTUAL_INTR_PENDING.bits(),
+            registers::MSR_IA32_VMX_PROCBASED_CTLS,
+        )?;
+
         Ok(())
     }
 
@@ -196,15 +210,9 @@ impl VirtualMachine {
             rflags
         };
 
-        let rflags = rflags::RFlags::from_bits_truncate(rflags);
+        error::check_vm_insruction(rflags, "Failed to launch vm".into())?;
 
-        if rflags.contains(RFlags::CARRY_FLAG) {
-            return Err(Error::VmFailInvalid);
-        } else if rflags.contains(RFlags::ZERO_FLAG) {
-            return Err(Error::VmFailValid);
-        }
-
-        panic!("Failed to launch the vm!")
+        unreachable!()
     }
 }
 

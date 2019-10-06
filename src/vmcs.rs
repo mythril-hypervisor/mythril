@@ -1,6 +1,7 @@
-use crate::error::{Error, Result};
+use crate::error::{self, Error, Result};
 use crate::vmx;
 use bitflags::bitflags;
+use x86_64::registers::model_specific::Msr;
 use x86_64::registers::rflags;
 use x86_64::registers::rflags::RFlags;
 use x86_64::structures::paging::frame::PhysFrame;
@@ -9,6 +10,7 @@ use x86_64::structures::paging::{FrameAllocator, FrameDeallocator};
 use x86_64::PhysAddr;
 
 #[allow(dead_code)]
+#[derive(Clone, Copy, Debug)]
 pub enum VmcsField {
     VirtualProcessorId = 0x00000000,
     PostedIntrNv = 0x00000002,
@@ -192,88 +194,112 @@ pub enum VmcsField {
 
 bitflags! {
     pub struct PinBasedCtrlFlags: u64 {
-        const PIN_BASED_EXT_INTR_MASK =        0x00000001;
-        const PIN_BASED_NMI_EXITING =          0x00000008;
-        const PIN_BASED_VIRTUAL_NMIS =         0x00000020;
-        const PIN_BASED_PREEMPT_TIMER =        0x00000040;
-        const PIN_BASED_POSTED_INTERRUPT =     0x00000080;
+        const EXT_INTR_MASK =        0x00000001;
+        const NMI_EXITING =          0x00000008;
+        const VIRTUAL_NMIS =         0x00000020;
+        const PREEMPT_TIMER =        0x00000040;
+        const POSTED_INTERRUPT =     0x00000080;
     }
 }
 
 bitflags! {
     pub struct CpuBasedCtrlFlags: u64 {
-        const CPU_BASED_VIRTUAL_INTR_PENDING =        0x00000004;
-        const CPU_BASED_USE_TSC_OFFSETING =           0x00000008;
-        const CPU_BASED_HLT_EXITING =                 0x00000080;
-        const CPU_BASED_INVLPG_EXITING =              0x00000200;
-        const CPU_BASED_MWAIT_EXITING =               0x00000400;
-        const CPU_BASED_RDPMC_EXITING =               0x00000800;
-        const CPU_BASED_RDTSC_EXITING =               0x00001000;
-        const CPU_BASED_CR3_LOAD_EXITING =            0x00008000;
-        const CPU_BASED_CR3_STORE_EXITING =           0x00010000;
-        const CPU_BASED_CR8_LOAD_EXITING =            0x00080000;
-        const CPU_BASED_CR8_STORE_EXITING =           0x00100000;
-        const CPU_BASED_TPR_SHADOW =                  0x00200000;
-        const CPU_BASED_VIRTUAL_NMI_PENDING =         0x00400000;
-        const CPU_BASED_MOV_DR_EXITING =              0x00800000;
-        const CPU_BASED_UNCOND_IO_EXITING =           0x01000000;
-        const CPU_BASED_ACTIVATE_IO_BITMAP =          0x02000000;
-        const CPU_BASED_MONITOR_TRAP_FLAG =           0x08000000;
-        const CPU_BASED_ACTIVATE_MSR_BITMAP =         0x10000000;
-        const CPU_BASED_MONITOR_EXITING =             0x20000000;
-        const CPU_BASED_PAUSE_EXITING =               0x40000000;
-        const CPU_BASED_ACTIVATE_SECONDARY_CONTROLS = 0x80000000;
+        const VIRTUAL_INTR_PENDING =        0x00000004;
+        const USE_TSC_OFFSETING =           0x00000008;
+        const HLT_EXITING =                 0x00000080;
+        const INVLPG_EXITING =              0x00000200;
+        const MWAIT_EXITING =               0x00000400;
+        const RDPMC_EXITING =               0x00000800;
+        const RDTSC_EXITING =               0x00001000;
+        const CR3_LOAD_EXITING =            0x00008000;
+        const CR3_STORE_EXITING =           0x00010000;
+        const CR8_LOAD_EXITING =            0x00080000;
+        const CR8_STORE_EXITING =           0x00100000;
+        const TPR_SHADOW =                  0x00200000;
+        const VIRTUAL_NMI_PENDING =         0x00400000;
+        const MOV_DR_EXITING =              0x00800000;
+        const UNCOND_IO_EXITING =           0x01000000;
+        const ACTIVATE_IO_BITMAP =          0x02000000;
+        const MONITOR_TRAP_FLAG =           0x08000000;
+        const ACTIVATE_MSR_BITMAP =         0x10000000;
+        const MONITOR_EXITING =             0x20000000;
+        const PAUSE_EXITING =               0x40000000;
+        const ACTIVATE_SECONDARY_CONTROLS = 0x80000000;
     }
 }
 
 bitflags! {
     pub struct VmExitCtrlFlags: u64 {
-        const VM_EXIT_SAVE_DEBUG_CNTRLS =      0x00000004;
-        const VM_EXIT_IA32E_MODE =             0x00000200;
-        const VM_EXIT_LOAD_PERF_GLOBAL_CTRL =  0x00001000;
-        const VM_EXIT_ACK_INTR_ON_EXIT =       0x00008000;
-        const VM_EXIT_SAVE_GUEST_PAT =         0x00040000;
-        const VM_EXIT_LOAD_HOST_PAT =          0x00080000;
-        const VM_EXIT_SAVE_GUEST_EFER =        0x00100000;
-        const VM_EXIT_LOAD_HOST_EFER =         0x00200000;
-        const VM_EXIT_SAVE_PREEMPT_TIMER =     0x00400000;
-        const VM_EXIT_CLEAR_BNDCFGS =          0x00800000;
+        const SAVE_DEBUG_CNTRLS =      0x00000004;
+        const IA32E_MODE =             0x00000200;
+        const LOAD_PERF_GLOBAL_CTRL =  0x00001000;
+        const ACK_INTR_ON_EXIT =       0x00008000;
+        const SAVE_GUEST_PAT =         0x00040000;
+        const LOAD_HOST_PAT =          0x00080000;
+        const SAVE_GUEST_EFER =        0x00100000;
+        const LOAD_HOST_EFER =         0x00200000;
+        const SAVE_PREEMPT_TIMER =     0x00400000;
+        const CLEAR_BNDCFGS =          0x00800000;
     }
 }
 
 bitflags! {
     pub struct VmEntryCtrlFlags: u64 {
-        const VM_ENTRY_IA32E_MODE =            0x00000200;
-        const VM_ENTRY_SMM =                   0x00000400;
-        const VM_ENTRY_DEACT_DUAL_MONITOR =    0x00000800;
-        const VM_ENTRY_LOAD_PERF_GLOBAL_CTRL = 0x00002000;
-        const VM_ENTRY_LOAD_GUEST_PAT =        0x00004000;
-        const VM_ENTRY_LOAD_GUEST_EFER =       0x00008000;
-        const VM_ENTRY_LOAD_BNDCFGS =          0x00010000;
+        const IA32E_MODE =            0x00000200;
+        const SMM =                   0x00000400;
+        const DEACT_DUAL_MONITOR =    0x00000800;
+        const LOAD_PERF_GLOBAL_CTRL = 0x00002000;
+        const LOAD_GUEST_PAT =        0x00004000;
+        const LOAD_GUEST_EFER =       0x00008000;
+        const LOAD_BNDCFGS =          0x00010000;
     }
 }
 
 bitflags! {
     pub struct SecondaryExecFlags: u64 {
-        const SECONDARY_EXEC_VIRTUALIZE_APIC_ACCESSES = 0x00000001;
-        const SECONDARY_EXEC_ENABLE_EPT =               0x00000002;
-        const SECONDARY_EXEC_DESCRIPTOR_TABLE_EXITING = 0x00000004;
-        const SECONDARY_EXEC_ENABLE_RDTSCP =            0x00000008;
-        const SECONDARY_EXEC_VIRTUALIZE_X2APIC_MODE =   0x00000010;
-        const SECONDARY_EXEC_ENABLE_VPID =              0x00000020;
-        const SECONDARY_EXEC_WBINVD_EXITING =           0x00000040;
-        const SECONDARY_EXEC_UNRESTRICTED_GUEST =       0x00000080;
-        const SECONDARY_EXEC_APIC_REGISTER_VIRT =       0x00000100;
-        const SECONDARY_EXEC_VIRTUAL_INTR_DELIVERY =    0x00000200;
-        const SECONDARY_EXEC_PAUSE_LOOP_EXITING =       0x00000400;
-        const SECONDARY_EXEC_ENABLE_INVPCID =           0x00001000;
-        const SECONDARY_EXEC_ENABLE_VM_FUNCTIONS =      0x00002000;
-        const SECONDARY_EXEC_ENABLE_VMCS_SHADOWING =    0x00004000;
-        const SECONDARY_EXEC_ENABLE_PML =               0x00020000;
-        const SECONDARY_EXEC_ENABLE_VIRT_EXCEPTIONS =   0x00040000;
-        const SECONDARY_EXEC_XSAVES =                   0x00100000;
-        const SECONDARY_EXEC_TSC_SCALING =              0x02000000;
+        const VIRTUALIZE_APIC_ACCESSES = 0x00000001;
+        const ENABLE_EPT =               0x00000002;
+        const DESCRIPTOR_TABLE_EXITING = 0x00000004;
+        const ENABLE_RDTSCP =            0x00000008;
+        const VIRTUALIZE_X2APIC_MODE =   0x00000010;
+        const ENABLE_VPID =              0x00000020;
+        const WBINVD_EXITING =           0x00000040;
+        const UNRESTRICTED_GUEST =       0x00000080;
+        const APIC_REGISTER_VIRT =       0x00000100;
+        const VIRTUAL_INTR_DELIVERY =    0x00000200;
+        const PAUSE_LOOP_EXITING =       0x00000400;
+        const ENABLE_INVPCID =           0x00001000;
+        const ENABLE_VM_FUNCTIONS =      0x00002000;
+        const ENABLE_VMCS_SHADOWING =    0x00004000;
+        const ENABLE_PML =               0x00020000;
+        const ENABLE_VIRT_EXCEPTIONS =   0x00040000;
+        const XSAVES =                   0x00100000;
+        const TSC_SCALING =              0x02000000;
     }
+}
+
+fn vmcs_write_with_fixed(field: VmcsField, value: u64, msr: u32) -> Result<u64> {
+    let mut required_value = value;
+    let fixed = unsafe { Msr::new(msr).read() };
+    let low = fixed & 0x00000000ffffffff;
+    let high = fixed >> 32;
+
+    required_value &= high; /* bit == 0 in high word ==> must be zero */
+    required_value |= low; /* bit == 1 in low word  ==> must be one  */
+
+    if (value & !required_value) != 0 {
+        return Err(Error::Vmcs(format!(
+            "Requested field ({:?}) bit not allowed by MSR (requested=0x{:x} forbidden=0x{:x} required=0x{:x} res=0x{:x})",
+            field,
+            value,
+            high,
+            low,
+            required_value
+        )));
+    }
+
+    vmcs_write(field, required_value)?;
+    Ok(required_value)
 }
 
 fn vmcs_write(field: VmcsField, value: u64) -> Result<()> {
@@ -287,15 +313,10 @@ fn vmcs_write(field: VmcsField, value: u64) -> Result<()> {
         rflags
     };
 
-    let rflags = rflags::RFlags::from_bits_truncate(rflags);
-
-    if rflags.contains(RFlags::CARRY_FLAG) {
-        Err(Error::VmFailInvalid)
-    } else if rflags.contains(RFlags::ZERO_FLAG) {
-        Err(Error::VmFailValid)
-    } else {
-        Ok(())
-    }
+    error::check_vm_insruction(
+        rflags,
+        format!("Failed to write 0x{:x} to field {:?}", value, field),
+    )
 }
 
 fn vmcs_read(field: VmcsField) -> Result<u64> {
@@ -312,6 +333,25 @@ fn vmcs_read(field: VmcsField) -> Result<u64> {
     Ok(value)
 }
 
+fn vmcs_activate(vmcs: &mut Vmcs, vmx: &vmx::Vmx) -> Result<()> {
+    let revision_id = vmx::Vmx::revision();
+    let vmcs_region_addr = vmcs.frame.start_address().as_u64();
+    let region_revision = vmcs_region_addr as *mut u32;
+    unsafe {
+        *region_revision = revision_id;
+    }
+    let rflags = unsafe {
+        let rflags: u64;
+        asm!("vmptrld $1; pushfq; popq $0"
+             : "=r"(rflags)
+             : "m"(vmcs_region_addr)
+             : "rflags");
+        rflags
+    };
+
+    error::check_vm_insruction(rflags, "Failed to activate VMCS".into())
+}
+
 pub struct Vmcs {
     frame: PhysFrame<Size4KiB>,
 }
@@ -325,32 +365,7 @@ impl Vmcs {
     }
 
     pub fn activate(self, vmx: vmx::Vmx) -> Result<ActiveVmcs> {
-        let revision_id = vmx::Vmx::revision();
-        let vmcs_region_addr = self.frame.start_address().as_u64();
-        let region_revision = vmcs_region_addr as *mut u32;
-        unsafe {
-            *region_revision = revision_id;
-        }
-
-        let rflags = unsafe {
-            let rflags: u64;
-            asm!("vmptrld $1; pushfq; popq $0"
-                 : "=r"(rflags)
-                 : "m"(vmcs_region_addr)
-                 : "rflags");
-            rflags::RFlags::from_bits_truncate(rflags)
-        };
-
-        if rflags.contains(RFlags::CARRY_FLAG) {
-            Err(Error::VmFailInvalid)
-        } else if rflags.contains(RFlags::ZERO_FLAG) {
-            Err(Error::VmFailValid)
-        } else {
-            Ok(ActiveVmcs {
-                vmx: vmx,
-                vmcs: self,
-            })
-        }
+        ActiveVmcs::new(self, vmx)
     }
 
     pub fn with_active_vmcs(
@@ -358,8 +373,7 @@ impl Vmcs {
         vmx: &mut vmx::Vmx,
         callback: impl Fn(TemporaryActiveVmcs) -> Result<()>,
     ) -> Result<()> {
-        let vmcs = TemporaryActiveVmcs { vmx: vmx };
-        (callback)(vmcs)
+        (callback)(TemporaryActiveVmcs::new(self, vmx)?)
     }
 }
 
@@ -369,12 +383,21 @@ pub struct ActiveVmcs {
 }
 
 impl ActiveVmcs {
+    fn new(mut vmcs: Vmcs, vmx: vmx::Vmx) -> Result<Self> {
+        vmcs_activate(&mut vmcs, &vmx)?;
+        Ok(Self { vmcs, vmx })
+    }
+
     pub fn read_field(&mut self, field: VmcsField) -> Result<u64> {
         vmcs_read(field)
     }
 
     pub fn write_field(&mut self, field: VmcsField, value: u64) -> Result<()> {
         vmcs_write(field, value)
+    }
+
+    pub fn write_with_fixed(&mut self, field: VmcsField, value: u64, msr: u32) -> Result<u64> {
+        vmcs_write_with_fixed(field, value, msr)
     }
 
     pub fn deactivate(self) -> (Vmcs, vmx::Vmx) {
@@ -388,12 +411,21 @@ pub struct TemporaryActiveVmcs<'a> {
 }
 
 impl<'a> TemporaryActiveVmcs<'a> {
+    fn new(vmcs: &mut Vmcs, vmx: &'a mut vmx::Vmx) -> Result<Self> {
+        vmcs_activate(vmcs, vmx)?;
+        Ok(Self { vmx })
+    }
+
     pub fn read_field(&mut self, field: VmcsField) -> Result<u64> {
         vmcs_read(field)
     }
 
     pub fn write_field(&mut self, field: VmcsField, value: u64) -> Result<()> {
         vmcs_write(field, value)
+    }
+
+    pub fn write_with_fixed(&mut self, field: VmcsField, value: u64, msr: u32) -> Result<u64> {
+        vmcs_write_with_fixed(field, value, msr)
     }
 }
 

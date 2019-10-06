@@ -1,4 +1,4 @@
-use crate::error::{Error, Result};
+use crate::error::{self, Error, Result};
 use bitflags::bitflags;
 use core::ops::{Index, IndexMut};
 use x86_64::structures::paging::frame::PhysFrame;
