@@ -352,8 +352,21 @@ fn vmcs_activate(vmcs: &mut Vmcs, vmx: &vmx::Vmx) -> Result<()> {
     error::check_vm_insruction(rflags, "Failed to activate VMCS".into())
 }
 
+fn vmcs_clear(vmcs: PhysAddr) -> Result<()> {
+    let rflags = unsafe {
+        let rflags: u64;
+        asm!("vmclear $1; pushfq; popq $0"
+             : "=r"(rflags)
+             : "m"(vmcs.as_u64())
+             : "rflags"
+             : "volatile");
+        rflags
+    };
+    error::check_vm_insruction(rflags, "Failed to clear VMCS".into())
+}
+
 pub struct Vmcs {
-    frame: PhysFrame<Size4KiB>,
+    pub frame: PhysFrame<Size4KiB>,
 }
 
 impl Vmcs {
@@ -400,20 +413,21 @@ impl ActiveVmcs {
         vmcs_write_with_fixed(field, value, msr)
     }
 
-    pub fn deactivate(self) -> (Vmcs, vmx::Vmx) {
-        //TODO: should we set the VMCS to NULL?
-        (self.vmcs, self.vmx)
+    pub fn deactivate(self) -> Result<(Vmcs, vmx::Vmx)> {
+        vmcs_clear(self.vmcs.frame.start_address())?;
+        Ok((self.vmcs, self.vmx))
     }
 }
 
 pub struct TemporaryActiveVmcs<'a> {
+    vmcs: &'a mut Vmcs,
     vmx: &'a mut vmx::Vmx,
 }
 
 impl<'a> TemporaryActiveVmcs<'a> {
-    fn new(vmcs: &mut Vmcs, vmx: &'a mut vmx::Vmx) -> Result<Self> {
+    fn new(vmcs: &'a mut Vmcs, vmx: &'a mut vmx::Vmx) -> Result<Self> {
         vmcs_activate(vmcs, vmx)?;
-        Ok(Self { vmx })
+        Ok(Self { vmcs, vmx })
     }
 
     pub fn read_field(&mut self, field: VmcsField) -> Result<u64> {
@@ -426,6 +440,12 @@ impl<'a> TemporaryActiveVmcs<'a> {
 
     pub fn write_with_fixed(&mut self, field: VmcsField, value: u64, msr: u32) -> Result<u64> {
         vmcs_write_with_fixed(field, value, msr)
+    }
+}
+
+impl<'a> Drop for TemporaryActiveVmcs<'a> {
+    fn drop(&mut self) {
+        vmcs_clear(self.vmcs.frame.start_address()).expect("Failed to clear TemporaryActiveVmcs");
     }
 }
 

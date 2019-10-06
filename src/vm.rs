@@ -201,6 +201,8 @@ impl VirtualMachine {
         //     vmcs: self.vmcs.activate(vmx)?,
         // })
 
+        self.vmcs.activate(vmx)?;
+
         let rflags = unsafe {
             let rflags: u64;
             asm!("vmlaunch; pushfq; popq $0"
