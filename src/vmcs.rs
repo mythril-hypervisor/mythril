@@ -384,7 +384,7 @@ impl Vmcs {
     pub fn with_active_vmcs(
         &mut self,
         vmx: &mut vmx::Vmx,
-        callback: impl Fn(TemporaryActiveVmcs) -> Result<()>,
+        mut callback: impl FnMut(TemporaryActiveVmcs) -> Result<()>,
     ) -> Result<()> {
         (callback)(TemporaryActiveVmcs::new(self, vmx)?)
     }

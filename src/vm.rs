@@ -53,7 +53,7 @@ impl VirtualMachine {
         vmcs.with_active_vmcs(vmx, |mut vmcs| {
             Self::initialize_host_vmcs(&mut vmcs, &stack)?;
             Self::initialize_guest_vmcs(&mut vmcs)?;
-            Self::initialize_ctrl_vmcs(&mut vmcs)?;
+            Self::initialize_ctrl_vmcs(&mut vmcs, alloc)?;
             Ok(())
         })?;
 
@@ -68,16 +68,9 @@ impl VirtualMachine {
         vmcs: &mut vmcs::TemporaryActiveVmcs,
         stack: &PhysFrame<Size4KiB>,
     ) -> Result<()> {
-        vmcs.write_with_fixed(
-            vmcs::VmcsField::HostCr0,
-            Cr0::read().bits(),
-            registers::MSR_IA32_VMX_CR0_FIXED0,
-        )?;
-        vmcs.write_with_fixed(
-            vmcs::VmcsField::HostCr4,
-            Cr4::read(),
-            registers::MSR_IA32_VMX_CR4_FIXED0,
-        )?;
+        //TODO: Check with MSR_IA32_VMX_CR0_FIXED0/1 that these bits are valid
+        vmcs.write_field(vmcs::VmcsField::HostCr0, Cr0::read().bits())?;
+        vmcs.write_field(vmcs::VmcsField::HostCr4, Cr4::read())?;
 
         vmcs.write_field(vmcs::VmcsField::HostEsSelector, 0x00)?;
         vmcs.write_field(vmcs::VmcsField::HostCsSelector, 0x00)?;
@@ -156,41 +149,70 @@ impl VirtualMachine {
         //TODO: get actual EFER (use MSR for vt-x v1)
         vmcs.write_field(vmcs::VmcsField::GuestIa32Efer, 0x00)?;
 
-        vmcs.write_with_fixed(
-            vmcs::VmcsField::GuestCr4,
-            0,
-            registers::MSR_IA32_VMX_CR4_FIXED0,
-        )?;
+        let (guest_cr0, guest_cr4) = unsafe {
+            let mut cr0_fixed0 = Msr::new(registers::MSR_IA32_VMX_CR0_FIXED0).read();
+            cr0_fixed0 &= !(1 << 0); // disable PE
+            cr0_fixed0 &= !(1 << 31); // disable PG
+            let cr4_fixed0 = Msr::new(registers::MSR_IA32_VMX_CR4_FIXED0).read();
+            (cr0_fixed0, cr4_fixed0)
+        };
+        vmcs.write_field(vmcs::VmcsField::GuestCr0, guest_cr0);
+        vmcs.write_field(vmcs::VmcsField::GuestCr4, guest_cr4);
 
-        //TODO: start in real mode? (so clear PE bit)
-        vmcs.write_with_fixed(
-            vmcs::VmcsField::GuestCr0,
-            0,
-            registers::MSR_IA32_VMX_CR0_FIXED0,
-        )?;
         vmcs.write_field(vmcs::VmcsField::GuestCr3, 0x00)?;
 
         //TODO: set to a value from the config
-        vmcs.write_field(vmcs::VmcsField::GuestRip, 0x00)?;
+        vmcs.write_field(vmcs::VmcsField::GuestRip, 0x1000)?;
 
         Ok(())
     }
 
-    fn initialize_ctrl_vmcs(vmcs: &mut vmcs::TemporaryActiveVmcs) -> Result<()> {
+    fn initialize_ctrl_vmcs(
+        vmcs: &mut vmcs::TemporaryActiveVmcs,
+        alloc: &mut impl FrameAllocator<Size4KiB>,
+    ) -> Result<()> {
         vmcs.write_with_fixed(
             vmcs::VmcsField::PinBasedVmExecControl,
-            (vmcs::PinBasedCtrlFlags::EXT_INTR_MASK
-                | vmcs::PinBasedCtrlFlags::NMI_EXITING
-                | vmcs::PinBasedCtrlFlags::VIRTUAL_NMIS)
-                .bits(),
+            0,
             registers::MSR_IA32_VMX_PINBASED_CTLS,
         )?;
 
         vmcs.write_with_fixed(
             vmcs::VmcsField::CpuBasedVmExecControl,
-            vmcs::CpuBasedCtrlFlags::VIRTUAL_INTR_PENDING.bits(),
+            0,
             registers::MSR_IA32_VMX_PROCBASED_CTLS,
         )?;
+
+        vmcs.write_with_fixed(
+            vmcs::VmcsField::VmExitControls,
+            0,
+            registers::MSR_IA32_VMX_EXIT_CTLS
+        )?;
+
+        vmcs.write_with_fixed(
+            vmcs::VmcsField::VmEntryControls,
+            0,
+            registers::MSR_IA32_VMX_ENTRY_CTLS
+        )?;
+
+        let field = vmcs.read_field(vmcs::VmcsField::CpuBasedVmExecControl)?;
+        info!("Flags: 0x{:x}", field);
+        let flags = vmcs::CpuBasedCtrlFlags::from_bits_truncate(field);
+        info!("Flags: {:?}", flags);
+
+
+        //FIXME: this leaks the bitmap frames
+        let bitmap_a = alloc.allocate_frame()
+            .ok_or(Error::AllocError("Failed to allocate IO bitmap"))?;
+        let bitmap_b = alloc.allocate_frame()
+            .ok_or(Error::AllocError("Failed to allocate IO bitmap"))?;
+        vmcs.write_field(vmcs::VmcsField::IoBitmapA, bitmap_a.start_address().as_u64())?;
+        vmcs.write_field(vmcs::VmcsField::IoBitmapB, bitmap_b.start_address().as_u64())?;
+
+        let vapic_frame = alloc.allocate_frame()
+            .ok_or(Error::AllocError("Failed to allocate VAPIC frame"))?;
+        vmcs.write_field(vmcs::VmcsField::VirtualApicPageAddr, vapic_frame.start_address().as_u64())?;
+        vmcs.write_field(vmcs::VmcsField::TprThreshold, 0)?;
 
         Ok(())
     }
