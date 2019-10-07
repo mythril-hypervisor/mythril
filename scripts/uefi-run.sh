@@ -21,7 +21,7 @@ cp "$1" _mnt/run.efi
 umount _mnt
 rm -rf _mnt
 
-qemu-system-x86_64 -bios /usr/share/ovmf/OVMF.fd \
+qemu-system-x86_64 -bios ./scripts/OVMF.fd \
                    -enable-kvm \
                    -cpu host \
                    -nographic \
