@@ -47,6 +47,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "mythril"
+version = "0.1.0"
+dependencies = [
+ "bitflags 1.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "log 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
+ "num_enum 0.4.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "uefi 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "uefi-services 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "x86_64 0.7.5 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
 name = "nodrop"
 version = "0.1.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -115,18 +127,6 @@ dependencies = [
 name = "rlibc"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-
-[[package]]
-name = "rust-kernel"
-version = "0.1.0"
-dependencies = [
- "bitflags 1.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "log 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
- "num_enum 0.4.2 (registry+https://github.com/rust-lang/crates.io-index)",
- "uefi 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
- "uefi-services 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "x86_64 0.7.5 (registry+https://github.com/rust-lang/crates.io-index)",
-]
 
 [[package]]
 name = "serde"

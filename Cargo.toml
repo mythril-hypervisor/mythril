@@ -1,8 +1,11 @@
 [package]
-name = "rust-kernel"
+name = "mythril"
 version = "0.1.0"
 authors = ["Adam Schwalm <adamschwalm@gmail.com>"]
+repository = "https://github.com/ALSchwalm/mythril"
 edition = "2018"
+license-file = "LICENSE"
+description = "A intel-focused hypervisor using VT-x/EPT"
 build = "build.rs"
 
 [dependencies]
