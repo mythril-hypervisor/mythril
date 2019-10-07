@@ -36,7 +36,8 @@ fn efi_main(_handle: Handle, system_table: SystemTable<Boot>) -> Status {
 
     info!("Constructed VM!");
 
-    vm.launch(vmx).expect("Failed to launch vm");
+    //FIXME: Skip launching the vm for now
+    // vm.launch(vmx).expect("Failed to launch vm");
 
     loop {}
 }

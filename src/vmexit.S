@@ -49,6 +49,6 @@ vmexit_handler_wrapper:
     // resume the VM
     vmresume
 
-    //FIXME: On error halt, we should jump to a handler
-    cli
-    hlt
+    //FIXME: On error loop, we should jump to a handler
+loop:
+    jmp loop

@@ -51,6 +51,7 @@ impl VirtualMachine {
             .ok_or(Error::AllocError("Failed to allocate VM stack"))?;
 
         vmcs.with_active_vmcs(vmx, |mut vmcs| {
+            Self::setup_ept(&mut vmcs, alloc)?;
             Self::initialize_host_vmcs(&mut vmcs, &stack)?;
             Self::initialize_guest_vmcs(&mut vmcs)?;
             Self::initialize_ctrl_vmcs(&mut vmcs, alloc)?;
@@ -62,6 +63,38 @@ impl VirtualMachine {
             config: config,
             stack: stack,
         })
+    }
+
+    fn setup_ept(
+        vmcs: &mut vmcs::TemporaryActiveVmcs,
+        alloc: &mut impl FrameAllocator<Size4KiB>,
+    ) -> Result<PhysFrame<Size4KiB>> {
+        //FIXME: very hacky ept setup. Just testing for now
+        use crate::memory::{self, EptPml4Table};
+        use x86_64::structures::paging::FrameAllocator;
+        let mut ept_pml4_frame = alloc
+            .allocate_frame()
+            .expect("Failed to allocate pml4 frame");
+        let mut ept_pml4 =
+            EptPml4Table::new(&mut ept_pml4_frame).expect("Failed to create pml4 table");
+
+        let mut host_frame = alloc
+            .allocate_frame()
+            .expect("Failed to allocate host frame");
+
+        memory::map_guest_memory(
+            alloc,
+            &mut ept_pml4,
+            memory::GuestPhysAddr::new(0xFFFFF000),
+            host_frame,
+            false,
+        )?;
+
+        let eptp = ept_pml4_frame.start_address().as_u64() | (4 - 1) << 3;
+
+        vmcs.write_field(vmcs::VmcsField::EptPointer, eptp)?;
+
+        Ok(ept_pml4_frame)
     }
 
     fn initialize_host_vmcs(
@@ -162,7 +195,7 @@ impl VirtualMachine {
         vmcs.write_field(vmcs::VmcsField::GuestCr3, 0x00)?;
 
         //TODO: set to a value from the config
-        vmcs.write_field(vmcs::VmcsField::GuestRip, 0x1000)?;
+        vmcs.write_field(vmcs::VmcsField::GuestRip, 0xFFFFF000)?;
 
         Ok(())
     }
@@ -172,15 +205,15 @@ impl VirtualMachine {
         alloc: &mut impl FrameAllocator<Size4KiB>,
     ) -> Result<()> {
         vmcs.write_with_fixed(
-            vmcs::VmcsField::PinBasedVmExecControl,
-            0,
-            registers::MSR_IA32_VMX_PINBASED_CTLS,
+            vmcs::VmcsField::CpuBasedVmExecControl,
+            vmcs::CpuBasedCtrlFlags::ACTIVATE_SECONDARY_CONTROLS.bits(),
+            registers::MSR_IA32_VMX_PROCBASED_CTLS,
         )?;
 
         vmcs.write_with_fixed(
-            vmcs::VmcsField::CpuBasedVmExecControl,
+            vmcs::VmcsField::PinBasedVmExecControl,
             0,
-            registers::MSR_IA32_VMX_PROCBASED_CTLS,
+            registers::MSR_IA32_VMX_PINBASED_CTLS,
         )?;
 
         vmcs.write_with_fixed(
@@ -194,6 +227,8 @@ impl VirtualMachine {
             0,
             registers::MSR_IA32_VMX_ENTRY_CTLS,
         )?;
+
+        vmcs.write_field(vmcs::VmcsField::ExceptionBitmap, 0xffffffff)?;
 
         let field = vmcs.read_field(vmcs::VmcsField::CpuBasedVmExecControl)?;
         info!("Flags: 0x{:x}", field);
