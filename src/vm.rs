@@ -4,7 +4,7 @@ use crate::registers::{self, Cr4, GdtrBase, IdtrBase};
 use crate::vmcs;
 use crate::vmx;
 use alloc::vec::Vec;
-use x86_64::registers::control::Cr0;
+use x86_64::registers::control::{Cr0, Cr3};
 use x86_64::registers::model_specific::{Efer, FsBase, GsBase, Msr};
 use x86_64::registers::rflags;
 use x86_64::registers::rflags::RFlags;
@@ -103,6 +103,12 @@ impl VirtualMachine {
     ) -> Result<()> {
         //TODO: Check with MSR_IA32_VMX_CR0_FIXED0/1 that these bits are valid
         vmcs.write_field(vmcs::VmcsField::HostCr0, Cr0::read().bits())?;
+
+        let current_cr3 = Cr3::read();
+        vmcs.write_field(
+            vmcs::VmcsField::HostCr3,
+            current_cr3.0.start_address().as_u64() | current_cr3.1.bits(),
+        )?;
         vmcs.write_field(vmcs::VmcsField::HostCr4, Cr4::read())?;
 
         vmcs.write_field(vmcs::VmcsField::HostEsSelector, 0x00)?;

@@ -36,8 +36,10 @@ fn efi_main(_handle: Handle, system_table: SystemTable<Boot>) -> Status {
 
     info!("Constructed VM!");
 
+    info!("addr: 0x{:x}", vmx::vmexit_handler_wrapper as u64);
+
     //FIXME: Skip launching the vm for now
-    // vm.launch(vmx).expect("Failed to launch vm");
+    vm.launch(vmx).expect("Failed to launch vm");
 
     loop {}
 }
