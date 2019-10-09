@@ -1,4 +1,5 @@
 use crate::error::{self, Error, Result};
+use raw_cpuid::CpuId;
 use x86_64::registers::rflags;
 use x86_64::registers::rflags::RFlags;
 use x86_64::structures::paging::frame::PhysFrame;
@@ -22,6 +23,12 @@ pub struct Vmx {
 impl Vmx {
     pub fn enable(alloc: &mut impl FrameAllocator<Size4KiB>) -> Result<Self> {
         const VMX_ENABLE_FLAG: u32 = 1 << 13;
+
+        let cpuid = CpuId::new();
+        match cpuid.get_feature_info() {
+            Some(finfo) if finfo.has_vmx() => Ok(()),
+            _ => Err(Error::NotSupported),
+        }?;
 
         unsafe {
             // Enable NE in CR0, This is fixed bit in VMX CR0

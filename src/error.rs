@@ -72,6 +72,7 @@ pub enum Error {
     VmFailInvalid(String),
     VmFailValid((VmInstructionError, String)),
     AllocError(&'static str),
+    NotSupported,
 }
 
 pub type Result<T> = core::result::Result<T, Error>;
