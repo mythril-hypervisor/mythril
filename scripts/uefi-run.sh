@@ -4,8 +4,13 @@
 
 set -e
 
+if [ $# -ne 1 ] || ! [[ -f $1 && -x $1 ]]; then
+    echo "Usage: $0 <patch to mythril.efi>"
+    exit 1
+fi
+
 rm -r -f _boot.img _mnt
-mkfs.msdos -C _boot.img 51200
+mkfs.fat -C _boot.img 51200
 
 mkdir _mnt
 mount _boot.img _mnt
