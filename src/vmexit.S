@@ -3,6 +3,7 @@
 
 .global vmexit_handler_wrapper
 .extern vmexit_handler
+.extern vmresume_failure_handler
 
 vmexit_handler_wrapper:
     // Save the guest non-vmcs processor states
@@ -49,6 +50,6 @@ vmexit_handler_wrapper:
     // resume the VM
     vmresume
 
-    //FIXME: On error loop, we should jump to a handler
-loop:
-    jmp loop
+    pushfq
+    popq %rdi
+    call vmresume_failure_handler

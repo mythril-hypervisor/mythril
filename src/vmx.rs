@@ -16,6 +16,11 @@ pub extern "C" fn vmexit_handler() {
     loop {}
 }
 
+#[no_mangle]
+pub extern "C" fn vmresume_failure_handler(rflags: u64) {
+    error::check_vm_insruction(rflags, "Failed to vmresume".into()).expect("vmresume failed");
+}
+
 pub struct Vmx {
     vmxon_region: PhysFrame<Size4KiB>,
 }
