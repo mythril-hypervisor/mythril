@@ -37,10 +37,11 @@ impl IdtrBase {
                 limit: 0,
                 base_addr: 0,
             };
-            asm!("sidt $0"
+            asm!("sidt ($0)"
                  :
-                 : "m"(&mut info)
-                 : "memory");
+                 : "r"(&mut info)
+                 : "memory"
+                 : "volatile");
             info.base_addr
         };
         VirtAddr::new(addr)
@@ -59,10 +60,11 @@ impl GdtrBase {
     pub fn read() -> VirtAddr {
         let addr = unsafe {
             let mut info = GdtInfo { size: 0, offset: 0 };
-            asm!("sgdtq $0"
+            asm!("sgdtq ($0)"
                  :
-                 : "m"(&mut info)
-                 : "memory");
+                 : "r"(&mut info)
+                 : "memory"
+                 : "volatile");
             info.offset
         };
         VirtAddr::new(addr)
