@@ -1,5 +1,6 @@
 use crate::error::{self, Error, Result};
 use crate::memory::GuestPhysAddr;
+use crate::percpu;
 use crate::registers::{self, Cr4, GdtrBase, IdtrBase};
 use crate::vmcs;
 use crate::vmx;
@@ -12,6 +13,9 @@ use x86_64::structures::paging::frame::PhysFrame;
 use x86_64::structures::paging::page::Size4KiB;
 use x86_64::structures::paging::FrameAllocator;
 use x86_64::PhysAddr;
+
+pub static mut VMS: percpu::PerCpu<Option<VirtualMachineRunning>> =
+    percpu::PerCpu::<Option<VirtualMachineRunning>>::new();
 
 pub struct VirtualMachineConfig {
     images: Vec<(Vec<u8>, GuestPhysAddr)>,
@@ -272,12 +276,11 @@ impl VirtualMachine {
     }
 
     pub fn launch(self, vmx: vmx::Vmx) -> Result<!> {
-        // TODO: make this and store it in a per-cpu variable
-        // Ok(VirtualMachineRunning {
-        //     vmcs: self.vmcs.activate(vmx)?,
-        // })
-
-        self.vmcs.activate(vmx)?;
+        unsafe {
+            VMS.set(Some(VirtualMachineRunning {
+                vmcs: self.vmcs.activate(vmx)?,
+            }));
+        }
 
         let rflags = unsafe {
             let rflags: u64;

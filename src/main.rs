@@ -2,6 +2,7 @@
 #![no_main]
 #![feature(asm)]
 #![feature(never_type)]
+#![feature(const_fn)]
 
 #[macro_use]
 extern crate alloc;
@@ -17,6 +18,7 @@ use uefi::prelude::*;
 mod efialloc;
 mod error;
 mod memory;
+mod percpu;
 mod registers;
 mod vm;
 #[allow(dead_code)]

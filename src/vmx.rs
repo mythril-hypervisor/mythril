@@ -1,4 +1,5 @@
 use crate::error::{self, Error, Result};
+use crate::vm;
 use raw_cpuid::CpuId;
 use x86_64::registers::rflags;
 use x86_64::registers::rflags::RFlags;
@@ -12,6 +13,8 @@ extern "C" {
 
 #[no_mangle]
 pub extern "C" fn vmexit_handler() {
+    let vm = unsafe { vm::VMS.get().as_ref().expect("Failed to get VM") };
+
     info!("reached vmexit handler");
 }
 
