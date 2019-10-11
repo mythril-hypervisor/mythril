@@ -112,7 +112,9 @@ impl VirtualMachine {
         vmcs.write_field(vmcs::VmcsField::HostCr4, Cr4::read())?;
 
         vmcs.write_field(vmcs::VmcsField::HostEsSelector, 0x00)?;
-        vmcs.write_field(vmcs::VmcsField::HostCsSelector, 0x00)?;
+
+        //FIXME: this CS value is valid for OVMF specifically
+        vmcs.write_field(vmcs::VmcsField::HostCsSelector, 0x38)?;
         vmcs.write_field(vmcs::VmcsField::HostSsSelector, 0x00)?;
         vmcs.write_field(vmcs::VmcsField::HostDsSelector, 0x00)?;
         vmcs.write_field(vmcs::VmcsField::HostFsSelector, 0x00)?;

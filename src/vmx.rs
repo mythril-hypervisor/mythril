@@ -13,7 +13,6 @@ extern "C" {
 #[no_mangle]
 pub extern "C" fn vmexit_handler() {
     info!("reached vmexit handler");
-    loop {}
 }
 
 #[no_mangle]
