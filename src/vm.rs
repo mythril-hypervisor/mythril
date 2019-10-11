@@ -224,7 +224,7 @@ impl VirtualMachine {
 
         vmcs.write_with_fixed(
             vmcs::VmcsField::VmExitControls,
-            0,
+            vmcs::VmExitCtrlFlags::IA32E_MODE.bits(),
             registers::MSR_IA32_VMX_EXIT_CTLS,
         )?;
 
