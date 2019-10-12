@@ -119,11 +119,12 @@ impl VirtualMachine {
 
         //FIXME: this CS value is valid for OVMF specifically
         vmcs.write_field(vmcs::VmcsField::HostCsSelector, 0x38)?;
-        vmcs.write_field(vmcs::VmcsField::HostSsSelector, 0x00)?;
-        vmcs.write_field(vmcs::VmcsField::HostDsSelector, 0x00)?;
-        vmcs.write_field(vmcs::VmcsField::HostFsSelector, 0x00)?;
-        vmcs.write_field(vmcs::VmcsField::HostGsSelector, 0x00)?;
-        vmcs.write_field(vmcs::VmcsField::HostTrSelector, 0x00)?;
+        vmcs.write_field(vmcs::VmcsField::HostSsSelector, 0x30)?;
+        vmcs.write_field(vmcs::VmcsField::HostDsSelector, 0x30)?;
+        vmcs.write_field(vmcs::VmcsField::HostEsSelector, 0x30)?;
+        vmcs.write_field(vmcs::VmcsField::HostFsSelector, 0x30)?;
+        vmcs.write_field(vmcs::VmcsField::HostGsSelector, 0x30)?;
+        //vmcs.write_field(vmcs::VmcsField::HostTrSelector, 0x)?;
 
         vmcs.write_field(vmcs::VmcsField::HostIa32SysenterCs, 0x00)?;
         vmcs.write_field(vmcs::VmcsField::HostIa32SysenterEsp, 0x00)?;
@@ -298,5 +299,5 @@ impl VirtualMachine {
 }
 
 pub struct VirtualMachineRunning {
-    vmcs: vmcs::ActiveVmcs,
+    pub vmcs: vmcs::ActiveVmcs,
 }

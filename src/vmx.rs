@@ -1,5 +1,9 @@
 use crate::error::{self, Error, Result};
 use crate::vm;
+use crate::vmcs;
+use bitflags::bitflags;
+use core::convert::TryFrom;
+use num_enum::TryFromPrimitive;
 use raw_cpuid::CpuId;
 use x86_64::registers::rflags;
 use x86_64::registers::rflags::RFlags;
@@ -11,11 +15,117 @@ extern "C" {
     pub fn vmexit_handler_wrapper();
 }
 
+// See Table C-1 in Appendix C
+#[derive(Clone, Copy, Debug, TryFromPrimitive)]
+#[repr(u32)]
+pub enum BasicExitReason {
+    NonMaskableInterrupt = 0,
+    ExternalInterrupt = 1,
+    TripleFault = 2,
+    InitSignal = 3,
+    StartUpIpi = 4,
+    IoSystemManagementInterrupt = 5,
+    OtherSystemManagementInterrupt = 6,
+    InterruptWindow = 7,
+    NonMaskableInterruptWindow = 8,
+    TaskSwitch = 9,
+    CpuId = 10,
+    GetSec = 11,
+    Hlt = 12,
+    Invd = 13,
+    InvlPg = 14,
+    Rdpmc = 15,
+    Rdtsc = 16,
+    Rsm = 17,
+    VmCall = 18,
+    VmClear = 19,
+    VmLaunch = 20,
+    VmPtrLd = 21,
+    VmPtrRst = 22,
+    VmRead = 23,
+    VmResume = 24,
+    VmWrite = 25,
+    VmxOff = 26,
+    VmxOn = 27,
+    CrAccess = 28,
+    MovDr = 29,
+    IoInstruction = 30,
+    RdMsr = 31,
+    WrMsr = 32,
+    VmEntryInvalidGuestState = 33,
+    VmEntryMsrLoad = 34,
+    Mwait = 36,
+    MonitorTrapFlag = 37,
+    Monitor = 39,
+    Pause = 40,
+    VmEntryMachineCheck = 41,
+    TprBelowThreshold = 43,
+    ApicAccess = 44,
+    VirtualEio = 45,
+    AccessGdtridtr = 46,
+    AccessLdtrTr = 47,
+    EptViolation = 48,
+    EptMisconfigure = 49,
+    InvEpt = 50,
+    Rdtscp = 51,
+    VmxPreemptionTimerExpired = 52,
+    Invvpid = 53,
+    Wbinvd = 54,
+    Xsetbv = 55,
+    ApicWrite = 56,
+    RdRand = 57,
+    Invpcid = 58,
+    VmFunc = 59,
+    Encls = 60,
+    RdSeed = 61,
+    PageModificationLogFull = 62,
+    Xsaves = 63,
+    Xrstors = 64,
+
+    // Not in the spec, added for our purposes
+    UnknownExitReason = 65,
+}
+
+struct ExitReason(u32);
+bitflags! {
+    pub struct ExitReasonFields: u64 {
+        const ENCLAVE_MODE =        1 << 27;
+        const PENDING_MTF_EXIT =    1 << 28;
+        const EXIT_FROM_ROOT =      1 << 29;
+        const VM_ENTRY_FAIL =       1 << 31;
+    }
+}
+
+impl ExitReason {
+    fn from_active_vmcs(vmcs: &mut vmcs::ActiveVmcs) -> Result<Self> {
+        let reason = vmcs.read_field(vmcs::VmcsField::VmExitReason)?;
+        info!("Reason: 0x{:x}", reason);
+        Ok(ExitReason(reason as u32))
+    }
+
+    fn reason(&self) -> BasicExitReason {
+        BasicExitReason::try_from(self.0 & 0x7fff).unwrap_or(BasicExitReason::UnknownExitReason)
+    }
+}
+
 #[no_mangle]
 pub extern "C" fn vmexit_handler() {
-    let vm = unsafe { vm::VMS.get().as_ref().expect("Failed to get VM") };
+    let vm = unsafe { vm::VMS.get_mut().as_mut().expect("Failed to get VM") };
 
-    info!("reached vmexit handler");
+    let reason = ExitReason::from_active_vmcs(&mut vm.vmcs).expect("Failed to get vm reason");
+
+    info!("reached vmexit handler: {:?}", reason.reason());
+
+    let rip = vm
+        .vmcs
+        .read_field(vmcs::VmcsField::GuestRip)
+        .expect("Failed to read guest rip");
+
+    let es_ar = vm
+        .vmcs
+        .read_field(vmcs::VmcsField::GuestEsArBytes)
+        .expect("Failed to read guest es ar");
+    info!("Resume at 0x{:x}, es_ar 0x{:x}", rip, es_ar);
 }
 
 #[no_mangle]
