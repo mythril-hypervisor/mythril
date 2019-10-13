@@ -322,9 +322,9 @@ fn vmcs_write(field: VmcsField, value: u64) -> Result<()> {
 fn vmcs_read(field: VmcsField) -> Result<u64> {
     let value = unsafe {
         let value: u64;
-        asm!("vmread %rax, %rdx;"
-             :"={rdx}"(value)
-             :"{rax}"(field)
+        asm!("vmreadq $0, $1;"
+             :"=r"(value)
+             :"r"(field as u64)
              :"rflags"
              : "volatile");
         value
@@ -401,7 +401,7 @@ impl ActiveVmcs {
         Ok(Self { vmcs, vmx })
     }
 
-    pub fn read_field(&mut self, field: VmcsField) -> Result<u64> {
+    pub fn read_field(&self, field: VmcsField) -> Result<u64> {
         vmcs_read(field)
     }
 
