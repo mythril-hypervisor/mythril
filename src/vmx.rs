@@ -88,7 +88,7 @@ pub enum BasicExitReason {
 
 struct ExitReason(u32);
 bitflags! {
-    pub struct ExitReasonFields: u64 {
+    pub struct ExitReasonFlags: u64 {
         const ENCLAVE_MODE =        1 << 27;
         const PENDING_MTF_EXIT =    1 << 28;
         const EXIT_FROM_ROOT =      1 << 29;
@@ -99,12 +99,15 @@ bitflags! {
 impl ExitReason {
     fn from_active_vmcs(vmcs: &mut vmcs::ActiveVmcs) -> Result<Self> {
         let reason = vmcs.read_field(vmcs::VmcsField::VmExitReason)?;
-        info!("Reason: 0x{:x}", reason);
         Ok(ExitReason(reason as u32))
     }
 
     fn reason(&self) -> BasicExitReason {
         BasicExitReason::try_from(self.0 & 0x7fff).unwrap_or(BasicExitReason::UnknownExitReason)
+    }
+
+    fn flags(&self) -> ExitReasonFlags {
+        ExitReasonFlags::from_bits_truncate(self.0 as u64)
     }
 }
 
@@ -115,17 +118,6 @@ pub extern "C" fn vmexit_handler() {
     let reason = ExitReason::from_active_vmcs(&mut vm.vmcs).expect("Failed to get vm reason");
 
     info!("reached vmexit handler: {:?}", reason.reason());
-
-    let rip = vm
-        .vmcs
-        .read_field(vmcs::VmcsField::GuestRip)
-        .expect("Failed to read guest rip");
-
-    let es_ar = vm
-        .vmcs
-        .read_field(vmcs::VmcsField::GuestEsArBytes)
-        .expect("Failed to read guest es ar");
-    info!("Resume at 0x{:x}, es_ar 0x{:x}", rip, es_ar);
 }
 
 #[no_mangle]
