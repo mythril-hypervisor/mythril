@@ -94,7 +94,7 @@ impl VirtualMachine {
             false,
         )?;
 
-        let eptp = ept_pml4_frame.start_address().as_u64() | (4 - 1) << 3;
+        let eptp = ept_pml4_frame.start_address().as_u64() | (4 - 1) << 3 | 6;
 
         vmcs.write_field(vmcs::VmcsField::EptPointer, eptp)?;
 
@@ -117,7 +117,7 @@ impl VirtualMachine {
 
         vmcs.write_field(vmcs::VmcsField::HostEsSelector, 0x00)?;
 
-        //FIXME: this CS value is valid for OVMF specifically
+        //FIXME: The segment selector values are valid for OVMF specifically
         vmcs.write_field(vmcs::VmcsField::HostCsSelector, 0x38)?;
         vmcs.write_field(vmcs::VmcsField::HostSsSelector, 0x30)?;
         vmcs.write_field(vmcs::VmcsField::HostDsSelector, 0x30)?;
@@ -224,6 +224,16 @@ impl VirtualMachine {
         )?;
 
         vmcs.write_with_fixed(
+            vmcs::VmcsField::SecondaryVmExecControl,
+            (vmcs::SecondaryExecFlags::ENABLE_EPT
+                | vmcs::SecondaryExecFlags::ENABLE_VPID
+                | vmcs::SecondaryExecFlags::UNRESTRICTED_GUEST)
+                .bits(),
+            registers::MSR_IA32_VMX_PROCBASED_CTLS2,
+        )?;
+        vmcs.write_field(vmcs::VmcsField::VirtualProcessorId, 1)?;
+
+        vmcs.write_with_fixed(
             vmcs::VmcsField::PinBasedVmExecControl,
             0,
             registers::MSR_IA32_VMX_PINBASED_CTLS,
@@ -231,7 +241,7 @@ impl VirtualMachine {
 
         vmcs.write_with_fixed(
             vmcs::VmcsField::VmExitControls,
-            vmcs::VmExitCtrlFlags::IA32E_MODE.bits(),
+            (vmcs::VmExitCtrlFlags::IA32E_MODE | vmcs::VmExitCtrlFlags::LOAD_HOST_EFER).bits(),
             registers::MSR_IA32_VMX_EXIT_CTLS,
         )?;
 
@@ -248,6 +258,11 @@ impl VirtualMachine {
         let flags = vmcs::CpuBasedCtrlFlags::from_bits_truncate(field);
         info!("Flags: {:?}", flags);
 
+        let field = vmcs.read_field(vmcs::VmcsField::SecondaryVmExecControl)?;
+        info!("Sec Flags: 0x{:x}", field);
+        let flags = vmcs::SecondaryExecFlags::from_bits_truncate(field);
+        info!("Sec Flags: {:?}", flags);
+
         //FIXME: this leaks the bitmap frames
         let bitmap_a = alloc
             .allocate_frame()
@@ -263,6 +278,7 @@ impl VirtualMachine {
             vmcs::VmcsField::IoBitmapB,
             bitmap_b.start_address().as_u64(),
         )?;
+        vmcs.write_field(vmcs::VmcsField::Cr3TargetCount, 0)?;
 
         let vapic_frame = alloc
             .allocate_frame()
