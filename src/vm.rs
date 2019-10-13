@@ -188,6 +188,7 @@ impl VirtualMachine {
         vmcs.write_field(vmcs::VmcsField::GuestActivityState, 0x00)?;
         vmcs.write_field(vmcs::VmcsField::GuestDr7, 0x00)?;
         vmcs.write_field(vmcs::VmcsField::GuestRsp, 0x00)?;
+        vmcs.write_field(vmcs::VmcsField::GuestRflags, 1 << 1)?; // Reserved rflags
 
         vmcs.write_field(vmcs::VmcsField::VmcsLinkPointer, 0xffffffff)?;
         vmcs.write_field(vmcs::VmcsField::VmcsLinkPointerHigh, 0xffffffff)?;
