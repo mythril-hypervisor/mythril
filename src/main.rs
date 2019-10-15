@@ -33,7 +33,10 @@ fn efi_main(_handle: Handle, system_table: SystemTable<Boot>) -> Status {
 
     let mut vmx = vmx::Vmx::enable(&mut alloc).expect("Failed to enable vmx");
 
-    let config = vm::VirtualMachineConfig::new(memory::GuestPhysAddr::new(0), 1);
+    let mut config = vm::VirtualMachineConfig::new(memory::GuestPhysAddr::new(0), 1);
+
+    config.load_image(vec![0xEB, 0xFE], memory::GuestPhysAddr::new(0x1000));
+
     let vm = vm::VirtualMachine::new(&mut vmx, &mut alloc, config).expect("Failed to create vm");
 
     info!("Constructed VM!");

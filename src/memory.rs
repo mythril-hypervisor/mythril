@@ -1,7 +1,7 @@
 use crate::error::{self, Error, Result};
 use bitflags::bitflags;
-use core::marker::PhantomData;
 use core::ops::{Index, IndexMut};
+use core::ptr::NonNull;
 use x86_64::structures::paging::frame::PhysFrame;
 use x86_64::structures::paging::page::PageSize;
 use x86_64::structures::paging::page::Size4KiB;
@@ -11,6 +11,49 @@ use x86_64::structures::paging::FrameAllocator;
 use x86_64::ux;
 use x86_64::PhysAddr;
 use x86_64::VirtAddr;
+
+pub struct GuestAddressSpace {
+    frame: PhysFrame<Size4KiB>,
+    root: NonNull<EptPml4Table>,
+}
+
+impl GuestAddressSpace {
+    pub fn new(alloc: &mut impl FrameAllocator<Size4KiB>) -> Result<Self> {
+        let mut ept_pml4_frame = alloc.allocate_frame().ok_or(Error::AllocError(
+            "Failed to allocate address space EPT root",
+        ))?;
+
+        let ept_pml4 =
+            unsafe { (ept_pml4_frame.start_address().as_u64() as *mut EptPml4Table).as_mut() }
+                .unwrap();
+
+        Ok(GuestAddressSpace {
+            frame: ept_pml4_frame,
+            root: NonNull::from(ept_pml4),
+        })
+    }
+
+    pub fn map_frame(
+        &mut self,
+        alloc: &mut impl FrameAllocator<Size4KiB>,
+        guest_addr: GuestPhysAddr,
+        host_frame: PhysFrame<Size4KiB>,
+        readonly: bool,
+    ) -> Result<()> {
+        map_guest_memory(
+            alloc,
+            unsafe { self.root.as_mut() },
+            guest_addr,
+            host_frame,
+            readonly,
+        )
+    }
+
+    pub fn eptp(&self) -> u64 {
+        // //TODO: check available memory types
+        self.frame.start_address().as_u64() | (4 - 1) << 3 | 6
+    }
+}
 
 pub struct GuestPhysAddr(VirtAddr);
 impl GuestPhysAddr {
@@ -41,30 +84,13 @@ impl GuestPhysAddr {
 
 #[repr(align(4096))]
 pub struct EptTable<T> {
-    frame: PhysFrame<Size4KiB>,
-    _phantom: PhantomData<T>,
+    entries: [T; 512],
 }
 
 impl<T> EptTable<T> {
-    pub fn new(frame: PhysFrame<Size4KiB>) -> Result<Self> {
-        if frame.start_address().as_u64() == 0 {
-            Err(Error::AllocError("EptTable given NULL frame"))
-        } else {
-            Ok(Self {
-                frame,
-                _phantom: PhantomData,
-            })
-        }
-    }
-
-    fn as_slice(&self) -> &[T; 512] {
-        unsafe { (self.frame.start_address().as_u64() as *const [T; 512]).as_ref() }
-            .expect("EptTable frame invalid")
-    }
-
-    fn as_mut_slice(&mut self) -> &mut [T; 512] {
-        unsafe { (self.frame.start_address().as_u64() as *mut [T; 512]).as_mut() }
-            .expect("EptTable frame invalid")
+    pub fn new(frame: &mut PhysFrame<Size4KiB>) -> Result<&mut Self> {
+        unsafe { (frame.start_address().as_u64() as *mut Self).as_mut() }
+            .ok_or(Error::AllocError("EptTable given invalid frame"))
     }
 }
 
@@ -72,13 +98,13 @@ impl<T> Index<ux::u9> for EptTable<T> {
     type Output = T;
 
     fn index(&self, index: ux::u9) -> &Self::Output {
-        &self.as_slice()[u16::from(index) as usize]
+        &self.entries[u16::from(index) as usize]
     }
 }
 
 impl<T> IndexMut<ux::u9> for EptTable<T> {
     fn index_mut(&mut self, index: ux::u9) -> &mut Self::Output {
-        &mut self.as_mut_slice()[u16::from(index) as usize]
+        &mut self.entries[u16::from(index) as usize]
     }
 }
 
@@ -204,7 +230,7 @@ pub type EptPageDirectoryPointerTable = EptTable<EptPageDirectoryPointerEntry>;
 pub type EptPageDirectory = EptTable<EptPageDirectoryEntry>;
 pub type EptPageTable = EptTable<EptPageTableEntry>;
 
-pub fn map_guest_memory(
+fn map_guest_memory(
     alloc: &mut impl FrameAllocator<Size4KiB>,
     guest_ept_base: &mut EptPml4Table,
     guest_addr: GuestPhysAddr,

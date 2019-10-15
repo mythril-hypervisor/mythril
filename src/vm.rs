@@ -1,5 +1,5 @@
 use crate::error::{self, Error, Result};
-use crate::memory::{self, EptPml4Table, GuestPhysAddr};
+use crate::memory::{self, GuestAddressSpace, GuestPhysAddr};
 use crate::percpu;
 use crate::registers::{self, Cr4, GdtrBase, IdtrBase};
 use crate::vmcs;
@@ -39,7 +39,7 @@ impl VirtualMachineConfig {
 pub struct VirtualMachine {
     vmcs: vmcs::Vmcs,
     config: VirtualMachineConfig,
-    guest_addr_space: EptPml4Table,
+    guest_addr_space: GuestAddressSpace,
     stack: PhysFrame<Size4KiB>,
 }
 
@@ -74,20 +74,23 @@ impl VirtualMachine {
     fn map_image(
         image: &Vec<u8>,
         addr: &GuestPhysAddr,
-        space: &mut EptPml4Table,
+        space: &mut GuestAddressSpace,
         alloc: &mut impl FrameAllocator<Size4KiB>,
     ) -> Result<()> {
-        for i in (0..image.len()).step_by(Size4KiB::SIZE as usize) {
+        for (i, chunk) in image.chunks(Size4KiB::SIZE as usize).enumerate() {
             let mut host_frame = alloc
                 .allocate_frame()
                 .expect("Failed to allocate host frame");
 
-            //TODO: copy bytes in to new frame
+            let frame_ptr = host_frame.start_address().as_u64() as *mut u8;
+            let chunk_ptr = chunk.as_ptr();
+            unsafe {
+                core::ptr::copy_nonoverlapping(chunk_ptr, frame_ptr, chunk.len());
+            }
 
-            memory::map_guest_memory(
+            space.map_frame(
                 alloc,
-                space,
-                memory::GuestPhysAddr::new(addr.as_u64() + i as u64),
+                memory::GuestPhysAddr::new(addr.as_u64() + (i as u64 * Size4KiB::SIZE) as u64),
                 host_frame,
                 false,
             )?;
@@ -99,21 +102,14 @@ impl VirtualMachine {
         vmcs: &mut vmcs::TemporaryActiveVmcs,
         alloc: &mut impl FrameAllocator<Size4KiB>,
         config: &VirtualMachineConfig,
-    ) -> Result<EptPml4Table> {
-        let mut ept_pml4_frame = alloc
-            .allocate_frame()
-            .expect("Failed to allocate pml4 frame");
-        let mut ept_pml4 = EptPml4Table::new(ept_pml4_frame).expect("Failed to create pml4 table");
-
+    ) -> Result<GuestAddressSpace> {
+        let mut guest_space = GuestAddressSpace::new(alloc)?;
         for image in config.images.iter() {
-            Self::map_image(&image.0, &image.1, &mut ept_pml4, alloc)?;
+            Self::map_image(&image.0, &image.1, &mut guest_space, alloc)?;
         }
 
-        //TODO: check available memory types
-        let eptp = ept_pml4_frame.start_address().as_u64() | (4 - 1) << 3 | 6;
-
-        vmcs.write_field(vmcs::VmcsField::EptPointer, eptp)?;
-        Ok(ept_pml4)
+        vmcs.write_field(vmcs::VmcsField::EptPointer, guest_space.eptp())?;
+        Ok(guest_space)
     }
 
     fn initialize_host_vmcs(
@@ -224,7 +220,7 @@ impl VirtualMachine {
         vmcs.write_field(vmcs::VmcsField::GuestCr3, 0x00)?;
 
         //TODO: set to a value from the config
-        vmcs.write_field(vmcs::VmcsField::GuestRip, 0xFFFFF000)?;
+        vmcs.write_field(vmcs::VmcsField::GuestRip, 0x1000)?;
 
         Ok(())
     }
