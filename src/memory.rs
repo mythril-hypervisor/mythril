@@ -1,5 +1,6 @@
 use crate::error::{self, Error, Result};
 use bitflags::bitflags;
+use core::marker::PhantomData;
 use core::ops::{Index, IndexMut};
 use x86_64::structures::paging::frame::PhysFrame;
 use x86_64::structures::paging::page::PageSize;
@@ -40,13 +41,30 @@ impl GuestPhysAddr {
 
 #[repr(align(4096))]
 pub struct EptTable<T> {
-    entries: [T; 512],
+    frame: PhysFrame<Size4KiB>,
+    _phantom: PhantomData<T>,
 }
 
 impl<T> EptTable<T> {
-    pub fn new(frame: &mut PhysFrame<Size4KiB>) -> Result<&mut Self> {
-        unsafe { (frame.start_address().as_u64() as *mut Self).as_mut() }
-            .ok_or(Error::AllocError("EptTable given invalid frame"))
+    pub fn new(frame: PhysFrame<Size4KiB>) -> Result<Self> {
+        if frame.start_address().as_u64() == 0 {
+            Err(Error::AllocError("EptTable given NULL frame"))
+        } else {
+            Ok(Self {
+                frame,
+                _phantom: PhantomData,
+            })
+        }
+    }
+
+    fn as_slice(&self) -> &[T; 512] {
+        unsafe { (self.frame.start_address().as_u64() as *const [T; 512]).as_ref() }
+            .expect("EptTable frame invalid")
+    }
+
+    fn as_mut_slice(&mut self) -> &mut [T; 512] {
+        unsafe { (self.frame.start_address().as_u64() as *mut [T; 512]).as_mut() }
+            .expect("EptTable frame invalid")
     }
 }
 
@@ -54,13 +72,13 @@ impl<T> Index<ux::u9> for EptTable<T> {
     type Output = T;
 
     fn index(&self, index: ux::u9) -> &Self::Output {
-        &self.entries[u16::from(index) as usize]
+        &self.as_slice()[u16::from(index) as usize]
     }
 }
 
 impl<T> IndexMut<ux::u9> for EptTable<T> {
     fn index_mut(&mut self, index: ux::u9) -> &mut Self::Output {
-        &mut self.entries[u16::from(index) as usize]
+        &mut self.as_mut_slice()[u16::from(index) as usize]
     }
 }
 

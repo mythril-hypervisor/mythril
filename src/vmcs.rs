@@ -366,7 +366,7 @@ fn vmcs_clear(vmcs: PhysAddr) -> Result<()> {
 }
 
 pub struct Vmcs {
-    pub frame: PhysFrame<Size4KiB>,
+    frame: PhysFrame<Size4KiB>,
 }
 
 impl Vmcs {
@@ -381,11 +381,11 @@ impl Vmcs {
         ActiveVmcs::new(self, vmx)
     }
 
-    pub fn with_active_vmcs(
+    pub fn with_active_vmcs<T>(
         &mut self,
         vmx: &mut vmx::Vmx,
-        mut callback: impl FnMut(TemporaryActiveVmcs) -> Result<()>,
-    ) -> Result<()> {
+        mut callback: impl FnMut(TemporaryActiveVmcs) -> Result<T>,
+    ) -> Result<T> {
         (callback)(TemporaryActiveVmcs::new(self, vmx)?)
     }
 }

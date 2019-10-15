@@ -1,5 +1,5 @@
 use crate::error::{self, Error, Result};
-use crate::memory::GuestPhysAddr;
+use crate::memory::{self, EptPml4Table, GuestPhysAddr};
 use crate::percpu;
 use crate::registers::{self, Cr4, GdtrBase, IdtrBase};
 use crate::vmcs;
@@ -10,7 +10,7 @@ use x86_64::registers::model_specific::{Efer, FsBase, GsBase, Msr};
 use x86_64::registers::rflags;
 use x86_64::registers::rflags::RFlags;
 use x86_64::structures::paging::frame::PhysFrame;
-use x86_64::structures::paging::page::Size4KiB;
+use x86_64::structures::paging::page::{PageSize, Size4KiB};
 use x86_64::structures::paging::FrameAllocator;
 use x86_64::PhysAddr;
 
@@ -39,6 +39,7 @@ impl VirtualMachineConfig {
 pub struct VirtualMachine {
     vmcs: vmcs::Vmcs,
     config: VirtualMachineConfig,
+    guest_addr_space: EptPml4Table,
     stack: PhysFrame<Size4KiB>,
 }
 
@@ -54,51 +55,65 @@ impl VirtualMachine {
             .allocate_frame()
             .ok_or(Error::AllocError("Failed to allocate VM stack"))?;
 
-        vmcs.with_active_vmcs(vmx, |mut vmcs| {
-            Self::setup_ept(&mut vmcs, alloc)?;
+        let guest_addr_space = vmcs.with_active_vmcs(vmx, |mut vmcs| {
+            let guest_addr_space = Self::setup_ept(&mut vmcs, alloc, &config)?;
             Self::initialize_host_vmcs(&mut vmcs, &stack)?;
             Self::initialize_guest_vmcs(&mut vmcs)?;
             Self::initialize_ctrl_vmcs(&mut vmcs, alloc)?;
-            Ok(())
+            Ok(guest_addr_space)
         })?;
 
         Ok(Self {
             vmcs: vmcs,
             config: config,
             stack: stack,
+            guest_addr_space: guest_addr_space,
         })
+    }
+
+    fn map_image(
+        image: &Vec<u8>,
+        addr: &GuestPhysAddr,
+        space: &mut EptPml4Table,
+        alloc: &mut impl FrameAllocator<Size4KiB>,
+    ) -> Result<()> {
+        for i in (0..image.len()).step_by(Size4KiB::SIZE as usize) {
+            let mut host_frame = alloc
+                .allocate_frame()
+                .expect("Failed to allocate host frame");
+
+            //TODO: copy bytes in to new frame
+
+            memory::map_guest_memory(
+                alloc,
+                space,
+                memory::GuestPhysAddr::new(addr.as_u64() + i as u64),
+                host_frame,
+                false,
+            )?;
+        }
+        Ok(())
     }
 
     fn setup_ept(
         vmcs: &mut vmcs::TemporaryActiveVmcs,
         alloc: &mut impl FrameAllocator<Size4KiB>,
-    ) -> Result<PhysFrame<Size4KiB>> {
-        //FIXME: very hacky ept setup. Just testing for now
-        use crate::memory::{self, EptPml4Table};
-        use x86_64::structures::paging::FrameAllocator;
+        config: &VirtualMachineConfig,
+    ) -> Result<EptPml4Table> {
         let mut ept_pml4_frame = alloc
             .allocate_frame()
             .expect("Failed to allocate pml4 frame");
-        let mut ept_pml4 =
-            EptPml4Table::new(&mut ept_pml4_frame).expect("Failed to create pml4 table");
+        let mut ept_pml4 = EptPml4Table::new(ept_pml4_frame).expect("Failed to create pml4 table");
 
-        let mut host_frame = alloc
-            .allocate_frame()
-            .expect("Failed to allocate host frame");
+        for image in config.images.iter() {
+            Self::map_image(&image.0, &image.1, &mut ept_pml4, alloc)?;
+        }
 
-        memory::map_guest_memory(
-            alloc,
-            &mut ept_pml4,
-            memory::GuestPhysAddr::new(0xFFFFF000),
-            host_frame,
-            false,
-        )?;
-
+        //TODO: check available memory types
         let eptp = ept_pml4_frame.start_address().as_u64() | (4 - 1) << 3 | 6;
 
         vmcs.write_field(vmcs::VmcsField::EptPointer, eptp)?;
-
-        Ok(ept_pml4_frame)
+        Ok(ept_pml4)
     }
 
     fn initialize_host_vmcs(
@@ -203,8 +218,8 @@ impl VirtualMachine {
             let cr4_fixed0 = Msr::new(registers::MSR_IA32_VMX_CR4_FIXED0).read();
             (cr0_fixed0, cr4_fixed0)
         };
-        vmcs.write_field(vmcs::VmcsField::GuestCr0, guest_cr0);
-        vmcs.write_field(vmcs::VmcsField::GuestCr4, guest_cr4);
+        vmcs.write_field(vmcs::VmcsField::GuestCr0, guest_cr0)?;
+        vmcs.write_field(vmcs::VmcsField::GuestCr4, guest_cr4)?;
 
         vmcs.write_field(vmcs::VmcsField::GuestCr3, 0x00)?;
 
@@ -264,30 +279,7 @@ impl VirtualMachine {
         let flags = vmcs::SecondaryExecFlags::from_bits_truncate(field);
         info!("Sec Flags: {:?}", flags);
 
-        //FIXME: this leaks the bitmap frames
-        let bitmap_a = alloc
-            .allocate_frame()
-            .ok_or(Error::AllocError("Failed to allocate IO bitmap"))?;
-        let bitmap_b = alloc
-            .allocate_frame()
-            .ok_or(Error::AllocError("Failed to allocate IO bitmap"))?;
-        vmcs.write_field(
-            vmcs::VmcsField::IoBitmapA,
-            bitmap_a.start_address().as_u64(),
-        )?;
-        vmcs.write_field(
-            vmcs::VmcsField::IoBitmapB,
-            bitmap_b.start_address().as_u64(),
-        )?;
         vmcs.write_field(vmcs::VmcsField::Cr3TargetCount, 0)?;
-
-        let vapic_frame = alloc
-            .allocate_frame()
-            .ok_or(Error::AllocError("Failed to allocate VAPIC frame"))?;
-        vmcs.write_field(
-            vmcs::VmcsField::VirtualApicPageAddr,
-            vapic_frame.start_address().as_u64(),
-        )?;
         vmcs.write_field(vmcs::VmcsField::TprThreshold, 0)?;
 
         Ok(())
