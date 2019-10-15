@@ -15,6 +15,7 @@ pub static _fltused: u32 = 0;
 
 use uefi::prelude::*;
 
+mod device;
 mod efialloc;
 mod error;
 mod memory;
