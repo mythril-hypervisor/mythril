@@ -3,7 +3,7 @@ use crate::vm;
 use crate::vmcs;
 use bitflags::bitflags;
 use core::convert::TryFrom;
-use num_enum::TryFromPrimitive;
+use derive_try_from_primitive::TryFromPrimitive;
 use raw_cpuid::CpuId;
 use x86_64::registers::rflags;
 use x86_64::registers::rflags::RFlags;

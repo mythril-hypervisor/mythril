@@ -9,16 +9,13 @@ description = "A intel-focused hypervisor using VT-x/EPT"
 build = "build.rs"
 
 [dependencies]
+derive-try-from-primitive = "0.1.0"
 uefi = "0.3.2"
 uefi-services = "0.1.0"
 x86_64 = "0.7.5"
 log = { version = "0.4.8", default-features = false }
 bitflags = "1.2.0"
 raw-cpuid = "7.0.3"
-
-[dependencies.num_enum]
-version = "0.4.2"
-default-features = false
 
 [profile.dev]
 panic = "abort"

@@ -1,7 +1,7 @@
 use crate::vmcs;
 use alloc::string::String;
 use core::convert::TryFrom;
-use num_enum::TryFromPrimitive;
+use derive_try_from_primitive::TryFromPrimitive;
 use x86_64::registers::rflags;
 use x86_64::registers::rflags::RFlags;
 
