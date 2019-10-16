@@ -1,3 +1,4 @@
+use crate::device::EmulatedDevice;
 use crate::error::{self, Error, Result};
 use crate::memory::{self, GuestAddressSpace, GuestPhysAddr};
 use crate::percpu;
@@ -18,14 +19,18 @@ pub static mut VMS: percpu::PerCpu<Option<VirtualMachineRunning>> =
     percpu::PerCpu::<Option<VirtualMachineRunning>>::new();
 
 pub struct VirtualMachineConfig {
+    start_addr: GuestPhysAddr,
     images: Vec<(Vec<u8>, GuestPhysAddr)>,
+    devices: Vec<EmulatedDevice>,
     memory: u64, // number of 4k pages
 }
 
 impl VirtualMachineConfig {
     pub fn new(start_addr: GuestPhysAddr, memory: u64) -> VirtualMachineConfig {
         VirtualMachineConfig {
+            start_addr: start_addr,
             images: vec![],
+            devices: vec![],
             memory: memory,
         }
     }
@@ -34,12 +39,17 @@ impl VirtualMachineConfig {
         self.images.push((image, addr));
         Ok(())
     }
+
+    pub fn register_device(&mut self, device: EmulatedDevice) -> Result<()> {
+        self.devices.push(device);
+        Ok(())
+    }
 }
 
 pub struct VirtualMachine {
     vmcs: vmcs::Vmcs,
     config: VirtualMachineConfig,
-    guest_addr_space: GuestAddressSpace,
+    addr_space: GuestAddressSpace,
     stack: PhysFrame<Size4KiB>,
 }
 
@@ -55,19 +65,19 @@ impl VirtualMachine {
             .allocate_frame()
             .ok_or(Error::AllocError("Failed to allocate VM stack"))?;
 
-        let guest_addr_space = vmcs.with_active_vmcs(vmx, |mut vmcs| {
-            let guest_addr_space = Self::setup_ept(&mut vmcs, alloc, &config)?;
+        let addr_space = vmcs.with_active_vmcs(vmx, |mut vmcs| {
+            let addr_space = Self::setup_ept(&mut vmcs, alloc, &config)?;
             Self::initialize_host_vmcs(&mut vmcs, &stack)?;
             Self::initialize_guest_vmcs(&mut vmcs)?;
             Self::initialize_ctrl_vmcs(&mut vmcs, alloc)?;
-            Ok(guest_addr_space)
+            Ok(addr_space)
         })?;
 
         Ok(Self {
             vmcs: vmcs,
             config: config,
             stack: stack,
-            guest_addr_space: guest_addr_space,
+            addr_space: addr_space,
         })
     }
 
@@ -285,6 +295,9 @@ impl VirtualMachine {
         unsafe {
             VMS.set(Some(VirtualMachineRunning {
                 vmcs: self.vmcs.activate(vmx)?,
+                config: self.config,
+                addr_space: self.addr_space,
+                stack: self.stack,
             }));
         }
 
@@ -305,4 +318,7 @@ impl VirtualMachine {
 
 pub struct VirtualMachineRunning {
     pub vmcs: vmcs::ActiveVmcs,
+    config: VirtualMachineConfig,
+    addr_space: GuestAddressSpace,
+    stack: PhysFrame<Size4KiB>,
 }

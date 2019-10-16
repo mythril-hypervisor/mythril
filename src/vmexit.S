@@ -24,8 +24,7 @@ vmexit_handler_wrapper:
     pushq %r15
     movq %cr2, %rax
     pushq %rax
-
-    movq %rsp, %rdi
+    movq %rsp, %rcx
     call vmexit_handler
 
     // Restore the guest non-vmcs processor state
@@ -51,5 +50,5 @@ vmexit_handler_wrapper:
     vmresume
 
     pushfq
-    popq %rdi
+    popq %rcx
     call vmresume_failure_handler

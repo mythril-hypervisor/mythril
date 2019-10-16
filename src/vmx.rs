@@ -86,7 +86,7 @@ pub enum BasicExitReason {
     UnknownExitReason = 65,
 }
 
-struct ExitReason(u32);
+pub struct ExitReason(u32);
 bitflags! {
     pub struct ExitReasonFlags: u64 {
         const ENCLAVE_MODE =        1 << 27;
@@ -111,13 +111,38 @@ impl ExitReason {
     }
 }
 
+#[repr(C)]
+#[repr(packed)]
+#[derive(Debug)]
+pub struct GuestCpuState {
+    cr2: u64,
+    r15: u64,
+    r14: u64,
+    r13: u64,
+    r12: u64,
+    r11: u64,
+    r10: u64,
+    r9: u64,
+    r8: u64,
+    rbp: u64,
+    rdi: u64,
+    rsi: u64,
+    rdx: u64,
+    rcx: u64,
+    rbx: u64,
+    rax: u64,
+}
+
 #[no_mangle]
-pub extern "C" fn vmexit_handler() {
-    let vm = unsafe { vm::VMS.get_mut().as_mut().expect("Failed to get VM") };
+pub extern "C" fn vmexit_handler(state: *mut GuestCpuState) {
+    unsafe { info!("{:?}", *state) };
+    // let vm = unsafe { vm::VMS.get_mut().as_mut().expect("Failed to get VM") };
 
-    let reason = ExitReason::from_active_vmcs(&mut vm.vmcs).expect("Failed to get vm reason");
+    loop {}
 
-    info!("reached vmexit handler: {:?}", reason.reason());
+    // let reason = ExitReason::from_active_vmcs(&mut vm.vmcs).expect("Failed to get vm reason");
+
+    // info!("reached vmexit handler: {:?}", reason.reason());
 }
 
 #[no_mangle]
