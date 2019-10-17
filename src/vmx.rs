@@ -86,7 +86,57 @@ pub enum BasicExitReason {
     UnknownExitReason = 65,
 }
 
-pub struct ExitReason(u32);
+#[derive(Clone, Debug)]
+pub struct IoInstructionQualification {
+    size: u8,
+    input: bool,
+    string: bool,
+    rep: bool,
+    immediate: bool,
+    port: u16,
+}
+
+#[derive(Clone, Debug)]
+pub enum ExitQualification {
+    IoInstruction(IoInstructionQualification),
+}
+
+impl ExitQualification {
+    fn from_qualifier(basic: BasicExitReason, qualifier: u64) -> Option<Self> {
+        match basic {
+            BasicExitReason::IoInstruction => {
+                info!("qualifier: 0x{:x}", qualifier);
+                let size: u8 = match qualifier & 0x7 {
+                    0 => 0,
+                    1 => 1,
+                    2 => 2,
+                    3 => 4,
+                    _ => unreachable!(),
+                };
+
+                Some(ExitQualification::IoInstruction(
+                    IoInstructionQualification {
+                        size: size,
+                        input: qualifier & (1 << 3) == 1,
+                        string: qualifier & (1 << 4) == 1,
+                        rep: qualifier & (1 << 5) == 1,
+                        immediate: qualifier & (1 << 6) == 1,
+                        port: ((qualifier & 0xffff0000) >> 16) as u16,
+                    },
+                ))
+            }
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct ExitReason {
+    pub flags: ExitReasonFlags,
+    pub reason: BasicExitReason,
+    pub qualification: Option<ExitQualification>,
+}
+
 bitflags! {
     pub struct ExitReasonFlags: u64 {
         const ENCLAVE_MODE =        1 << 27;
@@ -99,15 +149,14 @@ bitflags! {
 impl ExitReason {
     fn from_active_vmcs(vmcs: &mut vmcs::ActiveVmcs) -> Result<Self> {
         let reason = vmcs.read_field(vmcs::VmcsField::VmExitReason)?;
-        Ok(ExitReason(reason as u32))
-    }
-
-    fn reason(&self) -> BasicExitReason {
-        BasicExitReason::try_from(self.0 & 0x7fff).unwrap_or(BasicExitReason::UnknownExitReason)
-    }
-
-    fn flags(&self) -> ExitReasonFlags {
-        ExitReasonFlags::from_bits_truncate(self.0 as u64)
+        let basic_reason = BasicExitReason::try_from((reason & 0x7fff) as u32)
+            .unwrap_or(BasicExitReason::UnknownExitReason);
+        let qualification_bytes = vmcs.read_field(vmcs::VmcsField::ExitQualification)?;
+        Ok(ExitReason {
+            flags: ExitReasonFlags::from_bits_truncate(reason),
+            reason: basic_reason,
+            qualification: ExitQualification::from_qualifier(basic_reason, qualification_bytes),
+        })
     }
 }
 
@@ -134,15 +183,12 @@ pub struct GuestCpuState {
 }
 
 #[no_mangle]
-pub extern "C" fn vmexit_handler(state: *mut GuestCpuState) {
-    unsafe { info!("{:?}", *state) };
-    // let vm = unsafe { vm::VMS.get_mut().as_mut().expect("Failed to get VM") };
+pub extern "C" fn vmexit_handler(state: &mut GuestCpuState) {
+    let vm = unsafe { vm::VMS.get_mut().as_mut().expect("Failed to get VM") };
+    info!("{:?}", state);
+    let reason = ExitReason::from_active_vmcs(&mut vm.vmcs).expect("Failed to get vm reason");
 
-    loop {}
-
-    // let reason = ExitReason::from_active_vmcs(&mut vm.vmcs).expect("Failed to get vm reason");
-
-    // info!("reached vmexit handler: {:?}", reason.reason());
+    info!("reached vmexit handler: {:?}", reason);
 }
 
 #[no_mangle]

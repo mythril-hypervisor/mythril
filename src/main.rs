@@ -37,10 +37,9 @@ fn efi_main(_handle: Handle, system_table: SystemTable<Boot>) -> Status {
     let mut config = vm::VirtualMachineConfig::new(memory::GuestPhysAddr::new(0), 1);
 
     config.load_image(
-        vec![0xb8, 0x20, 0x00, 0x00, 0x00],
+        vec![0xB8, 0x20, 0x00, 0x00, 0x00, 0x66, 0xBA, 0xF8, 0x03, 0xEF],
         memory::GuestPhysAddr::new(0x1000),
     );
-    //config.load_image(vec![0xEB, 0xFE], memory::GuestPhysAddr::new(0x1000));
     config.register_device(device::ComDevice::new(0x3F8));
 
     let vm = vm::VirtualMachine::new(&mut vmx, &mut alloc, config).expect("Failed to create vm");

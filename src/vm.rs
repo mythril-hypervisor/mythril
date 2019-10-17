@@ -245,7 +245,9 @@ impl VirtualMachine {
     ) -> Result<()> {
         vmcs.write_with_fixed(
             vmcs::VmcsField::CpuBasedVmExecControl,
-            vmcs::CpuBasedCtrlFlags::ACTIVATE_SECONDARY_CONTROLS.bits(),
+            (vmcs::CpuBasedCtrlFlags::UNCOND_IO_EXITING
+                | vmcs::CpuBasedCtrlFlags::ACTIVATE_SECONDARY_CONTROLS)
+                .bits(),
             registers::MSR_IA32_VMX_PROCBASED_CTLS,
         )?;
 
