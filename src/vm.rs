@@ -15,6 +15,10 @@ use x86_64::structures::paging::page::{PageSize, Size4KiB};
 use x86_64::structures::paging::FrameAllocator;
 use x86_64::PhysAddr;
 
+extern "C" {
+    pub fn vmlaunch_wrapper() -> u64;
+}
+
 pub static mut VMS: percpu::PerCpu<Option<VirtualMachineRunning>> =
     percpu::PerCpu::<Option<VirtualMachineRunning>>::new();
 
@@ -301,15 +305,7 @@ impl VirtualMachine {
             }));
         }
 
-        let rflags = unsafe {
-            let rflags: u64;
-            asm!("vmlaunch; pushfq; popq $0"
-                 : "=r"(rflags)
-                 :: "rflags"
-                 : "volatile");
-            rflags
-        };
-
+        let rflags = unsafe { vmlaunch_wrapper() };
         error::check_vm_insruction(rflags, "Failed to launch vm".into())?;
 
         unreachable!()
