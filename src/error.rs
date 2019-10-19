@@ -72,6 +72,7 @@ pub enum Error {
     VmFailInvalid(String),
     VmFailValid((VmInstructionError, String)),
     AllocError(&'static str),
+    MissingDevice(String),
     NotSupported,
 }
 

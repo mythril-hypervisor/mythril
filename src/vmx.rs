@@ -88,12 +88,12 @@ pub enum BasicExitReason {
 
 #[derive(Clone, Debug)]
 pub struct IoInstructionQualification {
-    size: u8,
-    input: bool,
-    string: bool,
-    rep: bool,
-    immediate: bool,
-    port: u16,
+    pub size: u8,
+    pub input: bool,
+    pub string: bool,
+    pub rep: bool,
+    pub immediate: bool,
+    pub port: u16,
 }
 
 #[derive(Clone, Debug)]
@@ -105,7 +105,6 @@ impl ExitQualification {
     fn from_qualifier(basic: BasicExitReason, qualifier: u64) -> Option<Self> {
         match basic {
             BasicExitReason::IoInstruction => {
-                info!("qualifier: 0x{:x}", qualifier);
                 let size: u8 = match qualifier & 0x7 {
                     0 => 0,
                     1 => 1,
@@ -164,31 +163,33 @@ impl ExitReason {
 #[repr(packed)]
 #[derive(Debug)]
 pub struct GuestCpuState {
-    cr2: u64,
-    r15: u64,
-    r14: u64,
-    r13: u64,
-    r12: u64,
-    r11: u64,
-    r10: u64,
-    r9: u64,
-    r8: u64,
-    rbp: u64,
-    rdi: u64,
-    rsi: u64,
-    rdx: u64,
-    rcx: u64,
-    rbx: u64,
-    rax: u64,
+    pub cr2: u64,
+    pub r15: u64,
+    pub r14: u64,
+    pub r13: u64,
+    pub r12: u64,
+    pub r11: u64,
+    pub r10: u64,
+    pub r9: u64,
+    pub r8: u64,
+    pub rbp: u64,
+    pub rdi: u64,
+    pub rsi: u64,
+    pub rdx: u64,
+    pub rcx: u64,
+    pub rbx: u64,
+    pub rax: u64,
 }
 
 #[no_mangle]
 pub extern "C" fn vmexit_handler(state: &mut GuestCpuState) {
-    let vm = unsafe { vm::VMS.get_mut().as_mut().expect("Failed to get VM") };
+    let mut vm = unsafe { vm::VMS.get_mut().as_mut().expect("Failed to get VM") };
     info!("{:?}", state);
     let reason = ExitReason::from_active_vmcs(&mut vm.vmcs).expect("Failed to get vm reason");
 
     info!("reached vmexit handler: {:?}", reason);
+
+    vm.handle_vmexit(state, reason);
 }
 
 #[no_mangle]

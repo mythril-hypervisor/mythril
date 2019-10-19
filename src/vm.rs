@@ -1,10 +1,11 @@
-use crate::device::EmulatedDevice;
+use crate::device::{EmulatedDevice, PortIoDevice};
 use crate::error::{self, Error, Result};
 use crate::memory::{self, GuestAddressSpace, GuestPhysAddr};
 use crate::percpu;
 use crate::registers::{self, Cr4, GdtrBase, IdtrBase};
 use crate::vmcs;
 use crate::vmx;
+use alloc::boxed::Box;
 use alloc::vec::Vec;
 use x86_64::registers::control::{Cr0, Cr3};
 use x86_64::registers::model_specific::{Efer, FsBase, GsBase, Msr};
@@ -25,7 +26,7 @@ pub static mut VMS: percpu::PerCpu<Option<VirtualMachineRunning>> =
 pub struct VirtualMachineConfig {
     start_addr: GuestPhysAddr,
     images: Vec<(Vec<u8>, GuestPhysAddr)>,
-    devices: Vec<EmulatedDevice>,
+    port_devices: Vec<Box<dyn PortIoDevice>>,
     memory: u64, // number of 4k pages
 }
 
@@ -34,7 +35,7 @@ impl VirtualMachineConfig {
         VirtualMachineConfig {
             start_addr: start_addr,
             images: vec![],
-            devices: vec![],
+            port_devices: vec![],
             memory: memory,
         }
     }
@@ -45,7 +46,10 @@ impl VirtualMachineConfig {
     }
 
     pub fn register_device(&mut self, device: EmulatedDevice) -> Result<()> {
-        self.devices.push(device);
+        match device {
+            EmulatedDevice::Port(device) => self.port_devices.push(device),
+            _ => (),
+        }
         Ok(())
     }
 }
@@ -319,4 +323,43 @@ pub struct VirtualMachineRunning {
     config: VirtualMachineConfig,
     addr_space: GuestAddressSpace,
     stack: PhysFrame<Size4KiB>,
+}
+
+impl VirtualMachineRunning {
+    fn find_matching_port_dev(&mut self, port: u16) -> Option<&mut Box<dyn PortIoDevice>> {
+        self.config
+            .port_devices
+            .iter_mut()
+            .find(|dev| dev.port() == port)
+    }
+
+    pub fn handle_vmexit(
+        &mut self,
+        guest_cpu: &mut vmx::GuestCpuState,
+        exit: vmx::ExitReason,
+    ) -> Result<()> {
+        match exit.reason {
+            vmx::BasicExitReason::IoInstruction => {
+                let (port, input, size) = match exit.qualification {
+                    Some(vmx::ExitQualification::IoInstruction(qual)) => {
+                        (qual.port, qual.input, qual.size)
+                    }
+                    _ => unreachable!(),
+                };
+
+                let dev = self
+                    .find_matching_port_dev(port)
+                    .ok_or(Error::MissingDevice(format!("No device for port {}", port)))?;
+
+                if !input {
+                    let arr = (guest_cpu.rax as u32).to_be_bytes();
+                    dev.on_write(&arr[..size as usize])?;
+                } else {
+                    //TODO: read
+                }
+            }
+            _ => info!("No handler for exit reason: {:?}", exit),
+        }
+        Ok(())
+    }
 }
