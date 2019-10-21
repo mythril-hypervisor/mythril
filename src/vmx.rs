@@ -96,13 +96,38 @@ pub struct IoInstructionQualification {
     pub port: u16,
 }
 
-#[derive(Clone, Debug)]
-pub enum ExitQualification {
-    IoInstruction(IoInstructionQualification),
+#[derive(Clone, Copy, Debug, TryFromPrimitive)]
+#[repr(u8)]
+pub enum InterruptType {
+    ExternalInterrupt = 0,
+    NonMaskableInterrupt = 1,
+    HardwareException = 3,
+    SoftwareException = 6,
 }
 
-impl ExitQualification {
-    fn from_qualifier(basic: BasicExitReason, qualifier: u64) -> Option<Self> {
+#[derive(Clone, Debug)]
+pub struct VectoredEventInformation {
+    pub vector: u8,
+    pub interrupt_type: InterruptType,
+    pub error_code: Option<u32>,
+    pub nmi_unblocking_iret: bool,
+    pub valid: bool,
+}
+
+#[derive(Clone, Debug)]
+pub enum ExitInformation {
+    IoInstruction(IoInstructionQualification),
+    VectoredEvent(VectoredEventInformation),
+}
+
+impl ExitInformation {
+    fn from_active_vmcs(
+        basic: BasicExitReason,
+        vmcs: &mut vmcs::ActiveVmcs,
+    ) -> Result<Option<Self>> {
+        let qualifier = vmcs.read_field(vmcs::VmcsField::ExitQualification)?;
+        let inter_info = vmcs.read_field(vmcs::VmcsField::VmExitIntrInfo)?;
+        let inter_error = vmcs.read_field(vmcs::VmcsField::VmExitIntrErrorCode)?;
         match basic {
             BasicExitReason::IoInstruction => {
                 let size: u8 = match qualifier & 0x7 {
@@ -113,7 +138,7 @@ impl ExitQualification {
                     _ => unreachable!(),
                 };
 
-                Some(ExitQualification::IoInstruction(
+                Ok(Some(ExitInformation::IoInstruction(
                     IoInstructionQualification {
                         size: size,
                         input: qualifier & (1 << 3) == 1,
@@ -122,9 +147,26 @@ impl ExitQualification {
                         immediate: qualifier & (1 << 6) == 1,
                         port: ((qualifier & 0xffff0000) >> 16) as u16,
                     },
-                ))
+                )))
             }
-            _ => None,
+            BasicExitReason::NonMaskableInterrupt => {
+                let error_code = if inter_info & (1 << 11) == 1 {
+                    Some(inter_error as u32)
+                } else {
+                    None
+                };
+                Ok(Some(ExitInformation::VectoredEvent(
+                    VectoredEventInformation {
+                        vector: (inter_info & 0xff) as u8,
+                        interrupt_type: InterruptType::try_from(((inter_info & 0x700) >> 8) as u8)
+                            .ok_or(Error::NotSupported)?,
+                        error_code: error_code,
+                        nmi_unblocking_iret: inter_info & (1 << 12) == 1,
+                        valid: inter_info & (1 << 31) == 1,
+                    },
+                )))
+            }
+            _ => Ok(None),
         }
     }
 }
@@ -133,7 +175,7 @@ impl ExitQualification {
 pub struct ExitReason {
     pub flags: ExitReasonFlags,
     pub reason: BasicExitReason,
-    pub qualification: Option<ExitQualification>,
+    pub information: Option<ExitInformation>,
 }
 
 bitflags! {
@@ -150,18 +192,17 @@ impl ExitReason {
         let reason = vmcs.read_field(vmcs::VmcsField::VmExitReason)?;
         let basic_reason = BasicExitReason::try_from((reason & 0x7fff) as u32)
             .unwrap_or(BasicExitReason::UnknownExitReason);
-        let qualification_bytes = vmcs.read_field(vmcs::VmcsField::ExitQualification)?;
         Ok(ExitReason {
             flags: ExitReasonFlags::from_bits_truncate(reason),
             reason: basic_reason,
-            qualification: ExitQualification::from_qualifier(basic_reason, qualification_bytes),
+            information: ExitInformation::from_active_vmcs(basic_reason, vmcs)?,
         })
     }
 }
 
 #[repr(C)]
 #[repr(packed)]
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct GuestCpuState {
     pub cr2: u64,
     pub r15: u64,
@@ -182,12 +223,20 @@ pub struct GuestCpuState {
 }
 
 #[no_mangle]
-pub extern "C" fn vmexit_handler(state: &mut GuestCpuState) {
+pub extern "C" fn vmexit_handler(state: *mut GuestCpuState) {
+    let state = unsafe { state.as_mut() }.expect("Guest cpu sate is NULL");
     let mut vm = unsafe { vm::VMS.get_mut().as_mut().expect("Failed to get VM") };
-    info!("{:?}", state);
+
     let reason = ExitReason::from_active_vmcs(&mut vm.vmcs).expect("Failed to get vm reason");
 
+    info!("Guest cpu state: {:?}", state);
     info!("reached vmexit handler: {:?}", reason);
+    info!(
+        "Guest RIP: {}",
+        vm.vmcs
+            .read_field(vmcs::VmcsField::GuestRip)
+            .expect("Failed to read guest rip")
+    );
 
     vm.handle_vmexit(state, reason);
 }

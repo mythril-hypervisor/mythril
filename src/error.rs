@@ -73,7 +73,10 @@ pub enum Error {
     VmFailValid((VmInstructionError, String)),
     AllocError(&'static str),
     MissingDevice(String),
+    MissingFile(String),
+    NullPtr(String),
     NotSupported,
+    Uefi(String),
 }
 
 pub type Result<T> = core::result::Result<T, Error>;

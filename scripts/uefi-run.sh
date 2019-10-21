@@ -4,8 +4,8 @@
 
 set -e
 
-if [ $# -ne 1 ] || ! [[ -f $1 && -x $1 ]]; then
-    echo "Usage: $0 <patch to mythril.efi>"
+if [ $# -eq 0 ]; then
+    echo "Usage: $0 <path to mythril.efi> [<other file to include>]..."
     exit 1
 fi
 
@@ -22,6 +22,10 @@ run.efi
 EOF
 
 cp "$1" _mnt/run.efi
+
+if [ $# -gt 1 ]; then
+    cp -r "${@:2}" _mnt/
+fi
 
 umount _mnt
 rm -rf _mnt
