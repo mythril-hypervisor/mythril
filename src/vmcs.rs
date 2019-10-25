@@ -1,6 +1,7 @@
 use crate::error::{self, Error, Result};
 use crate::vmx;
 use bitflags::bitflags;
+use core::fmt;
 use x86_64::registers::model_specific::Msr;
 use x86_64::registers::rflags;
 use x86_64::registers::rflags::RFlags;
@@ -419,6 +420,106 @@ impl ActiveVmcs {
     }
 }
 
+impl fmt::Display for ActiveVmcs {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let read_field = |field: VmcsField| -> core::result::Result<u64, fmt::Error> {
+            self.read_field(field).map_err(|e| fmt::Error)
+        };
+
+        write!(f, "VMCS:\n")?;
+        write!(f, " Guest State:\n")?;
+        write!(f, "  CR0=0x{:x} ", read_field(VmcsField::GuestCr0)?)?;
+        write!(f, "CR3=0x{:x} ", read_field(VmcsField::GuestCr3)?)?;
+        write!(f, "CR4=0x{:x}\n", read_field(VmcsField::GuestCr4)?)?;
+
+        write!(f, "  RSP=0x{:x} ", read_field(VmcsField::GuestRsp)?)?;
+        write!(f, "RIP=0x{:x}\n", read_field(VmcsField::GuestRip)?)?;
+
+        write!(f, "  RFLAGS=0x{:x} ", read_field(VmcsField::GuestRflags)?)?;
+        write!(f, "DR7=0x{:x}\n", read_field(VmcsField::GuestDr7)?)?;
+
+        // Guest selectors
+        write!(f, "  CS: ")?;
+        write!(
+            f,
+            "selector=0x{:x} base=0x{:x} limit=0x{:x} ar=0x{:x}\n",
+            read_field(VmcsField::GuestCsSelector)?,
+            read_field(VmcsField::GuestCsBase)?,
+            read_field(VmcsField::GuestCsLimit)?,
+            read_field(VmcsField::GuestCsArBytes)?
+        )?;
+        write!(f, "  DS: ")?;
+        write!(
+            f,
+            "selector=0x{:x} base=0x{:x} limit=0x{:x} ar=0x{:x}\n",
+            read_field(VmcsField::GuestDsSelector)?,
+            read_field(VmcsField::GuestDsBase)?,
+            read_field(VmcsField::GuestDsLimit)?,
+            read_field(VmcsField::GuestDsArBytes)?
+        )?;
+        write!(f, "  SS: ")?;
+        write!(
+            f,
+            "selector=0x{:x} base=0x{:x} limit=0x{:x} ar=0x{:x}\n",
+            read_field(VmcsField::GuestSsSelector)?,
+            read_field(VmcsField::GuestSsBase)?,
+            read_field(VmcsField::GuestSsLimit)?,
+            read_field(VmcsField::GuestSsArBytes)?
+        )?;
+        write!(f, "  ES: ")?;
+        write!(
+            f,
+            "selector=0x{:x} base=0x{:x} limit=0x{:x} ar=0x{:x}\n",
+            read_field(VmcsField::GuestEsSelector)?,
+            read_field(VmcsField::GuestEsBase)?,
+            read_field(VmcsField::GuestEsLimit)?,
+            read_field(VmcsField::GuestEsArBytes)?
+        )?;
+        write!(f, "  FS: ")?;
+        write!(
+            f,
+            "selector=0x{:x} base=0x{:x} limit=0x{:x} ar=0x{:x}\n",
+            read_field(VmcsField::GuestFsSelector)?,
+            read_field(VmcsField::GuestFsBase)?,
+            read_field(VmcsField::GuestFsLimit)?,
+            read_field(VmcsField::GuestFsArBytes)?
+        )?;
+        write!(f, "  GS: ")?;
+        write!(
+            f,
+            "selector=0x{:x} base=0x{:x} limit=0x{:x} ar=0x{:x}\n",
+            read_field(VmcsField::GuestGsSelector)?,
+            read_field(VmcsField::GuestGsBase)?,
+            read_field(VmcsField::GuestGsLimit)?,
+            read_field(VmcsField::GuestGsArBytes)?
+        )?;
+        write!(f, "  LDTR: ")?;
+        write!(
+            f,
+            "selector=0x{:x} base=0x{:x} limit=0x{:x} ar=0x{:x}\n",
+            read_field(VmcsField::GuestLdtrSelector)?,
+            read_field(VmcsField::GuestLdtrBase)?,
+            read_field(VmcsField::GuestLdtrLimit)?,
+            read_field(VmcsField::GuestLdtrArBytes)?
+        )?;
+        write!(f, "  GDTR: ")?;
+        write!(
+            f,
+            "base=0x{:x} limit=0x{:x}\n",
+            read_field(VmcsField::GuestGdtrBase)?,
+            read_field(VmcsField::GuestGdtrLimit)?
+        )?;
+        write!(f, "  IDTR: ")?;
+        write!(
+            f,
+            "base=0x{:x} limit=0x{:x}\n",
+            read_field(VmcsField::GuestIdtrBase)?,
+            read_field(VmcsField::GuestIdtrLimit)?
+        )?;
+        Ok(())
+    }
+}
+
 pub struct TemporaryActiveVmcs<'a> {
     vmcs: &'a mut Vmcs,
     vmx: &'a mut vmx::Vmx,
@@ -447,16 +548,4 @@ impl<'a> Drop for TemporaryActiveVmcs<'a> {
     fn drop(&mut self) {
         vmcs_clear(self.vmcs.frame.start_address()).expect("Failed to clear TemporaryActiveVmcs");
     }
-}
-
-struct VmcsHost {
-    stack: PhysAddr,
-}
-
-struct VmcsGuest {}
-
-struct VmcsInfo {
-    host: VmcsHost,
-    guest: VmcsGuest,
-    vpid: u64,
 }

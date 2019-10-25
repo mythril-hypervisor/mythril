@@ -49,7 +49,7 @@ vmlaunch_wrapper:
     xor %rax, %rax
     xor %rbx, %rbx
     xor %rcx, %rcx
-    xor %rdx, %rdx
+    movq $0x406e3, %rdx //TODO: check this
     xor %rsi, %rsi
     xor %rdi, %rdi
     xor %rbp, %rbp

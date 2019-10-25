@@ -124,10 +124,13 @@ impl VirtualMachine {
                 .map_err(|_| Error::Uefi("Failed to open volume".into()))?;
 
             //FIXME: we should just continue on error here
-            let handle = root
+            let handle = match root
                 .open(path, FileMode::Read, FileAttribute::READ_ONLY)
                 .log_warning()
-                .map_err(|_| Error::Uefi(format!("Failed to open file: {}", path)))?;
+            {
+                Ok(f) => f,
+                Err(_) => continue,
+            };
             let file = handle
                 .into_type()
                 .log_warning()
@@ -222,6 +225,7 @@ impl VirtualMachine {
         vmcs.write_field(vmcs::VmcsField::HostEsSelector, 0x30)?;
         vmcs.write_field(vmcs::VmcsField::HostFsSelector, 0x30)?;
         vmcs.write_field(vmcs::VmcsField::HostGsSelector, 0x30)?;
+        vmcs.write_field(vmcs::VmcsField::HostTrSelector, 0x30)?;
 
         vmcs.write_field(vmcs::VmcsField::HostIa32SysenterCs, 0x00)?;
         vmcs.write_field(vmcs::VmcsField::HostIa32SysenterEsp, 0x00)?;
@@ -271,13 +275,12 @@ impl VirtualMachine {
         vmcs.write_field(vmcs::VmcsField::GuestIdtrLimit, 0xffff)?;
         vmcs.write_field(vmcs::VmcsField::GuestGdtrLimit, 0xffff)?;
 
-        vmcs.write_field(vmcs::VmcsField::GuestEsArBytes, 0xc093)?; // read/write
-        vmcs.write_field(vmcs::VmcsField::GuestSsArBytes, 0xc093)?;
-        vmcs.write_field(vmcs::VmcsField::GuestDsArBytes, 0xc093)?;
-        vmcs.write_field(vmcs::VmcsField::GuestFsArBytes, 0xc093)?;
-        vmcs.write_field(vmcs::VmcsField::GuestGsArBytes, 0xc093)?;
-        vmcs.write_field(vmcs::VmcsField::GuestCsArBytes, 0xc09b)?; // exec/read
-
+        vmcs.write_field(vmcs::VmcsField::GuestEsArBytes, 0x0093)?; // read/write
+        vmcs.write_field(vmcs::VmcsField::GuestSsArBytes, 0x0093)?;
+        vmcs.write_field(vmcs::VmcsField::GuestDsArBytes, 0x0093)?;
+        vmcs.write_field(vmcs::VmcsField::GuestFsArBytes, 0x0093)?;
+        vmcs.write_field(vmcs::VmcsField::GuestGsArBytes, 0x0093)?;
+        vmcs.write_field(vmcs::VmcsField::GuestCsArBytes, 0x009b)?; // exec/read
         vmcs.write_field(vmcs::VmcsField::GuestLdtrArBytes, 0x0082)?; // LDT
         vmcs.write_field(vmcs::VmcsField::GuestTrArBytes, 0x008b)?; // TSS (busy)
 
@@ -340,13 +343,16 @@ impl VirtualMachine {
 
         vmcs.write_with_fixed(
             vmcs::VmcsField::VmExitControls,
-            (vmcs::VmExitCtrlFlags::IA32E_MODE | vmcs::VmExitCtrlFlags::LOAD_HOST_EFER).bits(),
+            (vmcs::VmExitCtrlFlags::IA32E_MODE
+                | vmcs::VmExitCtrlFlags::LOAD_HOST_EFER
+                | vmcs::VmExitCtrlFlags::SAVE_GUEST_EFER)
+                .bits(),
             registers::MSR_IA32_VMX_EXIT_CTLS,
         )?;
 
         vmcs.write_with_fixed(
             vmcs::VmcsField::VmEntryControls,
-            0,
+            vmcs::VmEntryCtrlFlags::LOAD_GUEST_EFER.bits(),
             registers::MSR_IA32_VMX_ENTRY_CTLS,
         )?;
 

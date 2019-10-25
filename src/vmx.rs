@@ -229,14 +229,9 @@ pub extern "C" fn vmexit_handler(state: *mut GuestCpuState) {
 
     let reason = ExitReason::from_active_vmcs(&mut vm.vmcs).expect("Failed to get vm reason");
 
-    info!("Guest cpu state: {:?}", state);
     info!("reached vmexit handler: {:?}", reason);
-    info!(
-        "Guest RIP: {}",
-        vm.vmcs
-            .read_field(vmcs::VmcsField::GuestRip)
-            .expect("Failed to read guest rip")
-    );
+    info!("Guest cpu state: {:?}", state);
+    info!("{}", vm.vmcs);
 
     vm.handle_vmexit(state, reason);
 }
