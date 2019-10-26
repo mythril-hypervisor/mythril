@@ -3,8 +3,7 @@ use crate::error::{self, Error, Result};
 use crate::memory::{self, GuestAddressSpace, GuestPhysAddr};
 use crate::percpu;
 use crate::registers::{self, Cr4, GdtrBase, IdtrBase};
-use crate::vmcs;
-use crate::vmx;
+use crate::{vmcs, vmexit, vmx};
 use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -240,7 +239,10 @@ impl VirtualMachine {
         vmcs.write_field(vmcs::VmcsField::HostRsp, stack.as_ptr() as u64)?;
         vmcs.write_field(vmcs::VmcsField::HostIa32Efer, Efer::read().bits())?;
 
-        vmcs.write_field(vmcs::VmcsField::HostRip, vmx::vmexit_handler_wrapper as u64)?;
+        vmcs.write_field(
+            vmcs::VmcsField::HostRip,
+            vmexit::vmexit_handler_wrapper as u64,
+        )?;
 
         Ok(())
     }
@@ -301,10 +303,18 @@ impl VirtualMachine {
             cr0_fixed0 &= !(1 << 0); // disable PE
             cr0_fixed0 &= !(1 << 31); // disable PG
             let cr4_fixed0 = Msr::new(registers::MSR_IA32_VMX_CR4_FIXED0).read();
+
+            vmcs.write_field(
+                vmcs::VmcsField::Cr4GuestHostMask,
+                cr4_fixed0 & 0x00000000ffffffff,
+            )?;
+
             (cr0_fixed0, cr4_fixed0)
         };
+
         vmcs.write_field(vmcs::VmcsField::GuestCr0, guest_cr0)?;
         vmcs.write_field(vmcs::VmcsField::GuestCr4, guest_cr4)?;
+        vmcs.write_field(vmcs::VmcsField::Cr4ReadShadow, 0x00)?;
 
         vmcs.write_field(vmcs::VmcsField::GuestCr3, 0x00)?;
 
@@ -406,15 +416,38 @@ impl VirtualMachineRunning {
             .find(|dev| dev.port() == port)
     }
 
+    fn skip_emulated_instruction(&mut self) -> Result<()> {
+        let mut rip = self.vmcs.read_field(vmcs::VmcsField::GuestRip)?;
+        rip += self
+            .vmcs
+            .read_field(vmcs::VmcsField::VmExitInstructionLen)?;
+        self.vmcs.write_field(vmcs::VmcsField::GuestRip, rip)?;
+
+        //TODO: clear interrupts?
+        Ok(())
+    }
+
     pub fn handle_vmexit(
         &mut self,
-        guest_cpu: &mut vmx::GuestCpuState,
-        exit: vmx::ExitReason,
+        guest_cpu: &mut vmexit::GuestCpuState,
+        exit: vmexit::ExitReason,
     ) -> Result<()> {
         match exit.reason {
-            vmx::BasicExitReason::IoInstruction => {
+            vmexit::BasicExitReason::CpuId => {
+                //FIXME: for now just use the actual cpuid
+                let res = raw_cpuid::native_cpuid::cpuid_count(
+                    guest_cpu.rax as u32,
+                    guest_cpu.rcx as u32,
+                );
+                guest_cpu.rax = res.eax as u64 | (guest_cpu.rax & 0xffffffff00000000);
+                guest_cpu.rbx = res.ebx as u64 | (guest_cpu.rbx & 0xffffffff00000000);
+                guest_cpu.rcx = res.ecx as u64 | (guest_cpu.rcx & 0xffffffff00000000);
+                guest_cpu.rdx = res.edx as u64 | (guest_cpu.rdx & 0xffffffff00000000);
+                self.skip_emulated_instruction();
+            }
+            vmexit::BasicExitReason::IoInstruction => {
                 let (port, input, size) = match exit.information {
-                    Some(vmx::ExitInformation::IoInstruction(qual)) => {
+                    Some(vmexit::ExitInformation::IoInstruction(qual)) => {
                         (qual.port, qual.input, qual.size)
                     }
                     _ => unreachable!(),
@@ -430,9 +463,11 @@ impl VirtualMachineRunning {
                 } else {
                     //TODO: read
                 }
+                self.skip_emulated_instruction();
             }
             _ => info!("No handler for exit reason: {:?}", exit),
         }
+
         Ok(())
     }
 }

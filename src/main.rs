@@ -24,6 +24,7 @@ mod registers;
 mod vm;
 #[allow(dead_code)]
 mod vmcs;
+mod vmexit;
 mod vmx;
 
 #[entry]
@@ -47,8 +48,6 @@ fn efi_main(_handle: Handle, system_table: SystemTable<Boot>) -> Status {
         .expect("Failed to create vm");
 
     info!("Constructed VM!");
-
-    info!("addr: 0x{:x}", vmx::vmexit_handler_wrapper as u64);
 
     vm.launch(vmx).expect("Failed to launch vm");
 

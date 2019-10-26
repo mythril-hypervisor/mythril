@@ -1,6 +1,6 @@
 use crate::error::{self, Error, Result};
 use crate::memory::{self, GuestAddressSpace, GuestPhysAddr};
-use crate::vmx::{ExitReason, GuestCpuState, IoInstructionQualification};
+use crate::vmexit::{ExitReason, GuestCpuState, IoInstructionQualification};
 use alloc::boxed::Box;
 use alloc::string::String;
 

@@ -55,6 +55,7 @@ impl GuestAddressSpace {
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct GuestPhysAddr(VirtAddr);
 impl GuestPhysAddr {
     pub fn new(addr: u64) -> Self {
@@ -278,12 +279,12 @@ fn map_guest_memory(
         return Err(Error::AllocError("Duplicate mapping"));
     }
 
-    let mut page_flags = EptTableFlags::WRITE_ACCESS
+    let mut page_flags = EptTableFlags::READ_ACCESS
         | EptTableFlags::PRIV_EXEC_ACCESS
         | EptTableFlags::USERMODE_EXEC_ACCESS
         | EptTableFlags::IGNORE_PAT;
     if !readonly {
-        page_flags |= EptTableFlags::READ_ACCESS;
+        page_flags |= EptTableFlags::WRITE_ACCESS;
     }
 
     ept_pte.set_addr(host_frame.start_address(), page_flags);

@@ -428,9 +428,19 @@ impl fmt::Display for ActiveVmcs {
 
         write!(f, "VMCS:\n")?;
         write!(f, " Guest State:\n")?;
-        write!(f, "  CR0=0x{:x} ", read_field(VmcsField::GuestCr0)?)?;
+        write!(
+            f,
+            "  CR0=0x{:x}(shadow=0x{:x}) ",
+            read_field(VmcsField::GuestCr0)?,
+            read_field(VmcsField::Cr0ReadShadow)?
+        )?;
         write!(f, "CR3=0x{:x} ", read_field(VmcsField::GuestCr3)?)?;
-        write!(f, "CR4=0x{:x}\n", read_field(VmcsField::GuestCr4)?)?;
+        write!(
+            f,
+            "CR4=0x{:x}(shadow=0x{:x})\n",
+            read_field(VmcsField::GuestCr4)?,
+            read_field(VmcsField::Cr4ReadShadow)?
+        )?;
 
         write!(f, "  RSP=0x{:x} ", read_field(VmcsField::GuestRsp)?)?;
         write!(f, "RIP=0x{:x}\n", read_field(VmcsField::GuestRip)?)?;
