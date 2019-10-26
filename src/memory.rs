@@ -249,7 +249,6 @@ fn map_guest_memory(
             .allocate_frame()
             .ok_or(Error::AllocError("Failed to allocate pdpt"))?;
         ept_pml4e.set_addr(ept_pdpt_frame.start_address(), default_flags);
-        info!("Allocated new EPT PDP Table")
     }
 
     let ept_pdpt = ept_pml4e.addr().as_u64() as *mut EptPageDirectoryPointerTable;
@@ -259,7 +258,6 @@ fn map_guest_memory(
             .allocate_frame()
             .ok_or(Error::AllocError("Failed to allocate pdt"))?;
         ept_pdpe.set_addr(ept_pdt_frame.start_address(), default_flags);
-        info!("Allocated new PD Table")
     }
 
     let ept_pdt = ept_pdpe.addr().as_u64() as *mut EptPageDirectory;
@@ -269,7 +267,6 @@ fn map_guest_memory(
             .allocate_frame()
             .ok_or(Error::AllocError("Failed to allocate pt"))?;
         ept_pde.set_addr(ept_pt_frame.start_address(), default_flags);
-        info!("Allocated new PT")
     }
 
     let ept_pt = ept_pde.addr().as_u64() as *mut EptPageTable;

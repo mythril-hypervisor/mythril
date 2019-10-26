@@ -196,6 +196,23 @@ impl VirtualMachine {
         services: &BootServices,
     ) -> Result<GuestAddressSpace> {
         let mut guest_space = GuestAddressSpace::new(alloc)?;
+
+        // FIXME: For now, just map 32MB of RAM
+        for i in 0..8192 {
+            let mut host_frame = alloc
+                .allocate_frame()
+                .expect("Failed to allocate host frame");
+
+            let frame_ptr = host_frame.start_address().as_u64() as *mut u8;
+
+            guest_space.map_frame(
+                alloc,
+                memory::GuestPhysAddr::new((i as u64 * Size4KiB::SIZE) as u64),
+                host_frame,
+                false,
+            )?;
+        }
+
         for image in config.images.iter() {
             Self::map_image(&image.0, &image.1, &mut guest_space, alloc, services)?;
         }

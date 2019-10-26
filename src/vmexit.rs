@@ -166,11 +166,51 @@ pub struct EptInformation {
     pub guest_phys_addr: GuestPhysAddr,
 }
 
+#[derive(Clone, Copy, Debug, TryFromPrimitive)]
+#[repr(u8)]
+pub enum CrAccessType {
+    MovToCr = 0,
+    MovFromCr = 1,
+    Clts = 2,
+    Lmsw = 3,
+}
+
+#[derive(Clone, Copy, Debug, TryFromPrimitive)]
+#[repr(u8)]
+pub enum MovCrRegister {
+    Rax = 0,
+    Rcx = 1,
+    Rdx = 2,
+    Rbx = 3,
+    Rsp = 4,
+    Rbp = 5,
+    Rsi = 6,
+    Rdi = 7,
+    R8 = 8,
+    R9 = 9,
+    R10 = 10,
+    R11 = 11,
+    R12 = 12,
+    R13 = 13,
+    R14 = 14,
+    R15 = 15,
+}
+
+#[derive(Clone, Debug)]
+pub struct CrInformation {
+    pub cr_num: u8,
+    pub access_type: CrAccessType,
+    pub memory_operand: bool,
+    pub register: Option<MovCrRegister>,
+    pub lmsw_source: Option<u16>,
+}
+
 #[derive(Clone, Debug)]
 pub enum ExitInformation {
     IoInstruction(IoInstructionQualification),
     VectoredEvent(VectoredEventInformation),
     EptInformation(EptInformation),
+    CrAccess(CrInformation),
 }
 
 impl ExitInformation {
@@ -182,6 +222,29 @@ impl ExitInformation {
         let inter_info = vmcs.read_field(vmcs::VmcsField::VmExitIntrInfo)?;
         let inter_error = vmcs.read_field(vmcs::VmcsField::VmExitIntrErrorCode)?;
         match basic {
+            BasicExitReason::CrAccess => {
+                let access_type = CrAccessType::try_from(((qualifier & 0b11000) >> 3) as u8)
+                    .ok_or(Error::InvalidValue("Invalid CR access type".into()))?;
+                let reg = ((qualifier & 0xf00) >> 8) as u8;
+                let (reg, source) = match access_type {
+                    CrAccessType::MovToCr | CrAccessType::MovFromCr => (
+                        Some(
+                            MovCrRegister::try_from(reg)
+                                .ok_or(Error::InvalidValue("Invalid general register".into()))?,
+                        ),
+                        None,
+                    ),
+                    _ => (None, Some(((qualifier & 0xffff0000) >> 16) as u16)),
+                };
+                Ok(Some(ExitInformation::CrAccess(CrInformation {
+                    cr_num: (qualifier & 0b111) as u8,
+                    access_type: access_type,
+                    memory_operand: qualifier & (1 << 6) != 0,
+                    register: reg,
+                    lmsw_source: source,
+                })))
+            }
+
             BasicExitReason::EptViolation => {
                 let guest_linear_addr = if qualifier & (1 << 7) != 0 {
                     Some(GuestPhysAddr::new(
@@ -240,7 +303,7 @@ impl ExitInformation {
                     VectoredEventInformation {
                         vector: (inter_info & 0xff) as u8,
                         interrupt_type: InterruptType::try_from(((inter_info & 0x700) >> 8) as u8)
-                            .ok_or(Error::NotSupported)?,
+                            .ok_or(Error::InvalidValue("Invalid interrupt type".into()))?,
                         error_code: error_code,
                         nmi_unblocking_iret: inter_info & (1 << 12) != 0,
                         valid: inter_info & (1 << 31) != 0,

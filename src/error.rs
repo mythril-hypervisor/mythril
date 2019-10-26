@@ -77,6 +77,7 @@ pub enum Error {
     NullPtr(String),
     NotSupported,
     Uefi(String),
+    InvalidValue(String),
 }
 
 pub type Result<T> = core::result::Result<T, Error>;
