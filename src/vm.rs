@@ -347,6 +347,7 @@ impl VirtualMachine {
         vmcs.write_with_fixed(
             vmcs::VmcsField::CpuBasedVmExecControl,
             (vmcs::CpuBasedCtrlFlags::UNCOND_IO_EXITING
+                | vmcs::CpuBasedCtrlFlags::ACTIVATE_MSR_BITMAP
                 | vmcs::CpuBasedCtrlFlags::ACTIVATE_SECONDARY_CONTROLS)
                 .bits(),
             registers::MSR_IA32_VMX_PROCBASED_CTLS,
@@ -381,6 +382,14 @@ impl VirtualMachine {
             vmcs::VmcsField::VmEntryControls,
             vmcs::VmEntryCtrlFlags::LOAD_GUEST_EFER.bits(),
             registers::MSR_IA32_VMX_ENTRY_CTLS,
+        )?;
+
+        let msr_bitmap = alloc
+            .allocate_frame()
+            .ok_or(Error::AllocError("Failed to allocate MSR bitmap".into()))?;
+        vmcs.write_field(
+            vmcs::VmcsField::MsrBitmap,
+            msr_bitmap.start_address().as_u64(),
         )?;
 
         vmcs.write_field(vmcs::VmcsField::ExceptionBitmap, 0xffffffff)?;
@@ -450,6 +459,32 @@ impl VirtualMachineRunning {
         exit: vmexit::ExitReason,
     ) -> Result<()> {
         match exit.reason {
+            vmexit::BasicExitReason::CrAccess => {
+                let info = match exit.information {
+                    Some(vmexit::ExitInformation::CrAccess(info)) => info,
+                    _ => unreachable!(),
+                };
+
+                match info.cr_num {
+                    3 => match info.access_type {
+                        vmexit::CrAccessType::MovToCr => {
+                            let reg = info.register.unwrap();
+                            let val = reg.read(&self.vmcs, guest_cpu)?;
+                            self.vmcs.write_field(vmcs::VmcsField::GuestCr3, val)?;
+                        }
+                        vmexit::CrAccessType::MovFromCr => {
+                            let reg = info.register.unwrap();
+                            let val = self.vmcs.read_field(vmcs::VmcsField::GuestCr3)?;
+                            reg.write(val, &mut self.vmcs, guest_cpu)?;
+                        }
+                        _ => unreachable!(),
+                    },
+                    _ => return Err(Error::InvalidValue(format!("Unsupported CR number access"))),
+                }
+
+                self.skip_emulated_instruction();
+            }
+
             vmexit::BasicExitReason::CpuId => {
                 //FIXME: for now just use the actual cpuid
                 let res = raw_cpuid::native_cpuid::cpuid_count(

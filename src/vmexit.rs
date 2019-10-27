@@ -41,7 +41,8 @@ pub extern "C" fn vmexit_handler(state: *mut GuestCpuState) {
     info!("Guest cpu state: {:?}", state);
     info!("{}", vm.vmcs);
 
-    vm.handle_vmexit(state, reason);
+    vm.handle_vmexit(state, reason)
+        .expect("Failed to handle vmexit")
 }
 
 #[no_mangle]
@@ -196,13 +197,63 @@ pub enum MovCrRegister {
     R15 = 15,
 }
 
+impl MovCrRegister {
+    pub fn read(&self, vmcs: &vmcs::ActiveVmcs, guest_cpu: &GuestCpuState) -> Result<u64> {
+        Ok(match self {
+            MovCrRegister::Rax => guest_cpu.rax,
+            MovCrRegister::Rcx => guest_cpu.rcx,
+            MovCrRegister::Rdx => guest_cpu.rdx,
+            MovCrRegister::Rbx => guest_cpu.rbx,
+            MovCrRegister::Rbp => guest_cpu.rbp,
+            MovCrRegister::Rsi => guest_cpu.rsi,
+            MovCrRegister::Rdi => guest_cpu.rdi,
+            MovCrRegister::R8 => guest_cpu.r8,
+            MovCrRegister::R9 => guest_cpu.r9,
+            MovCrRegister::R10 => guest_cpu.r10,
+            MovCrRegister::R11 => guest_cpu.r11,
+            MovCrRegister::R12 => guest_cpu.r12,
+            MovCrRegister::R13 => guest_cpu.r13,
+            MovCrRegister::R14 => guest_cpu.r14,
+            MovCrRegister::R15 => guest_cpu.r15,
+            MovCrRegister::Rsp => vmcs.read_field(vmcs::VmcsField::GuestRsp)?,
+        })
+    }
+
+    pub fn write(
+        &self,
+        value: u64,
+        vmcs: &mut vmcs::ActiveVmcs,
+        guest_cpu: &mut GuestCpuState,
+    ) -> Result<()> {
+        match self {
+            MovCrRegister::Rax => guest_cpu.rax = value,
+            MovCrRegister::Rcx => guest_cpu.rcx = value,
+            MovCrRegister::Rdx => guest_cpu.rdx = value,
+            MovCrRegister::Rbx => guest_cpu.rbx = value,
+            MovCrRegister::Rbp => guest_cpu.rbp = value,
+            MovCrRegister::Rsi => guest_cpu.rsi = value,
+            MovCrRegister::Rdi => guest_cpu.rdi = value,
+            MovCrRegister::R8 => guest_cpu.r8 = value,
+            MovCrRegister::R9 => guest_cpu.r9 = value,
+            MovCrRegister::R10 => guest_cpu.r10 = value,
+            MovCrRegister::R11 => guest_cpu.r11 = value,
+            MovCrRegister::R12 => guest_cpu.r12 = value,
+            MovCrRegister::R13 => guest_cpu.r13 = value,
+            MovCrRegister::R14 => guest_cpu.r14 = value,
+            MovCrRegister::R15 => guest_cpu.r15 = value,
+            MovCrRegister::Rsp => vmcs.write_field(vmcs::VmcsField::GuestRsp, value)?,
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct CrInformation {
     pub cr_num: u8,
     pub access_type: CrAccessType,
-    pub memory_operand: bool,
+    pub lmsw_memory_operand: bool,
     pub register: Option<MovCrRegister>,
-    pub lmsw_source: Option<u16>,
+    pub lmsw_data: Option<u16>,
 }
 
 #[derive(Clone, Debug)]
@@ -239,9 +290,9 @@ impl ExitInformation {
                 Ok(Some(ExitInformation::CrAccess(CrInformation {
                     cr_num: (qualifier & 0b111) as u8,
                     access_type: access_type,
-                    memory_operand: qualifier & (1 << 6) != 0,
+                    lmsw_memory_operand: qualifier & (1 << 6) != 0,
                     register: reg,
-                    lmsw_source: source,
+                    lmsw_data: source,
                 })))
             }
 
