@@ -1,14 +1,11 @@
+use crate::efialloc::FrameAllocator;
 use crate::error::{self, Error, Result};
+use crate::memory::PhysFrame;
 use crate::vmx;
 use bitflags::bitflags;
 use core::fmt;
-use x86_64::registers::model_specific::Msr;
-use x86_64::registers::rflags;
-use x86_64::registers::rflags::RFlags;
-use x86_64::structures::paging::frame::PhysFrame;
-use x86_64::structures::paging::page::Size4KiB;
-use x86_64::structures::paging::{FrameAllocator, FrameDeallocator};
-use x86_64::PhysAddr;
+use x86::bits64::paging::PAddr;
+use x86::msr::rdmsr;
 
 #[allow(dead_code)]
 #[derive(Clone, Copy, Debug)]
@@ -281,7 +278,7 @@ bitflags! {
 
 fn vmcs_write_with_fixed(field: VmcsField, value: u64, msr: u32) -> Result<u64> {
     let mut required_value = value;
-    let fixed = unsafe { Msr::new(msr).read() };
+    let fixed = unsafe { rdmsr(msr) };
     let low = fixed & 0x00000000ffffffff;
     let high = fixed >> 32;
 
@@ -353,7 +350,7 @@ fn vmcs_activate(vmcs: &mut Vmcs, vmx: &vmx::Vmx) -> Result<()> {
     error::check_vm_insruction(rflags, "Failed to activate VMCS".into())
 }
 
-fn vmcs_clear(vmcs: PhysAddr) -> Result<()> {
+fn vmcs_clear(vmcs: PAddr) -> Result<()> {
     let rflags = unsafe {
         let rflags: u64;
         asm!("vmclear $1; pushfq; popq $0"
@@ -367,14 +364,12 @@ fn vmcs_clear(vmcs: PhysAddr) -> Result<()> {
 }
 
 pub struct Vmcs {
-    frame: PhysFrame<Size4KiB>,
+    frame: PhysFrame,
 }
 
 impl Vmcs {
-    pub fn new(alloc: &mut impl FrameAllocator<Size4KiB>) -> Result<Self> {
-        let vmcs_region = alloc
-            .allocate_frame()
-            .ok_or(Error::AllocError("Failed to allocate vmcs frame"))?;
+    pub fn new(alloc: &mut impl FrameAllocator) -> Result<Self> {
+        let vmcs_region = alloc.allocate_frame()?;
         Ok(Vmcs { frame: vmcs_region })
     }
 

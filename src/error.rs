@@ -2,8 +2,8 @@ use crate::vmcs;
 use alloc::string::String;
 use core::convert::TryFrom;
 use derive_try_from_primitive::TryFromPrimitive;
-use x86_64::registers::rflags;
-use x86_64::registers::rflags::RFlags;
+use x86::bits64::rflags;
+use x86::bits64::rflags::RFlags;
 
 // See Section 30.4
 #[derive(Debug, TryFromPrimitive)]
@@ -45,9 +45,9 @@ pub enum VmInstructionError {
 pub fn check_vm_insruction(rflags: u64, error: String) -> Result<()> {
     let rflags = rflags::RFlags::from_bits_truncate(rflags);
 
-    if rflags.contains(RFlags::CARRY_FLAG) {
+    if rflags.contains(RFlags::FLAGS_CF) {
         Err(Error::VmFailInvalid(error))
-    } else if rflags.contains(RFlags::ZERO_FLAG) {
+    } else if rflags.contains(RFlags::FLAGS_ZF) {
         let errno = unsafe {
             let value: u64;
             asm!("vmread %rax, %rdx;"

@@ -1,9 +1,13 @@
+use crate::error::{self, Error, Result};
+use crate::memory::PhysFrame;
+use uefi::prelude::ResultExt;
 use uefi::table::boot::{AllocateType, BootServices, MemoryType};
-use x86_64::structures::paging::frame::PhysFrame;
-use x86_64::structures::paging::page::PageSize;
-use x86_64::structures::paging::page::Size4KiB;
-use x86_64::structures::paging::{FrameAllocator, FrameDeallocator};
-use x86_64::PhysAddr;
+use x86::bits64::paging::PAddr;
+
+pub trait FrameAllocator {
+    fn allocate_frame(&mut self) -> Result<PhysFrame>;
+    fn deallocate_frame(&mut self, frame: PhysFrame) -> Result<()>;
+}
 
 pub struct EfiAllocator<'a> {
     bt: &'a BootServices,
@@ -15,31 +19,29 @@ impl<'a> EfiAllocator<'a> {
     }
 }
 
-unsafe impl<'a> FrameAllocator<Size4KiB> for EfiAllocator<'a> {
-    fn allocate_frame(&mut self) -> Option<PhysFrame<Size4KiB>> {
+impl<'a> FrameAllocator for EfiAllocator<'a> {
+    fn allocate_frame(&mut self) -> Result<PhysFrame> {
         let ty = AllocateType::AnyPages;
         let mem_ty = MemoryType::LOADER_DATA;
         let pg = self
             .bt
             .allocate_pages(ty, mem_ty, 1)
-            .ok()?
-            .expect("EfiAllocator failed to allocate page");
+            .log_warning()
+            .map_err(|_| Error::Uefi("EfiAllocator failed to allocate frame".into()))?;
 
         //FIXME: For now, zero every frame we allocate
         let ptr = pg as *mut u8;
         unsafe {
-            core::ptr::write_bytes(ptr, 0, Size4KiB::SIZE as usize);
+            core::ptr::write_bytes(ptr, 0, 4096);
         }
 
-        PhysFrame::from_start_address(PhysAddr::new(pg)).ok()
+        PhysFrame::from_start_address(PAddr::from(pg))
     }
-}
 
-impl<'a> FrameDeallocator<Size4KiB> for EfiAllocator<'a> {
-    fn deallocate_frame(&mut self, frame: PhysFrame<Size4KiB>) {
-        let _ = self
-            .bt
+    fn deallocate_frame(&mut self, frame: PhysFrame) -> Result<()> {
+        self.bt
             .free_pages(frame.start_address().as_u64(), 1)
-            .expect("EfiAllocator failed to deallocate frame");
+            .log_warning()
+            .map_err(|_| Error::Uefi("EfiAllocator failed to deallocate frame".into()))
     }
 }

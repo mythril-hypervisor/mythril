@@ -1,21 +1,17 @@
 use crate::device::EmulatedDevice;
+use crate::efialloc::FrameAllocator;
 use crate::error::{self, Error, Result};
 use crate::memory::{self, GuestAddressSpace, GuestPhysAddr};
 use crate::percpu;
-use crate::registers::{self, Cr4, GdtrBase, IdtrBase};
+use crate::registers::{self, GdtrBase, IdtrBase};
 use crate::{vmcs, vmexit, vmx};
 use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
 use uefi::{self, table::boot::BootServices};
-use x86_64::registers::control::{Cr0, Cr3};
-use x86_64::registers::model_specific::{Efer, FsBase, GsBase, Msr};
-use x86_64::registers::rflags;
-use x86_64::registers::rflags::RFlags;
-use x86_64::structures::paging::frame::PhysFrame;
-use x86_64::structures::paging::page::{PageSize, Size4KiB};
-use x86_64::structures::paging::FrameAllocator;
-use x86_64::PhysAddr;
+use x86::bits64::segmentation::{rdfsbase, rdgsbase};
+use x86::controlregs::{cr0, cr3, cr4};
+use x86::msr;
 
 extern "C" {
     pub fn vmlaunch_wrapper() -> u64;
@@ -59,7 +55,7 @@ pub struct VirtualMachine {
 impl VirtualMachine {
     pub fn new(
         vmx: &mut vmx::Vmx,
-        alloc: &mut impl FrameAllocator<Size4KiB>,
+        alloc: &mut impl FrameAllocator,
         config: VirtualMachineConfig,
         services: &BootServices,
     ) -> Result<Self> {
@@ -160,14 +156,12 @@ impl VirtualMachine {
         image: &str,
         addr: &GuestPhysAddr,
         space: &mut GuestAddressSpace,
-        alloc: &mut impl FrameAllocator<Size4KiB>,
+        alloc: &mut impl FrameAllocator,
         services: &BootServices,
     ) -> Result<()> {
         let image = Self::read_image(services, image)?;
-        for (i, chunk) in image.chunks(Size4KiB::SIZE as usize).enumerate() {
-            let mut host_frame = alloc
-                .allocate_frame()
-                .expect("Failed to allocate host frame");
+        for (i, chunk) in image.chunks(4096 as usize).enumerate() {
+            let mut host_frame = alloc.allocate_frame()?;
 
             let frame_ptr = host_frame.start_address().as_u64() as *mut u8;
             let chunk_ptr = chunk.as_ptr();
@@ -177,7 +171,7 @@ impl VirtualMachine {
 
             space.map_frame(
                 alloc,
-                memory::GuestPhysAddr::new(addr.as_u64() + (i as u64 * Size4KiB::SIZE) as u64),
+                memory::GuestPhysAddr::new(addr.as_u64() + (i as u64 * 4096) as u64),
                 host_frame,
                 false,
             )?;
@@ -187,7 +181,7 @@ impl VirtualMachine {
 
     fn setup_ept(
         vmcs: &mut vmcs::TemporaryActiveVmcs,
-        alloc: &mut impl FrameAllocator<Size4KiB>,
+        alloc: &mut impl FrameAllocator,
         config: &VirtualMachineConfig,
         services: &BootServices,
     ) -> Result<GuestAddressSpace> {
@@ -195,15 +189,13 @@ impl VirtualMachine {
 
         // FIXME: For now, just map 32MB of RAM
         for i in 0..8192 {
-            let mut host_frame = alloc
-                .allocate_frame()
-                .expect("Failed to allocate host frame");
+            let mut host_frame = alloc.allocate_frame()?;
 
             let frame_ptr = host_frame.start_address().as_u64() as *mut u8;
 
             guest_space.map_frame(
                 alloc,
-                memory::GuestPhysAddr::new((i as u64 * Size4KiB::SIZE) as u64),
+                memory::GuestPhysAddr::new((i as u64 * 4096) as u64),
                 host_frame,
                 false,
             )?;
@@ -219,14 +211,11 @@ impl VirtualMachine {
 
     fn initialize_host_vmcs(vmcs: &mut vmcs::TemporaryActiveVmcs, stack: &[u8]) -> Result<()> {
         //TODO: Check with MSR_IA32_VMX_CR0_FIXED0/1 that these bits are valid
-        vmcs.write_field(vmcs::VmcsField::HostCr0, Cr0::read().bits())?;
+        vmcs.write_field(vmcs::VmcsField::HostCr0, unsafe { cr0() }.bits() as u64)?;
 
-        let current_cr3 = Cr3::read();
-        vmcs.write_field(
-            vmcs::VmcsField::HostCr3,
-            current_cr3.0.start_address().as_u64() | current_cr3.1.bits(),
-        )?;
-        vmcs.write_field(vmcs::VmcsField::HostCr4, Cr4::read())?;
+        let current_cr3 = unsafe { cr3() };
+        vmcs.write_field(vmcs::VmcsField::HostCr3, current_cr3)?;
+        vmcs.write_field(vmcs::VmcsField::HostCr4, unsafe { cr4() }.bits() as u64)?;
 
         vmcs.write_field(vmcs::VmcsField::HostEsSelector, 0x00)?;
 
@@ -246,11 +235,17 @@ impl VirtualMachine {
         vmcs.write_field(vmcs::VmcsField::HostIdtrBase, IdtrBase::read().as_u64())?;
         vmcs.write_field(vmcs::VmcsField::HostGdtrBase, GdtrBase::read().as_u64())?;
 
-        vmcs.write_field(vmcs::VmcsField::HostFsBase, FsBase::read().as_u64())?;
-        vmcs.write_field(vmcs::VmcsField::HostGsBase, GsBase::read().as_u64())?;
+        vmcs.write_field(vmcs::VmcsField::HostFsBase, unsafe {
+            msr::rdmsr(msr::IA32_FS_BASE)
+        })?;
+        vmcs.write_field(vmcs::VmcsField::HostFsBase, unsafe {
+            msr::rdmsr(msr::IA32_GS_BASE)
+        })?;
 
         vmcs.write_field(vmcs::VmcsField::HostRsp, stack.as_ptr() as u64)?;
-        vmcs.write_field(vmcs::VmcsField::HostIa32Efer, Efer::read().bits())?;
+        vmcs.write_field(vmcs::VmcsField::HostIa32Efer, unsafe {
+            msr::rdmsr(msr::IA32_EFER)
+        })?;
 
         vmcs.write_field(
             vmcs::VmcsField::HostRip,
@@ -312,10 +307,10 @@ impl VirtualMachine {
         vmcs.write_field(vmcs::VmcsField::GuestIa32Efer, 0x00)?;
 
         let (guest_cr0, guest_cr4) = unsafe {
-            let mut cr0_fixed0 = Msr::new(registers::MSR_IA32_VMX_CR0_FIXED0).read();
+            let mut cr0_fixed0 = unsafe { msr::rdmsr(msr::IA32_VMX_CR0_FIXED0) };
             cr0_fixed0 &= !(1 << 0); // disable PE
             cr0_fixed0 &= !(1 << 31); // disable PG
-            let cr4_fixed0 = Msr::new(registers::MSR_IA32_VMX_CR4_FIXED0).read();
+            let mut cr4_fixed0 = unsafe { msr::rdmsr(msr::IA32_VMX_CR4_FIXED0) };
 
             vmcs.write_field(
                 vmcs::VmcsField::Cr4GuestHostMask,
@@ -338,7 +333,7 @@ impl VirtualMachine {
 
     fn initialize_ctrl_vmcs(
         vmcs: &mut vmcs::TemporaryActiveVmcs,
-        alloc: &mut impl FrameAllocator<Size4KiB>,
+        alloc: &mut impl FrameAllocator,
     ) -> Result<()> {
         vmcs.write_with_fixed(
             vmcs::VmcsField::CpuBasedVmExecControl,
@@ -346,7 +341,7 @@ impl VirtualMachine {
                 | vmcs::CpuBasedCtrlFlags::ACTIVATE_MSR_BITMAP
                 | vmcs::CpuBasedCtrlFlags::ACTIVATE_SECONDARY_CONTROLS)
                 .bits(),
-            registers::MSR_IA32_VMX_PROCBASED_CTLS,
+            msr::IA32_VMX_PROCBASED_CTLS,
         )?;
 
         vmcs.write_with_fixed(
@@ -355,14 +350,14 @@ impl VirtualMachine {
                 | vmcs::SecondaryExecFlags::ENABLE_VPID
                 | vmcs::SecondaryExecFlags::UNRESTRICTED_GUEST)
                 .bits(),
-            registers::MSR_IA32_VMX_PROCBASED_CTLS2,
+            msr::IA32_VMX_PROCBASED_CTLS2,
         )?;
         vmcs.write_field(vmcs::VmcsField::VirtualProcessorId, 1)?;
 
         vmcs.write_with_fixed(
             vmcs::VmcsField::PinBasedVmExecControl,
             0,
-            registers::MSR_IA32_VMX_PINBASED_CTLS,
+            msr::IA32_VMX_PINBASED_CTLS,
         )?;
 
         vmcs.write_with_fixed(
@@ -371,18 +366,16 @@ impl VirtualMachine {
                 | vmcs::VmExitCtrlFlags::LOAD_HOST_EFER
                 | vmcs::VmExitCtrlFlags::SAVE_GUEST_EFER)
                 .bits(),
-            registers::MSR_IA32_VMX_EXIT_CTLS,
+            msr::IA32_VMX_EXIT_CTLS,
         )?;
 
         vmcs.write_with_fixed(
             vmcs::VmcsField::VmEntryControls,
             vmcs::VmEntryCtrlFlags::LOAD_GUEST_EFER.bits(),
-            registers::MSR_IA32_VMX_ENTRY_CTLS,
+            msr::IA32_VMX_ENTRY_CTLS,
         )?;
 
-        let msr_bitmap = alloc
-            .allocate_frame()
-            .ok_or(Error::AllocError("Failed to allocate MSR bitmap".into()))?;
+        let msr_bitmap = alloc.allocate_frame()?;
         vmcs.write_field(
             vmcs::VmcsField::MsrBitmap,
             msr_bitmap.start_address().as_u64(),
