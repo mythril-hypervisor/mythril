@@ -55,7 +55,7 @@ impl GuestAddressSpace {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Copy, Clone, Debug)]
 pub struct GuestPhysAddr(VirtAddr);
 impl GuestPhysAddr {
     pub fn new(addr: u64) -> Self {
@@ -82,6 +82,8 @@ impl GuestPhysAddr {
         self.0.p4_index()
     }
 }
+
+type GuestVirtAddr = VirtAddr;
 
 #[repr(align(4096))]
 pub struct EptTable<T> {

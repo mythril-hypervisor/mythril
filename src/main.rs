@@ -43,6 +43,8 @@ fn efi_main(_handle: Handle, system_table: SystemTable<Boot>) -> Status {
         memory::GuestPhysAddr::new((4 * 1024 * 1024 * 1024) - (2 * 1024 * 1024)),
     );
     config.register_device(device::ComDevice::new(0x3F8));
+    config.register_device(device::ComDevice::new(0x402)); // The qemu debug port
+    config.register_device(device::PciRootComplex::new());
 
     let vm = vm::VirtualMachine::new(&mut vmx, &mut alloc, config, system_table.boot_services())
         .expect("Failed to create vm");

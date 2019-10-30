@@ -78,6 +78,7 @@ pub enum Error {
     NotSupported,
     Uefi(String),
     InvalidValue(String),
+    NotImplemented(String),
 }
 
 pub type Result<T> = core::result::Result<T, Error>;

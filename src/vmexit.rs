@@ -324,26 +324,16 @@ impl ExitInformation {
                     guest_phys_addr: guest_phys_addr,
                 })))
             }
-            BasicExitReason::IoInstruction => {
-                let size: u8 = match qualifier & 0x7 {
-                    0 => 0,
-                    1 => 1,
-                    2 => 2,
-                    3 => 4,
-                    _ => unreachable!(),
-                };
-
-                Ok(Some(ExitInformation::IoInstruction(
-                    IoInstructionQualification {
-                        size: size,
-                        input: qualifier & (1 << 3) != 0,
-                        string: qualifier & (1 << 4) != 0,
-                        rep: qualifier & (1 << 5) != 0,
-                        immediate: qualifier & (1 << 6) != 0,
-                        port: ((qualifier & 0xffff0000) >> 16) as u16,
-                    },
-                )))
-            }
+            BasicExitReason::IoInstruction => Ok(Some(ExitInformation::IoInstruction(
+                IoInstructionQualification {
+                    size: (qualifier & 7) as u8 + 1,
+                    input: qualifier & (1 << 3) != 0,
+                    string: qualifier & (1 << 4) != 0,
+                    rep: qualifier & (1 << 5) != 0,
+                    immediate: qualifier & (1 << 6) != 0,
+                    port: ((qualifier & 0xffff0000) >> 16) as u16,
+                },
+            ))),
             BasicExitReason::NonMaskableInterrupt => {
                 let error_code = if inter_info & (1 << 11) != 0 {
                     Some(inter_error as u32)

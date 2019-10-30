@@ -1,4 +1,4 @@
-use crate::device::{EmulatedDevice, PortIoDevice};
+use crate::device::EmulatedDevice;
 use crate::error::{self, Error, Result};
 use crate::memory::{self, GuestAddressSpace, GuestPhysAddr};
 use crate::percpu;
@@ -26,7 +26,7 @@ pub static mut VMS: percpu::PerCpu<Option<VirtualMachineRunning>> =
 
 pub struct VirtualMachineConfig {
     images: Vec<(String, GuestPhysAddr)>,
-    port_devices: Vec<Box<dyn PortIoDevice>>,
+    devices: Vec<Box<dyn EmulatedDevice>>,
     memory: u64, // number of 4k pages
 }
 
@@ -34,7 +34,7 @@ impl VirtualMachineConfig {
     pub fn new(memory: u64) -> VirtualMachineConfig {
         VirtualMachineConfig {
             images: vec![],
-            port_devices: vec![],
+            devices: vec![],
             memory: memory,
         }
     }
@@ -44,12 +44,8 @@ impl VirtualMachineConfig {
         Ok(())
     }
 
-    pub fn register_device(&mut self, device: EmulatedDevice) -> Result<()> {
-        match device {
-            EmulatedDevice::Port(device) => self.port_devices.push(device),
-            _ => (),
-        }
-        Ok(())
+    pub fn register_device(&mut self, device: Box<dyn EmulatedDevice>) {
+        self.devices.push(device);
     }
 }
 
@@ -435,11 +431,11 @@ pub struct VirtualMachineRunning {
 }
 
 impl VirtualMachineRunning {
-    fn find_matching_port_dev(&mut self, port: u16) -> Option<&mut Box<dyn PortIoDevice>> {
+    fn find_matching_port_dev(&mut self, port: u16) -> Option<&mut Box<dyn EmulatedDevice>> {
         self.config
-            .port_devices
+            .devices
             .iter_mut()
-            .find(|dev| dev.port() == port)
+            .find(|dev| dev.services_port(port))
     }
 
     fn skip_emulated_instruction(&mut self) -> Result<()> {
@@ -511,9 +507,12 @@ impl VirtualMachineRunning {
 
                 if !input {
                     let arr = (guest_cpu.rax as u32).to_be_bytes();
-                    dev.on_write(&arr[..size as usize])?;
+                    dev.on_port_write(port, &arr[..size as usize])?;
                 } else {
-                    //TODO: read
+                    let mut out = [0u8; 4];
+                    dev.on_port_read(port, &mut out[4 - size as usize..])?;
+                    guest_cpu.rax &= (!guest_cpu.rax) << (size * 8);
+                    guest_cpu.rax |= u32::from_be_bytes(out) as u64;
                 }
                 self.skip_emulated_instruction();
             }
