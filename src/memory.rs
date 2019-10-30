@@ -1,8 +1,10 @@
 use crate::efialloc::FrameAllocator;
 use crate::error::{self, Error, Result};
 use bitflags::bitflags;
+use core::convert::TryFrom;
 use core::ops::{Index, IndexMut};
 use core::ptr::NonNull;
+use derive_try_from_primitive::TryFromPrimitive;
 use ux;
 use x86::bits64::paging::{self, PAddr, VAddr};
 
@@ -154,7 +156,8 @@ impl EptTableEntry {
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, TryFromPrimitive)]
+#[repr(u8)]
 pub enum EptMemoryType {
     Uncacheable = 0,
     WriteCache = 1,
@@ -190,22 +193,24 @@ impl EptPageTableEntry {
         PAddr::from(self.entry & 0x000fffff_fffff000)
     }
 
+    pub fn mem_type(&self) -> EptMemoryType {
+        EptMemoryType::try_from(((self.entry & (0b111 << 5)) >> 5) as u8)
+            .expect("Invalid EPT memory type")
+    }
+
     pub fn set_addr(&mut self, addr: PAddr, flags: EptTableFlags) {
         assert!(addr.is_aligned(4096u32));
-        self.entry = (addr.as_u64()) | flags.bits();
+        self.entry = (addr.as_u64()) | flags.bits() | ((self.mem_type() as u64) << 5);
     }
 
     pub fn set_flags(&mut self, flags: EptTableFlags) {
-        //FIXME: this unsets the mem type
-        self.entry = self.addr().as_u64() | flags.bits();
+        self.entry = self.addr().as_u64() | flags.bits() | ((self.mem_type() as u64) << 5);
     }
 
     pub fn set_mem_type(&mut self, mem_type: EptMemoryType) {
-        //FIXME: this can only set bits
+        self.entry &= !(0b111u64 << 5);
         self.entry |= ((mem_type as u8) << 5) as u64;
     }
-
-    //TODO: get mem type
 }
 
 bitflags! {
