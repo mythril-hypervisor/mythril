@@ -11,8 +11,11 @@ use x86::bits64::paging::{self, PAddr, VAddr};
 pub struct PhysFrame(u64);
 impl PhysFrame {
     pub fn from_start_address(addr: PAddr) -> Result<Self> {
-        //TODO: check for alignment
-        Ok(PhysFrame(addr.as_u64()))
+        if !addr.is_base_page_aligned() {
+            Err(Error::InvalidValue("Invalid start address for PhysFrame".into()))
+        } else {
+            Ok(PhysFrame(addr.as_u64()))
+        }
     }
 
     pub fn start_address(&self) -> PAddr {
@@ -147,7 +150,7 @@ impl EptTableEntry {
     }
 
     pub fn set_addr(&mut self, addr: PAddr, flags: EptTableFlags) {
-        assert!(addr.is_aligned(4096u32));
+        assert!(addr.is_base_page_aligned());
         self.entry = (addr.as_u64()) | flags.bits();
     }
 
@@ -199,7 +202,7 @@ impl EptPageTableEntry {
     }
 
     pub fn set_addr(&mut self, addr: PAddr, flags: EptTableFlags) {
-        assert!(addr.is_aligned(4096u32));
+        assert!(addr.is_base_page_aligned());
         self.entry = (addr.as_u64()) | flags.bits() | ((self.mem_type() as u64) << 5);
     }
 
