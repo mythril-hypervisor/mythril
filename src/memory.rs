@@ -12,7 +12,9 @@ pub struct PhysFrame(u64);
 impl PhysFrame {
     pub fn from_start_address(addr: PAddr) -> Result<Self> {
         if !addr.is_base_page_aligned() {
-            Err(Error::InvalidValue("Invalid start address for PhysFrame".into()))
+            Err(Error::InvalidValue(
+                "Invalid start address for PhysFrame".into(),
+            ))
         } else {
             Ok(PhysFrame(addr.as_u64()))
         }
