@@ -190,8 +190,6 @@ impl VirtualMachine {
         for i in 0..8192 {
             let mut host_frame = alloc.allocate_frame()?;
 
-            let frame_ptr = host_frame.start_address().as_u64() as *mut u8;
-
             guest_space.map_frame(
                 alloc,
                 memory::GuestPhysAddr::new((i as u64 * 4096) as u64),
