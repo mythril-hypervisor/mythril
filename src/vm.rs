@@ -470,7 +470,7 @@ impl VirtualMachineRunning {
                     _ => return Err(Error::InvalidValue(format!("Unsupported CR number access"))),
                 }
 
-                self.skip_emulated_instruction();
+                self.skip_emulated_instruction()?;
             }
 
             vmexit::BasicExitReason::CpuId => {
@@ -483,7 +483,7 @@ impl VirtualMachineRunning {
                 guest_cpu.rbx = res.ebx as u64 | (guest_cpu.rbx & 0xffffffff00000000);
                 guest_cpu.rcx = res.ecx as u64 | (guest_cpu.rcx & 0xffffffff00000000);
                 guest_cpu.rdx = res.edx as u64 | (guest_cpu.rdx & 0xffffffff00000000);
-                self.skip_emulated_instruction();
+                self.skip_emulated_instruction()?;
             }
             vmexit::BasicExitReason::IoInstruction => {
                 let (port, input, size) = match exit.information {
@@ -506,7 +506,7 @@ impl VirtualMachineRunning {
                     guest_cpu.rax &= (!guest_cpu.rax) << (size * 8);
                     guest_cpu.rax |= u32::from_be_bytes(out) as u64;
                 }
-                self.skip_emulated_instruction();
+                self.skip_emulated_instruction()?;
             }
             _ => info!("No handler for exit reason: {:?}", exit),
         }

@@ -37,11 +37,15 @@ fn efi_main(_handle: Handle, system_table: SystemTable<Boot>) -> Status {
 
     let mut config = vm::VirtualMachineConfig::new(1024);
 
+    // FIXME: When `load_image` may return an error, log the error.
+    //
     // Map OVMF directly below the 4GB boundary
-    config.load_image(
-        "OVMF.fd".into(),
-        memory::GuestPhysAddr::new((4 * 1024 * 1024 * 1024) - (2 * 1024 * 1024)),
-    );
+    config
+        .load_image(
+            "OVMF.fd".into(),
+            memory::GuestPhysAddr::new((4 * 1024 * 1024 * 1024) - (2 * 1024 * 1024)),
+        )
+        .unwrap_or(());
     config.register_device(device::ComDevice::new(0x3F8));
     config.register_device(device::ComDevice::new(0x402)); // The qemu debug port
     config.register_device(device::PciRootComplex::new());
