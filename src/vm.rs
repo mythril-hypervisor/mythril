@@ -305,7 +305,7 @@ impl VirtualMachine {
         //TODO: get actual EFER (use MSR for vt-x v1)
         vmcs.write_field(vmcs::VmcsField::GuestIa32Efer, 0x00)?;
 
-        let (guest_cr0, guest_cr4) = unsafe {
+        let (guest_cr0, guest_cr4) = {
             let mut cr0_fixed0 = unsafe { msr::rdmsr(msr::IA32_VMX_CR0_FIXED0) };
             cr0_fixed0 &= !(1 << 0); // disable PE
             cr0_fixed0 &= !(1 << 31); // disable PG
