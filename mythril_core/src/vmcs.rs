@@ -1,4 +1,4 @@
-use crate::efialloc::FrameAllocator;
+use crate::allocator::FrameAllocator;
 use crate::error::{self, Error, Result};
 use crate::memory::PhysFrame;
 use crate::vmx;

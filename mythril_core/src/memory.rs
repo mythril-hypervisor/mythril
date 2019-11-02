@@ -1,5 +1,5 @@
-use crate::efialloc::FrameAllocator;
-use crate::error::{Error, Result};
+use crate::allocator::FrameAllocator;
+use crate::error::{self, Error, Result};
 use bitflags::bitflags;
 use core::ops::{Index, IndexMut};
 use core::ptr::NonNull;

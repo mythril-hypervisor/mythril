@@ -13,27 +13,18 @@ extern crate log;
 #[no_mangle]
 pub static _fltused: u32 = 0;
 
+use mythril_core::vm::VmServices;
+use mythril_core::*;
 use uefi::prelude::*;
-
-mod device;
-mod efialloc;
-mod error;
-mod memory;
-mod percpu;
-mod registers;
-mod vm;
-#[allow(dead_code)]
-mod vmcs;
-mod vmexit;
-mod vmx;
+mod efiutils;
 
 #[entry]
 fn efi_main(_handle: Handle, system_table: SystemTable<Boot>) -> Status {
     uefi_services::init(&system_table).expect_success("Failed to initialize utilities");
 
-    let mut alloc = efialloc::EfiAllocator::new(system_table.boot_services());
+    let mut services = efiutils::EfiVmServices::new(system_table.boot_services());
 
-    let mut vmx = vmx::Vmx::enable(&mut alloc).expect("Failed to enable vmx");
+    let mut vmx = vmx::Vmx::enable(services.allocator()).expect("Failed to enable vmx");
 
     let mut config = vm::VirtualMachineConfig::new(1024);
 
@@ -50,8 +41,7 @@ fn efi_main(_handle: Handle, system_table: SystemTable<Boot>) -> Status {
     config.register_device(device::ComDevice::new(0x402)); // The qemu debug port
     config.register_device(device::PciRootComplex::new());
 
-    let vm = vm::VirtualMachine::new(&mut vmx, &mut alloc, config, system_table.boot_services())
-        .expect("Failed to create vm");
+    let vm = vm::VirtualMachine::new(&mut vmx, config, &mut services).expect("Failed to create vm");
 
     info!("Constructed VM!");
 

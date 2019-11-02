@@ -1,5 +1,5 @@
+use crate::allocator::FrameAllocator;
 use crate::device::EmulatedDevice;
-use crate::efialloc::FrameAllocator;
 use crate::error::{self, Error, Result};
 use crate::memory::{self, GuestAddressSpace, GuestPhysAddr};
 use crate::percpu;
@@ -8,9 +8,16 @@ use crate::{vmcs, vmexit, vmx};
 use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
-use uefi::{self, table::boot::BootServices};
+use core::marker::PhantomData;
+use x86::bits64::segmentation::{rdfsbase, rdgsbase};
 use x86::controlregs::{cr0, cr3, cr4};
 use x86::msr;
+
+pub trait VmServices {
+    type Allocator: FrameAllocator;
+    fn allocator(&mut self) -> &mut Self::Allocator;
+    fn read_file(&self, path: &str) -> Result<Vec<u8>>;
+}
 
 extern "C" {
     pub fn vmlaunch_wrapper() -> u64;
@@ -44,30 +51,35 @@ impl VirtualMachineConfig {
     }
 }
 
-pub struct VirtualMachine {
+pub struct VirtualMachine<S>
+where
+    S: VmServices,
+{
     vmcs: vmcs::Vmcs,
     config: VirtualMachineConfig,
     addr_space: GuestAddressSpace,
     stack: Vec<u8>,
+    _services: PhantomData<S>,
 }
 
-impl VirtualMachine {
-    pub fn new(
-        vmx: &mut vmx::Vmx,
-        alloc: &mut impl FrameAllocator,
-        config: VirtualMachineConfig,
-        services: &BootServices,
-    ) -> Result<Self> {
-        let mut vmcs = vmcs::Vmcs::new(alloc)?;
+impl<S> VirtualMachine<S>
+where
+    S: VmServices,
+{
+    pub fn new(vmx: &mut vmx::Vmx, config: VirtualMachineConfig, services: &mut S) -> Result<Self> {
+        let mut vmcs = {
+            let alloc = services.allocator();
+            vmcs::Vmcs::new(alloc)?
+        };
 
         // Allocate 1MB for host stack space
         let stack = vec![0u8; 1024 * 1024];
 
         let addr_space = vmcs.with_active_vmcs(vmx, |mut vmcs| {
-            let addr_space = Self::setup_ept(&mut vmcs, alloc, &config, services)?;
+            let addr_space = Self::setup_ept(&mut vmcs, &config, services)?;
             Self::initialize_host_vmcs(&mut vmcs, &stack)?;
             Self::initialize_guest_vmcs(&mut vmcs)?;
-            Self::initialize_ctrl_vmcs(&mut vmcs, alloc)?;
+            Self::initialize_ctrl_vmcs(&mut vmcs, services)?;
             Ok(addr_space)
         })?;
 
@@ -76,89 +88,18 @@ impl VirtualMachine {
             config: config,
             stack: stack,
             addr_space: addr_space,
+            _services: PhantomData,
         })
-    }
-
-    //FIXME this whole function is rough
-    fn read_image(services: &BootServices, path: &str) -> Result<Vec<u8>> {
-        use core::mem::MaybeUninit;
-        use uefi::data_types::Handle;
-        use uefi::prelude::ResultExt;
-        use uefi::proto::media::file::{File, FileAttribute, FileMode, FileType};
-        use uefi::proto::media::fs::SimpleFileSystem;
-
-        let fs = uefi::table::boot::SearchType::from_proto::<SimpleFileSystem>();
-        let num_handles = services
-            .locate_handle(fs, None)
-            .log_warning()
-            .map_err(|_| Error::Uefi("Failed to get number of FS handles".into()))?;
-
-        let mut volumes: Vec<Handle> =
-            vec![unsafe { MaybeUninit::uninit().assume_init() }; num_handles];
-        let _ = services
-            .locate_handle(fs, Some(&mut volumes))
-            .log_warning()
-            .map_err(|_| Error::Uefi("Failed to read FS handles".into()))?;
-
-        for volume in volumes.into_iter() {
-            let proto = services
-                .handle_protocol::<SimpleFileSystem>(volume)
-                .log_warning()
-                .map_err(|_| Error::Uefi("Failed to protocol for FS handle".into()))?;
-            let fs = unsafe { proto.get().as_mut() }
-                .ok_or(Error::NullPtr("FS Protocol ptr was NULL".into()))?;
-
-            let mut root = fs
-                .open_volume()
-                .log_warning()
-                .map_err(|_| Error::Uefi("Failed to open volume".into()))?;
-
-            //FIXME: we should just continue on error here
-            let handle = match root
-                .open(path, FileMode::Read, FileAttribute::READ_ONLY)
-                .log_warning()
-            {
-                Ok(f) => f,
-                Err(_) => continue,
-            };
-            let file = handle
-                .into_type()
-                .log_warning()
-                .map_err(|_| Error::Uefi(format!("Failed to convert file")))?;
-
-            match file {
-                FileType::Regular(mut f) => {
-                    info!("Reading file: {}", path);
-                    let mut contents = vec![];
-                    let mut buff = [0u8; 1024];
-                    while f
-                        .read(&mut buff)
-                        .log_warning()
-                        .map_err(|_| Error::Uefi(format!("Failed to read file: {}", path)))?
-                        > 0
-                    {
-                        contents.extend_from_slice(&buff);
-                    }
-                    return Ok(contents);
-                }
-                _ => return Err(Error::Uefi(format!("Image file {} was a directory", path))),
-            }
-        }
-
-        Err(Error::MissingFile(format!(
-            "Unable to find image file {}",
-            path
-        )))
     }
 
     fn map_image(
         image: &str,
         addr: &GuestPhysAddr,
         space: &mut GuestAddressSpace,
-        alloc: &mut impl FrameAllocator,
-        services: &BootServices,
+        services: &mut S,
     ) -> Result<()> {
-        let image = Self::read_image(services, image)?;
+        let image = services.read_file(image)?;
+        let alloc = services.allocator();
         for (i, chunk) in image.chunks(4096 as usize).enumerate() {
             let mut host_frame = alloc.allocate_frame()?;
 
@@ -180,10 +121,10 @@ impl VirtualMachine {
 
     fn setup_ept(
         vmcs: &mut vmcs::TemporaryActiveVmcs,
-        alloc: &mut impl FrameAllocator,
         config: &VirtualMachineConfig,
-        services: &BootServices,
+        services: &mut S,
     ) -> Result<GuestAddressSpace> {
+        let alloc = services.allocator();
         let mut guest_space = GuestAddressSpace::new(alloc)?;
 
         // FIXME: For now, just map 32MB of RAM
@@ -199,7 +140,7 @@ impl VirtualMachine {
         }
 
         for image in config.images.iter() {
-            Self::map_image(&image.0, &image.1, &mut guest_space, alloc, services)?;
+            Self::map_image(&image.0, &image.1, &mut guest_space, services)?;
         }
 
         vmcs.write_field(vmcs::VmcsField::EptPointer, guest_space.eptp())?;
@@ -328,10 +269,8 @@ impl VirtualMachine {
         Ok(())
     }
 
-    fn initialize_ctrl_vmcs(
-        vmcs: &mut vmcs::TemporaryActiveVmcs,
-        alloc: &mut impl FrameAllocator,
-    ) -> Result<()> {
+    fn initialize_ctrl_vmcs(vmcs: &mut vmcs::TemporaryActiveVmcs, services: &mut S) -> Result<()> {
+        let alloc = services.allocator();
         vmcs.write_with_fixed(
             vmcs::VmcsField::CpuBasedVmExecControl,
             (vmcs::CpuBasedCtrlFlags::UNCOND_IO_EXITING

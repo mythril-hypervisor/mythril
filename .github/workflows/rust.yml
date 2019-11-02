@@ -10,6 +10,8 @@ jobs:
     steps:
     - uses: actions/checkout@v1
     - name: Format
-      run: docker run -v $GITHUB_WORKSPACE:/src adamschwalm/hypervisor-build:docker-2 cargo +nightly fmt -- --check
-    - name: Build
-      run: docker run -v $GITHUB_WORKSPACE:/src adamschwalm/hypervisor-build:docker-2 cargo +nightly xbuild --target x86_64-unknown-uefi --verbose
+      run: docker run -v $GITHUB_WORKSPACE:/src adamschwalm/hypervisor-build:docker-2 make fmt
+    - name: Unit Tests
+      run: docker run -v $GITHUB_WORKSPACE:/src adamschwalm/hypervisor-build:docker-2 make test
+    - name: EFI Image Build
+      run: docker run -v $GITHUB_WORKSPACE:/src adamschwalm/hypervisor-build:docker-2 make efi
