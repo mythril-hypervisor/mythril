@@ -3,13 +3,12 @@ use crate::efialloc::FrameAllocator;
 use crate::error::{self, Error, Result};
 use crate::memory::{self, GuestAddressSpace, GuestPhysAddr};
 use crate::percpu;
-use crate::registers::{self, GdtrBase, IdtrBase};
+use crate::registers::{GdtrBase, IdtrBase};
 use crate::{vmcs, vmexit, vmx};
 use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
 use uefi::{self, table::boot::BootServices};
-use x86::bits64::segmentation::{rdfsbase, rdgsbase};
 use x86::controlregs::{cr0, cr3, cr4};
 use x86::msr;
 

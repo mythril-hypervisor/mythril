@@ -1,6 +1,5 @@
-use crate::error::{self, Error, Result};
-use crate::memory::{self, GuestAddressSpace, GuestPhysAddr};
-use crate::vmexit::{ExitReason, GuestCpuState, IoInstructionQualification};
+use crate::error::{Error, Result};
+use crate::memory::GuestPhysAddr;
 use alloc::boxed::Box;
 use alloc::string::String;
 use core::convert::TryInto;
