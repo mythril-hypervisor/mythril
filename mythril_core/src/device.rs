@@ -113,3 +113,15 @@ impl EmulatedDevice for ComDevice {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_memmap_write_to_portio_fails() {
+        let mut com = ComDevice::new(0);
+        let addr = GuestPhysAddr::new(0);
+        assert_eq!(com.on_mem_write(addr, &[0, 0, 0, 0]).is_err(), true);
+    }
+}
