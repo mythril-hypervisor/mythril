@@ -1,4 +1,4 @@
-use crate::error::{self, Error, Result};
+use crate::error::{Error, Result};
 use crate::memory::PhysFrame;
 use uefi::prelude::ResultExt;
 use uefi::table::boot::{AllocateType, BootServices, MemoryType};

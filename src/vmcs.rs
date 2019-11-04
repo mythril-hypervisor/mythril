@@ -418,7 +418,7 @@ impl ActiveVmcs {
 impl fmt::Display for ActiveVmcs {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let read_field = |field: VmcsField| -> core::result::Result<u64, fmt::Error> {
-            self.read_field(field).map_err(|e| fmt::Error)
+            self.read_field(field).map_err(|_| fmt::Error)
         };
 
         write!(f, "VMCS:\n")?;

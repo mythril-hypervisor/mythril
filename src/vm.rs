@@ -3,13 +3,12 @@ use crate::efialloc::FrameAllocator;
 use crate::error::{self, Error, Result};
 use crate::memory::{self, GuestAddressSpace, GuestPhysAddr};
 use crate::percpu;
-use crate::registers::{self, GdtrBase, IdtrBase};
+use crate::registers::{GdtrBase, IdtrBase};
 use crate::{vmcs, vmexit, vmx};
 use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
 use uefi::{self, table::boot::BootServices};
-use x86::bits64::segmentation::{rdfsbase, rdgsbase};
 use x86::controlregs::{cr0, cr3, cr4};
 use x86::msr;
 
@@ -191,8 +190,6 @@ impl VirtualMachine {
         for i in 0..8192 {
             let mut host_frame = alloc.allocate_frame()?;
 
-            let frame_ptr = host_frame.start_address().as_u64() as *mut u8;
-
             guest_space.map_frame(
                 alloc,
                 memory::GuestPhysAddr::new((i as u64 * 4096) as u64),
@@ -306,7 +303,7 @@ impl VirtualMachine {
         //TODO: get actual EFER (use MSR for vt-x v1)
         vmcs.write_field(vmcs::VmcsField::GuestIa32Efer, 0x00)?;
 
-        let (guest_cr0, guest_cr4) = unsafe {
+        let (guest_cr0, guest_cr4) = {
             let mut cr0_fixed0 = unsafe { msr::rdmsr(msr::IA32_VMX_CR0_FIXED0) };
             cr0_fixed0 &= !(1 << 0); // disable PE
             cr0_fixed0 &= !(1 << 31); // disable PG
@@ -471,7 +468,7 @@ impl VirtualMachineRunning {
                     _ => return Err(Error::InvalidValue(format!("Unsupported CR number access"))),
                 }
 
-                self.skip_emulated_instruction();
+                self.skip_emulated_instruction()?;
             }
 
             vmexit::BasicExitReason::CpuId => {
@@ -484,7 +481,7 @@ impl VirtualMachineRunning {
                 guest_cpu.rbx = res.ebx as u64 | (guest_cpu.rbx & 0xffffffff00000000);
                 guest_cpu.rcx = res.ecx as u64 | (guest_cpu.rcx & 0xffffffff00000000);
                 guest_cpu.rdx = res.edx as u64 | (guest_cpu.rdx & 0xffffffff00000000);
-                self.skip_emulated_instruction();
+                self.skip_emulated_instruction()?;
             }
             vmexit::BasicExitReason::IoInstruction => {
                 let (port, input, size) = match exit.information {
@@ -507,7 +504,7 @@ impl VirtualMachineRunning {
                     guest_cpu.rax &= (!guest_cpu.rax) << (size * 8);
                     guest_cpu.rax |= u32::from_be_bytes(out) as u64;
                 }
-                self.skip_emulated_instruction();
+                self.skip_emulated_instruction()?;
             }
             _ => info!("No handler for exit reason: {:?}", exit),
         }

@@ -1,8 +1,6 @@
 use crate::efialloc::FrameAllocator;
 use crate::error::{self, Error, Result};
-use crate::memory::{self, PhysFrame};
-use crate::{vm, vmcs, vmexit};
-use core::convert::TryFrom;
+use crate::memory::PhysFrame;
 use raw_cpuid::CpuId;
 use x86::msr;
 
@@ -54,11 +52,17 @@ impl Vmx {
             rflags
         };
 
-        // FIXME: this leaks the page on error
-        error::check_vm_insruction(rflags, "Failed to enable vmx".into())?;
-        Ok(Vmx {
-            vmxon_region: vmxon_region,
-        })
+        match error::check_vm_insruction(rflags, "Failed to enable vmx".into()) {
+            Ok(_) => Ok(Vmx {
+                vmxon_region: vmxon_region,
+            }),
+            Err(e) => {
+                alloc.deallocate_frame(vmxon_region).unwrap_or_else(|_| {
+                    info!("Failed to deallocate vmxon region");
+                });
+                Err(e)
+            }
+        }
     }
 
     pub fn disable(self, alloc: &mut impl FrameAllocator) -> Result<()> {

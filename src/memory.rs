@@ -1,7 +1,6 @@
 use crate::efialloc::FrameAllocator;
-use crate::error::{self, Error, Result};
+use crate::error::{Error, Result};
 use bitflags::bitflags;
-use core::convert::TryFrom;
 use core::ops::{Index, IndexMut};
 use core::ptr::NonNull;
 use derive_try_from_primitive::TryFromPrimitive;
