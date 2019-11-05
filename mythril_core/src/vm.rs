@@ -170,8 +170,8 @@ where
         vmcs.write_field(vmcs::VmcsField::HostIa32SysenterEsp, 0x00)?;
         vmcs.write_field(vmcs::VmcsField::HostIa32SysenterEip, 0x00)?;
 
-        vmcs.write_field(vmcs::VmcsField::HostIdtrBase, IdtrBase::read().as_u64())?;
-        vmcs.write_field(vmcs::VmcsField::HostGdtrBase, GdtrBase::read().as_u64())?;
+        vmcs.write_field(vmcs::VmcsField::HostIdtrBase, IdtrBase::read())?;
+        vmcs.write_field(vmcs::VmcsField::HostGdtrBase, GdtrBase::read())?;
 
         vmcs.write_field(vmcs::VmcsField::HostFsBase, unsafe {
             msr::rdmsr(msr::IA32_FS_BASE)

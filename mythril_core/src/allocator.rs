@@ -1,7 +1,7 @@
 use crate::error::Result;
-use crate::memory::PhysFrame;
+use crate::memory::HostPhysFrame;
 
 pub trait FrameAllocator {
-    fn allocate_frame(&mut self) -> Result<PhysFrame>;
-    fn deallocate_frame(&mut self, frame: PhysFrame) -> Result<()>;
+    fn allocate_frame(&mut self) -> Result<HostPhysFrame>;
+    fn deallocate_frame(&mut self, frame: HostPhysFrame) -> Result<()>;
 }

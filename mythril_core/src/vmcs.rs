@@ -1,10 +1,9 @@
 use crate::allocator::FrameAllocator;
 use crate::error::{self, Error, Result};
-use crate::memory::PhysFrame;
+use crate::memory::HostPhysFrame;
 use crate::vmx;
 use bitflags::bitflags;
 use core::fmt;
-use x86::bits64::paging::PAddr;
 use x86::msr::rdmsr;
 
 #[allow(dead_code)]
@@ -350,12 +349,12 @@ fn vmcs_activate(vmcs: &mut Vmcs, vmx: &vmx::Vmx) -> Result<()> {
     error::check_vm_insruction(rflags, "Failed to activate VMCS".into())
 }
 
-fn vmcs_clear(vmcs: PAddr) -> Result<()> {
+fn vmcs_clear(vmcs: &mut HostPhysFrame) -> Result<()> {
     let rflags = unsafe {
         let rflags: u64;
         asm!("vmclear $1; pushfq; popq $0"
              : "=r"(rflags)
-             : "m"(vmcs.as_u64())
+             : "m"(vmcs.start_address().as_u64())
              : "rflags"
              : "volatile");
         rflags
@@ -364,7 +363,7 @@ fn vmcs_clear(vmcs: PAddr) -> Result<()> {
 }
 
 pub struct Vmcs {
-    frame: PhysFrame,
+    frame: HostPhysFrame,
 }
 
 impl Vmcs {
@@ -409,8 +408,8 @@ impl ActiveVmcs {
         vmcs_write_with_fixed(field, value, msr)
     }
 
-    pub fn deactivate(self) -> Result<(Vmcs, vmx::Vmx)> {
-        vmcs_clear(self.vmcs.frame.start_address())?;
+    pub fn deactivate(mut self) -> Result<(Vmcs, vmx::Vmx)> {
+        vmcs_clear(&mut self.vmcs.frame)?;
         Ok((self.vmcs, self.vmx))
     }
 }
@@ -551,6 +550,6 @@ impl<'a> TemporaryActiveVmcs<'a> {
 
 impl<'a> Drop for TemporaryActiveVmcs<'a> {
     fn drop(&mut self) {
-        vmcs_clear(self.vmcs.frame.start_address()).expect("Failed to clear TemporaryActiveVmcs");
+        vmcs_clear(&mut self.vmcs.frame).expect("Failed to clear TemporaryActiveVmcs");
     }
 }

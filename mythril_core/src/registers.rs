@@ -1,5 +1,3 @@
-use x86::bits64::paging::VAddr;
-
 #[repr(C)]
 #[repr(packed)]
 struct IdtInfo {
@@ -9,8 +7,8 @@ struct IdtInfo {
 
 pub struct IdtrBase;
 impl IdtrBase {
-    pub fn read() -> VAddr {
-        let addr = unsafe {
+    pub fn read() -> u64 {
+        unsafe {
             let mut info = IdtInfo {
                 limit: 0,
                 base_addr: 0,
@@ -21,8 +19,7 @@ impl IdtrBase {
                  : "memory"
                  : "volatile");
             info.base_addr
-        };
-        VAddr::from_u64(addr)
+        }
     }
 }
 
@@ -35,8 +32,8 @@ struct GdtInfo {
 
 pub struct GdtrBase;
 impl GdtrBase {
-    pub fn read() -> VAddr {
-        let addr = unsafe {
+    pub fn read() -> u64 {
+        unsafe {
             let mut info = GdtInfo { size: 0, offset: 0 };
             asm!("sgdtq ($0)"
                  :
@@ -44,7 +41,6 @@ impl GdtrBase {
                  : "memory"
                  : "volatile");
             info.offset
-        };
-        VAddr::from_u64(addr)
+        }
     }
 }

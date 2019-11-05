@@ -5,27 +5,125 @@ use core::ops::{Index, IndexMut};
 use core::ptr::NonNull;
 use derive_try_from_primitive::TryFromPrimitive;
 use ux;
-use x86::bits64::paging::{self, PAddr, VAddr};
 
-pub struct PhysFrame(u64);
-impl PhysFrame {
-    pub fn from_start_address(addr: PAddr) -> Result<Self> {
-        if !addr.is_base_page_aligned() {
+#[inline]
+fn pml4_index(addr: u64) -> ux::u9 {
+    ux::u9::new(((addr >> 39usize) & 0b111111111) as u16)
+}
+
+#[inline]
+fn pdpt_index(addr: u64) -> ux::u9 {
+    ux::u9::new(((addr >> 30usize) & 0b111111111) as u16)
+}
+
+#[inline]
+fn pd_index(addr: u64) -> ux::u9 {
+    ux::u9::new(((addr >> 21usize) & 0b111111111) as u16)
+}
+
+#[inline]
+fn pt_index(addr: u64) -> ux::u9 {
+    ux::u9::new(((addr >> 12usize) & 0b111111111) as u16)
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum GuestVirtAddr {
+    Real(GuestPhysAddr),
+    Paging4Level(Guest4LevelPagingAddr),
+    //TODO: 5 level paging
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct Guest4LevelPagingAddr(u64);
+impl Guest4LevelPagingAddr {
+    pub fn new(addr: u64) -> Self {
+        Self(addr)
+    }
+
+    pub fn as_u64(&self) -> u64 {
+        self.0
+    }
+
+    pub fn p1_index(&self) -> ux::u9 {
+        pt_index(self.0)
+    }
+
+    pub fn p2_index(&self) -> ux::u9 {
+        pd_index(self.0)
+    }
+
+    pub fn p3_index(&self) -> ux::u9 {
+        pdpt_index(self.0)
+    }
+
+    pub fn p4_index(&self) -> ux::u9 {
+        pml4_index(self.0)
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct GuestPhysAddr(u64);
+impl GuestPhysAddr {
+    pub fn new(addr: u64) -> Self {
+        Self(addr)
+    }
+
+    pub fn as_u64(&self) -> u64 {
+        self.0
+    }
+
+    pub fn p1_index(&self) -> ux::u9 {
+        pt_index(self.0)
+    }
+
+    pub fn p2_index(&self) -> ux::u9 {
+        pd_index(self.0)
+    }
+
+    pub fn p3_index(&self) -> ux::u9 {
+        pdpt_index(self.0)
+    }
+
+    pub fn p4_index(&self) -> ux::u9 {
+        pml4_index(self.0)
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct HostPhysAddr(u64);
+impl HostPhysAddr {
+    pub fn new(addr: u64) -> Self {
+        Self(addr)
+    }
+
+    pub fn as_u64(&self) -> u64 {
+        self.0
+    }
+
+    pub fn is_frame_aligned(&self) -> bool {
+        (self.0 & 0b111111111111) == 0
+    }
+}
+
+pub struct HostPhysFrame(HostPhysAddr);
+impl HostPhysFrame {
+    pub fn from_start_address(addr: HostPhysAddr) -> Result<Self> {
+        if !addr.is_frame_aligned() {
             Err(Error::InvalidValue(
-                "Invalid start address for PhysFrame".into(),
+                "Invalid start address for HostPhysFrame".into(),
             ))
         } else {
-            Ok(PhysFrame(addr.as_u64()))
+            Ok(HostPhysFrame(addr))
         }
     }
 
-    pub fn start_address(&self) -> PAddr {
-        PAddr::from(self.0)
+    pub fn start_address(&self) -> HostPhysAddr {
+        self.0
     }
 }
 
 pub struct GuestAddressSpace {
-    frame: PhysFrame,
+    frame: HostPhysFrame,
     root: NonNull<EptPml4Table>,
 }
 
@@ -49,7 +147,7 @@ impl GuestAddressSpace {
         &mut self,
         alloc: &mut impl FrameAllocator,
         guest_addr: GuestPhysAddr,
-        host_frame: PhysFrame,
+        host_frame: HostPhysFrame,
         readonly: bool,
     ) -> Result<()> {
         map_guest_memory(
@@ -67,43 +165,13 @@ impl GuestAddressSpace {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
-pub struct GuestPhysAddr(VAddr);
-impl GuestPhysAddr {
-    pub fn new(addr: u64) -> Self {
-        Self(VAddr::from_u64(addr))
-    }
-
-    pub fn as_u64(&self) -> u64 {
-        self.0.as_u64()
-    }
-
-    pub fn p1_index(&self) -> ux::u9 {
-        ux::u9::new(paging::pt_index(self.0) as u16)
-    }
-
-    pub fn p2_index(&self) -> ux::u9 {
-        ux::u9::new(paging::pd_index(self.0) as u16)
-    }
-
-    pub fn p3_index(&self) -> ux::u9 {
-        ux::u9::new(paging::pdpt_index(self.0) as u16)
-    }
-
-    pub fn p4_index(&self) -> ux::u9 {
-        ux::u9::new(paging::pml4_index(self.0) as u16)
-    }
-}
-
-type GuestVirtAddr = VAddr;
-
 #[repr(align(4096))]
 pub struct EptTable<T> {
     entries: [T; 512],
 }
 
 impl<T> EptTable<T> {
-    pub fn new(frame: &mut PhysFrame) -> Result<&mut Self> {
+    pub fn new(frame: &mut HostPhysFrame) -> Result<&mut Self> {
         unsafe { (frame.start_address().as_u64() as *mut Self).as_mut() }
             .ok_or(Error::AllocError("EptTable given invalid frame"))
     }
@@ -146,12 +214,11 @@ impl EptTableEntry {
         EptTableFlags::from_bits_truncate(self.entry)
     }
 
-    pub fn addr(&self) -> PAddr {
-        PAddr::from(self.entry & 0x000fffff_fffff000)
+    pub fn addr(&self) -> HostPhysAddr {
+        HostPhysAddr::new(self.entry & 0x000fffff_fffff000)
     }
 
-    pub fn set_addr(&mut self, addr: PAddr, flags: EptTableFlags) {
-        assert!(addr.is_base_page_aligned());
+    pub fn set_addr(&mut self, addr: HostPhysAddr, flags: EptTableFlags) {
         self.entry = (addr.as_u64()) | flags.bits();
     }
 
@@ -193,8 +260,8 @@ impl EptPageTableEntry {
         EptTableFlags::from_bits_truncate(self.entry)
     }
 
-    pub fn addr(&self) -> PAddr {
-        PAddr::from(self.entry & 0x000fffff_fffff000)
+    pub fn addr(&self) -> HostPhysAddr {
+        HostPhysAddr::new(self.entry & 0x000fffff_fffff000)
     }
 
     pub fn mem_type(&self) -> EptMemoryType {
@@ -202,8 +269,8 @@ impl EptPageTableEntry {
             .expect("Invalid EPT memory type")
     }
 
-    pub fn set_addr(&mut self, addr: PAddr, flags: EptTableFlags) {
-        assert!(addr.is_base_page_aligned());
+    pub fn set_addr(&mut self, addr: HostPhysAddr, flags: EptTableFlags) {
+        assert!(addr.is_frame_aligned());
         self.entry = (addr.as_u64()) | flags.bits() | ((self.mem_type() as u64) << 5);
     }
 
@@ -244,7 +311,7 @@ fn map_guest_memory(
     alloc: &mut impl FrameAllocator,
     guest_ept_base: &mut EptPml4Table,
     guest_addr: GuestPhysAddr,
-    host_frame: PhysFrame,
+    host_frame: HostPhysFrame,
     readonly: bool,
 ) -> Result<()> {
     let default_flags = EptTableFlags::READ_ACCESS

@@ -2,14 +2,13 @@ use alloc::vec::Vec;
 use core::mem::MaybeUninit;
 use mythril_core::allocator::FrameAllocator;
 use mythril_core::error::{Error, Result};
-use mythril_core::memory::PhysFrame;
+use mythril_core::memory::{HostPhysAddr, HostPhysFrame};
 use mythril_core::vm::VmServices;
 use uefi::data_types::Handle;
 use uefi::prelude::ResultExt;
 use uefi::proto::media::file::{File, FileAttribute, FileMode, FileType};
 use uefi::proto::media::fs::SimpleFileSystem;
 use uefi::table::boot::{AllocateType, BootServices, MemoryType};
-use x86::bits64::paging::PAddr;
 
 pub struct EfiVmServices<'a> {
     bt: &'a BootServices,
@@ -46,7 +45,7 @@ impl<'a> EfiAllocator<'a> {
 }
 
 impl<'a> FrameAllocator for EfiAllocator<'a> {
-    fn allocate_frame(&mut self) -> Result<PhysFrame> {
+    fn allocate_frame(&mut self) -> Result<HostPhysFrame> {
         let ty = AllocateType::AnyPages;
         let mem_ty = MemoryType::LOADER_DATA;
         let pg = self
@@ -61,10 +60,10 @@ impl<'a> FrameAllocator for EfiAllocator<'a> {
             core::ptr::write_bytes(ptr, 0, 4096);
         }
 
-        PhysFrame::from_start_address(PAddr::from(pg))
+        HostPhysFrame::from_start_address(HostPhysAddr::new(pg))
     }
 
-    fn deallocate_frame(&mut self, frame: PhysFrame) -> Result<()> {
+    fn deallocate_frame(&mut self, frame: HostPhysFrame) -> Result<()> {
         self.bt
             .free_pages(frame.start_address().as_u64(), 1)
             .log_warning()

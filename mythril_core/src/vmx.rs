@@ -1,11 +1,11 @@
 use crate::allocator::FrameAllocator;
 use crate::error::{self, Error, Result};
-use crate::memory::PhysFrame;
+use crate::memory::HostPhysFrame;
 use raw_cpuid::CpuId;
 use x86::msr;
 
 pub struct Vmx {
-    vmxon_region: PhysFrame,
+    vmxon_region: HostPhysFrame,
 }
 
 impl Vmx {
