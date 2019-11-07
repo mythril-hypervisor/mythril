@@ -436,6 +436,8 @@ impl fmt::Display for ActiveVmcs {
             read_field(VmcsField::Cr4ReadShadow)?
         )?;
 
+        write!(f, "  EFER=0x{:x}\n", read_field(VmcsField::GuestIa32Efer)?)?;
+
         write!(f, "  RSP=0x{:x} ", read_field(VmcsField::GuestRsp)?)?;
         write!(f, "RIP=0x{:x}\n", read_field(VmcsField::GuestRip)?)?;
 

@@ -5,6 +5,7 @@ use core::ops::{Index, IndexMut};
 use core::ptr::NonNull;
 use derive_try_from_primitive::TryFromPrimitive;
 use ux;
+use x86::bits64::paging::*;
 
 #[inline]
 fn pml4_index(addr: u64) -> ux::u9 {
@@ -24,6 +25,21 @@ fn pd_index(addr: u64) -> ux::u9 {
 #[inline]
 fn pt_index(addr: u64) -> ux::u9 {
     ux::u9::new(((addr >> 12usize) & 0b111111111) as u16)
+}
+
+#[inline]
+fn page_offset(addr: u64) -> ux::u12 {
+    ux::u12::new((addr & 0b111111111111) as u16)
+}
+
+#[inline]
+fn large_page_offset(addr: u64) -> ux::u21 {
+    ux::u21::new((addr & 0x1fffff) as u32)
+}
+
+#[inline]
+fn huge_page_offset(addr: u64) -> ux::u30 {
+    ux::u30::new((addr & 0x3fffffff) as u32)
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -59,6 +75,18 @@ impl Guest4LevelPagingAddr {
     pub fn p4_index(&self) -> ux::u9 {
         pml4_index(self.0)
     }
+
+    pub fn page_offset(&self) -> ux::u12 {
+        page_offset(self.0)
+    }
+
+    pub fn large_page_offset(&self) -> ux::u21 {
+        large_page_offset(self.0)
+    }
+
+    pub fn huge_page_offset(&self) -> ux::u30 {
+        huge_page_offset(self.0)
+    }
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -86,6 +114,10 @@ impl GuestPhysAddr {
 
     pub fn p4_index(&self) -> ux::u9 {
         pml4_index(self.0)
+    }
+
+    pub fn offset(&self) -> ux::u12 {
+        page_offset(self.0)
     }
 }
 
@@ -119,6 +151,16 @@ impl HostPhysFrame {
 
     pub fn start_address(&self) -> HostPhysAddr {
         self.0
+    }
+
+    pub unsafe fn as_array(&self) -> &[u8; 4096] {
+        let ptr = self.0.as_u64() as *const [u8; 4096];
+        ptr.as_ref().unwrap()
+    }
+
+    pub unsafe fn as_mut_array(&self) -> &mut [u8; 4096] {
+        let ptr = self.0.as_u64() as *mut [u8; 4096];
+        ptr.as_mut().unwrap()
     }
 }
 
@@ -162,6 +204,88 @@ impl GuestAddressSpace {
     pub fn eptp(&self) -> u64 {
         // //TODO: check available memory types
         self.frame.start_address().as_u64() | (4 - 1) << 3 | 6
+    }
+
+    pub fn translate_linear_address(
+        &self,
+        addr: GuestVirtAddr,
+        cr3: GuestPhysAddr,
+    ) -> Result<GuestPhysAddr> {
+        match addr {
+            GuestVirtAddr::Real(rmode_addr) => Ok(GuestPhysAddr::new(rmode_addr.as_u64())),
+            GuestVirtAddr::Paging4Level(vaddr) => self.translate_pl4_address(vaddr, cr3),
+        }
+    }
+
+    //FIXME: this should check that the pages exist, access restrictions, guest page size,
+    //       and lots of other things
+    fn translate_pl4_address(
+        &self,
+        addr: Guest4LevelPagingAddr,
+        cr3: GuestPhysAddr,
+    ) -> Result<GuestPhysAddr> {
+        let guest_pml4_root = self.find_host_frame(cr3)?;
+
+        let guest_pml4 = guest_pml4_root.start_address().as_u64() as *const PML4;
+        let guest_pml4e = unsafe { (*guest_pml4)[u16::from(addr.p4_index()) as usize] };
+        let guest_pml4e_addr = GuestPhysAddr::new(guest_pml4e.address().as_u64());
+        info!(
+            "pml4e flags = {:?}, addr = {:?}",
+            guest_pml4e.flags(),
+            guest_pml4e_addr
+        );
+        let guest_pml4e_host_frame = self.find_host_frame(guest_pml4e_addr)?;
+
+        let guest_pdpt = guest_pml4e_host_frame.start_address().as_u64() as *const PDPT;
+        let guest_pdpte = unsafe { (*guest_pdpt)[u16::from(addr.p3_index()) as usize] };
+        let guest_pdpte_addr = GuestPhysAddr::new(guest_pdpte.address().as_u64());
+        info!(
+            "pdpte flags = {:?}, addr = {:?}",
+            guest_pdpte.flags(),
+            guest_pdpte_addr
+        );
+        let guest_pdpte_host_frame = self.find_host_frame(guest_pdpte_addr)?;
+
+        let guest_pdt = guest_pdpte_host_frame.start_address().as_u64() as *const PD;
+        let guest_pdte = unsafe { (*guest_pdt)[u16::from(addr.p2_index()) as usize] };
+        let guest_pdte_addr = GuestPhysAddr::new(guest_pdte.address().as_u64());
+        info!(
+            "pdte flags = {:?}, addr = {:?}",
+            guest_pdte.flags(),
+            guest_pdte_addr
+        );
+
+        let translated_vaddr =
+            guest_pdte.address().as_u64() + (u32::from(addr.large_page_offset()) as u64);
+
+        Ok(GuestPhysAddr::new(translated_vaddr))
+    }
+
+    //FIXME this ignores read/write/exec permissions and 2MB/1GB pages (and lots of other stuff)
+    pub fn find_host_frame(&self, addr: GuestPhysAddr) -> Result<HostPhysFrame> {
+        let ept_base = unsafe { self.root.as_ref() };
+        let ept_pml4e = &ept_base[addr.p4_index()];
+        if ept_pml4e.is_unused() {
+            return Err(Error::InvalidValue(
+                "No PML4 entry for GuestPhysAddr".into(),
+            ));
+        }
+        let ept_pdpt = ept_pml4e.addr().as_u64() as *const EptPageDirectoryPointerTable;
+        let ept_pdpe = unsafe { &(*ept_pdpt)[addr.p3_index()] };
+        if ept_pdpe.is_unused() {
+            return Err(Error::InvalidValue("No PDP entry for GuestPhysAddr".into()));
+        }
+        let ept_pdt = ept_pdpe.addr().as_u64() as *const EptPageDirectory;
+        let ept_pde = unsafe { &(*ept_pdt)[addr.p2_index()] };
+        if ept_pde.is_unused() {
+            return Err(Error::InvalidValue("No PD entry for GuestPhysAddr".into()));
+        }
+        let ept_pt = ept_pde.addr().as_u64() as *const EptPageTable;
+        let ept_pte = unsafe { &(*ept_pt)[addr.p1_index()] };
+        if ept_pte.is_unused() {
+            return Err(Error::InvalidValue("No PT entry for GuestPhysAddr".into()));
+        }
+        HostPhysFrame::from_start_address(ept_pte.addr())
     }
 }
 
