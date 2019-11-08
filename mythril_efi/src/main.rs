@@ -10,9 +10,6 @@ extern crate alloc;
 #[macro_use]
 extern crate log;
 
-#[no_mangle]
-pub static _fltused: u32 = 0;
-
 use mythril_core::vm::VmServices;
 use mythril_core::*;
 use uefi::prelude::*;
