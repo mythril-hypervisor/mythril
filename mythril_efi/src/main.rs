@@ -39,7 +39,7 @@ fn efi_main(_handle: Handle, system_table: SystemTable<Boot>) -> Status {
         .unwrap_or(());
     config.register_device(device::ComDevice::new(0x3F8));
     config.register_device(device::ComDevice::new(0x402)); // The qemu debug port
-    config.register_device(device::PciRootComplex::new());
+    config.register_device(pci::PciRootComplex::new());
 
     let vm = vm::VirtualMachine::new(&mut vmx, config, &mut services).expect("Failed to create vm");
 

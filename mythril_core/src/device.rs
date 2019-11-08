@@ -33,52 +33,6 @@ pub trait EmulatedDevice {
     }
 }
 
-pub struct PciRootComplex {
-    current_address: u32,
-}
-
-impl PciRootComplex {
-    const PCI_CONFIG_ADDRESS: u16 = 0xcf8;
-    const PCI_CONFIG_DATA: u16 = 0xcfc;
-    const PCI_CONFIG_DATA_MAX: u16 = Self::PCI_CONFIG_DATA + 256;
-
-    pub fn new() -> Box<dyn EmulatedDevice> {
-        Box::new(Self { current_address: 0 })
-    }
-}
-
-impl EmulatedDevice for PciRootComplex {
-    fn services_port(&self, port: u16) -> bool {
-        match port {
-            Self::PCI_CONFIG_ADDRESS | Self::PCI_CONFIG_DATA..=Self::PCI_CONFIG_DATA_MAX => true,
-            _ => false,
-        }
-    }
-    fn on_port_read(&mut self, port: u16, val: &mut [u8]) -> Result<()> {
-        match port {
-            Self::PCI_CONFIG_ADDRESS => {
-                let addr = (0x80000000 | self.current_address).to_be_bytes();
-                val.copy_from_slice(&addr);
-            }
-            _ => (),
-        }
-        Ok(())
-    }
-
-    fn on_port_write(&mut self, port: u16, val: &[u8]) -> Result<()> {
-        let val: [u8; 4] = val.try_into().map_err(|_| {
-            Error::InvalidValue("Insufficient PCI root complex port write bytes".into())
-        })?;
-        let val = u32::from_be_bytes(val);
-
-        match port {
-            Self::PCI_CONFIG_ADDRESS => self.current_address = val,
-            _ => (),
-        }
-        Ok(())
-    }
-}
-
 pub struct ComDevice {
     port: u16,
 }
