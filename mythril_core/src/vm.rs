@@ -391,6 +391,14 @@ impl VirtualMachineRunning {
                 };
 
                 match info.cr_num {
+                    0 => match info.access_type {
+                        vmexit::CrAccessType::Clts => {
+                            let cr0 = self.vmcs.read_field(vmcs::VmcsField::GuestCr0)?;
+                            self.vmcs
+                                .write_field(vmcs::VmcsField::GuestCr0, cr0 & !0b1000)?;
+                        }
+                        _ => unreachable!(),
+                    },
                     3 => match info.access_type {
                         vmexit::CrAccessType::MovToCr => {
                             let reg = info.register.unwrap();

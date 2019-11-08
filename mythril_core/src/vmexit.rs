@@ -277,18 +277,20 @@ impl ExitInformation {
                 let access_type = CrAccessType::try_from(((qualifier & 0b11000) >> 3) as u8)
                     .ok_or(Error::InvalidValue("Invalid CR access type".into()))?;
                 let reg = ((qualifier & 0xf00) >> 8) as u8;
-                let (reg, source) = match access_type {
+                let cr_num = (qualifier & 0b111) as u8;
+                let (cr_num, reg, source) = match access_type {
                     CrAccessType::MovToCr | CrAccessType::MovFromCr => (
+                        cr_num,
                         Some(
                             MovCrRegister::try_from(reg)
                                 .ok_or(Error::InvalidValue("Invalid general register".into()))?,
                         ),
                         None,
                     ),
-                    _ => (None, Some(((qualifier & 0xffff0000) >> 16) as u16)),
+                    _ => (0, None, Some(((qualifier & 0xffff0000) >> 16) as u16)),
                 };
                 Ok(Some(ExitInformation::CrAccess(CrInformation {
-                    cr_num: (qualifier & 0b111) as u8,
+                    cr_num: cr_num,
                     access_type: access_type,
                     lmsw_memory_operand: qualifier & (1 << 6) != 0,
                     register: reg,
