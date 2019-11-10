@@ -274,10 +274,10 @@ impl ExitInformation {
         let inter_error = vmcs.read_field(vmcs::VmcsField::VmExitIntrErrorCode)?;
         match basic {
             BasicExitReason::CrAccess => {
-                let access_type = CrAccessType::try_from(((qualifier & 0b11000) >> 3) as u8)
+                let access_type = CrAccessType::try_from(((qualifier & 0b110000) >> 4) as u8)
                     .ok_or(Error::InvalidValue("Invalid CR access type".into()))?;
                 let reg = ((qualifier & 0xf00) >> 8) as u8;
-                let cr_num = (qualifier & 0b111) as u8;
+                let cr_num = (qualifier & 0b1111) as u8;
                 let (cr_num, reg, source) = match access_type {
                     CrAccessType::MovToCr | CrAccessType::MovFromCr => (
                         cr_num,
