@@ -13,7 +13,6 @@ pub mod allocator;
 pub mod device;
 pub mod error;
 pub mod memory;
-pub mod pci;
 mod percpu;
 mod registers;
 pub mod vm;

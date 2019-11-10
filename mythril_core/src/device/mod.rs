@@ -4,6 +4,9 @@ use alloc::boxed::Box;
 use alloc::string::String;
 use core::convert::TryInto;
 
+pub mod pci;
+pub mod pic;
+
 pub trait EmulatedDevice {
     fn services_address(&self, _addr: GuestPhysAddr) -> bool {
         false

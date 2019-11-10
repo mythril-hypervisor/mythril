@@ -108,7 +108,7 @@ impl PciRootComplex {
     const PCI_CONFIG_DATA: u16 = 0xcfc;
     const PCI_CONFIG_DATA_MAX: u16 = Self::PCI_CONFIG_DATA + 256;
 
-    pub fn new() -> Box<dyn EmulatedDevice> {
+    pub fn new() -> Box<Self> {
         let mut devices = BTreeMap::new();
 
         let host_bridge = PciDevice {
