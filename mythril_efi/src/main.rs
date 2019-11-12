@@ -50,6 +50,10 @@ fn efi_main(_handle: Handle, system_table: SystemTable<Boot>) -> Status {
         .device_map()
         .register_device(device::pic::Pic8259::new())
         .unwrap();
+    config
+        .device_map()
+        .register_device(device::rtc::CmosRtc::new())
+        .unwrap();
 
     let vm = vm::VirtualMachine::new(&mut vmx, config, &mut services).expect("Failed to create vm");
 

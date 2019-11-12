@@ -12,6 +12,7 @@ use core::ops::RangeInclusive;
 
 pub mod pci;
 pub mod pic;
+pub mod rtc;
 
 pub type Port = u16;
 
