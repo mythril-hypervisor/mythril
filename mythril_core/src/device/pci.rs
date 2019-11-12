@@ -1,4 +1,4 @@
-use crate::device::{DeviceRegion, EmulatedDevice};
+use crate::device::{DeviceRegion, EmulatedDevice, Port};
 use crate::error::{Error, Result};
 use alloc::boxed::Box;
 use alloc::collections::btree_map::BTreeMap;
@@ -105,9 +105,9 @@ pub struct PciRootComplex {
 }
 
 impl PciRootComplex {
-    const PCI_CONFIG_ADDRESS: u16 = 0xcf8;
-    const PCI_CONFIG_DATA: u16 = 0xcfc;
-    const PCI_CONFIG_DATA_MAX: u16 = Self::PCI_CONFIG_DATA + 256;
+    const PCI_CONFIG_ADDRESS: Port = 0xcf8;
+    const PCI_CONFIG_DATA: Port = 0xcfc;
+    const PCI_CONFIG_DATA_MAX: Port = Self::PCI_CONFIG_DATA + 256;
 
     pub fn new() -> Box<Self> {
         let mut devices = BTreeMap::new();
@@ -136,7 +136,7 @@ impl EmulatedDevice for PciRootComplex {
             DeviceRegion::PortIo(Self::PCI_CONFIG_DATA..=Self::PCI_CONFIG_DATA_MAX),
         ]
     }
-    fn on_port_read(&mut self, port: u16, val: &mut [u8]) -> Result<()> {
+    fn on_port_read(&mut self, port: Port, val: &mut [u8]) -> Result<()> {
         match port {
             Self::PCI_CONFIG_ADDRESS => {
                 // For now, always set the enable bit
@@ -168,7 +168,7 @@ impl EmulatedDevice for PciRootComplex {
         Ok(())
     }
 
-    fn on_port_write(&mut self, port: u16, val: &[u8]) -> Result<()> {
+    fn on_port_write(&mut self, port: Port, val: &[u8]) -> Result<()> {
         let val: [u8; 4] = val.try_into().map_err(|_| {
             Error::InvalidValue("Insufficient PCI root complex port write bytes".into())
         })?;

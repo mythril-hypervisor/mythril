@@ -13,103 +13,123 @@ use core::ops::RangeInclusive;
 pub mod pci;
 pub mod pic;
 
-#[derive(Default)]
-pub struct DeviceMap {
-    map: BTreeMap<DeviceRegion, Rc<RefCell<Box<dyn EmulatedDevice>>>>,
-}
+pub type Port = u16;
 
 #[derive(Eq, PartialEq)]
-pub enum DeviceRegion {
-    PortIo(RangeInclusive<u16>),
-    MemIo(RangeInclusive<GuestPhysAddr>),
-}
+struct PortIoRegion(RangeInclusive<Port>);
 
-impl From<DeviceInteraction> for DeviceRegion {
-    fn from(val: DeviceInteraction) -> Self {
-        match val {
-            DeviceInteraction::PortIo(start) => {
-                DeviceRegion::PortIo(RangeInclusive::new(start, start))
-            }
-            DeviceInteraction::MemIo(start) => {
-                DeviceRegion::MemIo(RangeInclusive::new(start, start))
-            }
-        }
-    }
-}
+#[derive(Eq, PartialEq)]
+struct MemIoRegion(RangeInclusive<GuestPhysAddr>);
 
-impl PartialOrd for DeviceRegion {
+impl PartialOrd for PortIoRegion {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Ord for DeviceRegion {
+impl Ord for PortIoRegion {
     fn cmp(&self, other: &Self) -> Ordering {
-        match self {
-            DeviceRegion::PortIo(this_range) => match other {
-                DeviceRegion::PortIo(other_range) => {
-                    if this_range.end() < other_range.start() {
-                        Ordering::Less
-                    } else if other_range.end() < this_range.start() {
-                        Ordering::Greater
-                    } else {
-                        Ordering::Equal
-                    }
-                }
-                DeviceRegion::MemIo(_) => Ordering::Less,
-            },
-            DeviceRegion::MemIo(this_range) => match other {
-                DeviceRegion::PortIo(_) => Ordering::Greater,
-                DeviceRegion::MemIo(other_range) => {
-                    if this_range.end() < other_range.start() {
-                        Ordering::Less
-                    } else if other_range.end() < this_range.start() {
-                        Ordering::Greater
-                    } else {
-                        Ordering::Equal
-                    }
-                }
-            },
+        if self.0.end() < other.0.start() {
+            Ordering::Less
+        } else if other.0.end() < self.0.start() {
+            Ordering::Greater
+        } else {
+            Ordering::Equal
         }
     }
 }
 
-#[derive(Eq, PartialEq)]
-pub enum DeviceInteraction {
-    PortIo(u16),
-    MemIo(GuestPhysAddr),
-}
-
-impl From<u16> for DeviceInteraction {
-    fn from(val: u16) -> Self {
-        DeviceInteraction::PortIo(val)
+impl PartialOrd for MemIoRegion {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
     }
 }
 
-impl From<GuestPhysAddr> for DeviceInteraction {
-    fn from(val: GuestPhysAddr) -> Self {
-        DeviceInteraction::MemIo(val)
+impl Ord for MemIoRegion {
+    fn cmp(&self, other: &Self) -> Ordering {
+        if self.0.end() < other.0.start() {
+            Ordering::Less
+        } else if other.0.end() < self.0.start() {
+            Ordering::Greater
+        } else {
+            Ordering::Equal
+        }
     }
+}
+
+pub enum DeviceRegion {
+    PortIo(RangeInclusive<Port>),
+    MemIo(RangeInclusive<GuestPhysAddr>),
+}
+
+pub trait DeviceInteraction {
+    fn find_device(self, map: &DeviceMap) -> Option<&Box<dyn EmulatedDevice>>;
+    fn find_device_mut(self, map: &mut DeviceMap) -> Option<&mut Box<dyn EmulatedDevice>>;
+}
+
+impl DeviceInteraction for u16 {
+    fn find_device(self, map: &DeviceMap) -> Option<&Box<dyn EmulatedDevice>> {
+        let range = PortIoRegion(RangeInclusive::new(self, self));
+        map.portio_map.get(&range).map(|v| &**v)
+    }
+    fn find_device_mut(self, map: &mut DeviceMap) -> Option<&mut Box<dyn EmulatedDevice>> {
+        let range = PortIoRegion(RangeInclusive::new(self, self));
+        //NOTE: This is safe because all of the clones will exist in the same DeviceMap,
+        //      so there cannot be other outstanding references
+        map.portio_map
+            .get_mut(&range)
+            .map(|v| unsafe { Rc::get_mut_unchecked(v) })
+    }
+}
+
+impl DeviceInteraction for GuestPhysAddr {
+    fn find_device(self, map: &DeviceMap) -> Option<&Box<dyn EmulatedDevice>> {
+        let range = MemIoRegion(RangeInclusive::new(self, self));
+        map.memio_map.get(&range).map(|v| &**v)
+    }
+    fn find_device_mut(self, map: &mut DeviceMap) -> Option<&mut Box<dyn EmulatedDevice>> {
+        let range = MemIoRegion(RangeInclusive::new(self, self));
+        map.memio_map
+            .get_mut(&range)
+            .map(|v| unsafe { Rc::get_mut_unchecked(v) })
+    }
+}
+
+#[derive(Default)]
+pub struct DeviceMap {
+    portio_map: BTreeMap<PortIoRegion, Rc<Box<dyn EmulatedDevice>>>,
+    memio_map: BTreeMap<MemIoRegion, Rc<Box<dyn EmulatedDevice>>>,
 }
 
 impl DeviceMap {
-    pub fn device_for(&self, op: DeviceInteraction) -> Option<Ref<Box<dyn EmulatedDevice>>> {
-        self.map.get(&op.into()).map(|v| v.borrow())
+    pub fn device_for(&self, op: impl DeviceInteraction) -> Option<&Box<dyn EmulatedDevice>> {
+        op.find_device(self)
     }
 
     pub fn device_for_mut(
         &mut self,
-        op: DeviceInteraction,
-    ) -> Option<RefMut<Box<dyn EmulatedDevice>>> {
-        self.map.get_mut(&op.into()).map(|v| v.borrow_mut())
+        op: impl DeviceInteraction,
+    ) -> Option<&mut Box<dyn EmulatedDevice>> {
+        op.find_device_mut(self)
     }
 
-    pub fn register_device(&mut self, dev: Box<dyn EmulatedDevice>) {
+    //TODO: detect conflicts
+    pub fn register_device(&mut self, dev: Box<dyn EmulatedDevice>) -> Result<()> {
         let services = dev.services();
-        let dev = Rc::new(RefCell::new(dev));
+        let dev = Rc::new(dev);
         for region in services.into_iter() {
-            self.map.insert(region, Rc::clone(&dev));
+            match region {
+                DeviceRegion::PortIo(val) => {
+                    let key = PortIoRegion(val);
+                    self.portio_map.insert(key, Rc::clone(&dev));
+                }
+                DeviceRegion::MemIo(val) => {
+                    let key = MemIoRegion(val);
+                    self.memio_map.insert(key, Rc::clone(&dev));
+                }
+            }
         }
+        Ok(())
     }
 }
 
@@ -126,12 +146,12 @@ pub trait EmulatedDevice {
             "MemoryMapped device does not support writing".into(),
         ))
     }
-    fn on_port_read(&mut self, _port: u16, _val: &mut [u8]) -> Result<()> {
+    fn on_port_read(&mut self, _port: Port, _val: &mut [u8]) -> Result<()> {
         Err(Error::NotImplemented(
             "PortIo device does not support reading".into(),
         ))
     }
-    fn on_port_write(&mut self, _port: u16, _val: &[u8]) -> Result<()> {
+    fn on_port_write(&mut self, _port: Port, _val: &[u8]) -> Result<()> {
         Err(Error::NotImplemented(
             "PortIo device does not support writing".into(),
         ))
@@ -139,11 +159,11 @@ pub trait EmulatedDevice {
 }
 
 pub struct ComDevice {
-    port: u16,
+    port: Port,
 }
 
 impl ComDevice {
-    pub fn new(port: u16) -> Box<dyn EmulatedDevice> {
+    pub fn new(port: Port) -> Box<dyn EmulatedDevice> {
         Box::new(Self { port })
     }
 }
@@ -153,14 +173,14 @@ impl EmulatedDevice for ComDevice {
         vec![DeviceRegion::PortIo(self.port..=self.port)]
     }
 
-    fn on_port_read(&mut self, _port: u16, val: &mut [u8]) -> Result<()> {
+    fn on_port_read(&mut self, _port: Port, val: &mut [u8]) -> Result<()> {
         // This is a magical value (called BOCHS_DEBUG_PORT_MAGIC by edk2)
         // FIXME: this should only be returned for a special 'debug' com device
         val[0] = 0xe9;
         Ok(())
     }
 
-    fn on_port_write(&mut self, _port: u16, val: &[u8]) -> Result<()> {
+    fn on_port_write(&mut self, _port: Port, val: &[u8]) -> Result<()> {
         // TODO: I'm not sure what the correct behavior is here for a Com device.
         //       For now, just print each byte (except NUL because that crashes)
         let s: String = String::from_utf8_lossy(val)
@@ -188,9 +208,9 @@ mod test {
     fn test_device_map() {
         let mut map = DeviceMap::default();
         let com = ComDevice::new(0);
-        map.register_device(com);
-        let dev = map.device_for(0.into()).unwrap();
+        map.register_device(com).unwrap();
+        let dev = map.device_for(0u16).unwrap();
 
-        assert_eq!(map.device_for(1.into()).is_none(), true);
+        assert_eq!(map.device_for(1u16).is_none(), true);
     }
 }

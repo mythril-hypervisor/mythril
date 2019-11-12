@@ -1,4 +1,4 @@
-use crate::device::{DeviceRegion, EmulatedDevice};
+use crate::device::{DeviceRegion, EmulatedDevice, Port};
 use crate::error::{Error, Result};
 use alloc::boxed::Box;
 use alloc::vec::Vec;
@@ -15,10 +15,10 @@ pub struct Pic8259 {
 }
 
 impl Pic8259 {
-    const PIC_MASTER_COMMAND: u16 = 0x0020;
-    const PIC_MASTER_DATA: u16 = Self::PIC_MASTER_COMMAND + 1;
-    const PIC_SLAVE_COMMAND: u16 = 0x00a0;
-    const PIC_SLAVE_DATA: u16 = Self::PIC_SLAVE_COMMAND + 1;
+    const PIC_MASTER_COMMAND: Port = 0x0020;
+    const PIC_MASTER_DATA: Port = Self::PIC_MASTER_COMMAND + 1;
+    const PIC_SLAVE_COMMAND: Port = 0x00a0;
+    const PIC_SLAVE_DATA: Port = Self::PIC_SLAVE_COMMAND + 1;
 
     pub fn new() -> Box<Self> {
         Box::new(Pic8259::default())
@@ -33,7 +33,7 @@ impl EmulatedDevice for Pic8259 {
         ]
     }
 
-    fn on_port_read(&mut self, port: u16, val: &mut [u8]) -> Result<()> {
+    fn on_port_read(&mut self, port: Port, val: &mut [u8]) -> Result<()> {
         let data = match port {
             Self::PIC_MASTER_DATA => self.master_state.imr,
             Self::PIC_SLAVE_DATA => self.master_state.imr,
@@ -48,7 +48,7 @@ impl EmulatedDevice for Pic8259 {
         Ok(())
     }
 
-    fn on_port_write(&mut self, port: u16, val: &[u8]) -> Result<()> {
+    fn on_port_write(&mut self, port: Port, val: &[u8]) -> Result<()> {
         match port {
             Self::PIC_MASTER_DATA => self.master_state.imr = val[0],
             Self::PIC_SLAVE_DATA => self.master_state.imr = val[0],

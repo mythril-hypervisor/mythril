@@ -2,6 +2,7 @@
 #![feature(asm)]
 #![feature(never_type)]
 #![feature(const_fn)]
+#![feature(get_mut_unchecked)]
 
 #[macro_use]
 extern crate alloc;

@@ -36,16 +36,20 @@ fn efi_main(_handle: Handle, system_table: SystemTable<Boot>) -> Status {
         .unwrap_or(());
     config
         .device_map()
-        .register_device(device::ComDevice::new(0x3F8));
+        .register_device(device::ComDevice::new(0x3F8))
+        .unwrap();
     config
         .device_map()
-        .register_device(device::ComDevice::new(0x402)); // The qemu debug port
+        .register_device(device::ComDevice::new(0x402))
+        .unwrap(); // The qemu debug port
     config
         .device_map()
-        .register_device(device::pci::PciRootComplex::new());
+        .register_device(device::pci::PciRootComplex::new())
+        .unwrap();
     config
         .device_map()
-        .register_device(device::pic::Pic8259::new());
+        .register_device(device::pic::Pic8259::new())
+        .unwrap();
 
     let vm = vm::VirtualMachine::new(&mut vmx, config, &mut services).expect("Failed to create vm");
 

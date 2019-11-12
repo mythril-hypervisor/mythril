@@ -386,7 +386,7 @@ impl VirtualMachineRunning {
         let mut dev = self
             .config
             .devices
-            .device_for_mut(port.into())
+            .device_for_mut(port)
             .ok_or(Error::MissingDevice(format!("No device for port {}", port)))?;
 
         if !string {
