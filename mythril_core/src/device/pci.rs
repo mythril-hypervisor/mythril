@@ -1,7 +1,8 @@
-use crate::device::EmulatedDevice;
+use crate::device::{DeviceRegion, EmulatedDevice};
 use crate::error::{Error, Result};
 use alloc::boxed::Box;
 use alloc::collections::btree_map::BTreeMap;
+use alloc::vec::Vec;
 use core::convert::TryInto;
 use core::mem::{size_of, transmute};
 use ux;
@@ -129,11 +130,11 @@ impl PciRootComplex {
 }
 
 impl EmulatedDevice for PciRootComplex {
-    fn services_port(&self, port: u16) -> bool {
-        match port {
-            Self::PCI_CONFIG_ADDRESS | Self::PCI_CONFIG_DATA..=Self::PCI_CONFIG_DATA_MAX => true,
-            _ => false,
-        }
+    fn services(&self) -> Vec<DeviceRegion> {
+        vec![
+            DeviceRegion::PortIo(Self::PCI_CONFIG_ADDRESS..=Self::PCI_CONFIG_ADDRESS),
+            DeviceRegion::PortIo(Self::PCI_CONFIG_DATA..=Self::PCI_CONFIG_DATA_MAX),
+        ]
     }
     fn on_port_read(&mut self, port: u16, val: &mut [u8]) -> Result<()> {
         match port {

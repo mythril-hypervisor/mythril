@@ -1,5 +1,5 @@
 use crate::allocator::FrameAllocator;
-use crate::device::EmulatedDevice;
+use crate::device::{DeviceMap, EmulatedDevice};
 use crate::error::{self, Error, Result};
 use crate::memory::{self, GuestAddressSpace, GuestPhysAddr};
 use crate::percpu;
@@ -28,7 +28,7 @@ pub static mut VMS: percpu::PerCpu<Option<VirtualMachineRunning>> =
 
 pub struct VirtualMachineConfig {
     images: Vec<(String, GuestPhysAddr)>,
-    devices: Vec<Box<dyn EmulatedDevice>>,
+    devices: DeviceMap,
     memory: u64, // number of 4k pages
 }
 
@@ -36,7 +36,7 @@ impl VirtualMachineConfig {
     pub fn new(memory: u64) -> VirtualMachineConfig {
         VirtualMachineConfig {
             images: vec![],
-            devices: vec![],
+            devices: DeviceMap::default(),
             memory: memory,
         }
     }
@@ -46,8 +46,8 @@ impl VirtualMachineConfig {
         Ok(())
     }
 
-    pub fn register_device(&mut self, device: Box<dyn EmulatedDevice>) {
-        self.devices.push(device);
+    pub fn device_map(&mut self) -> &mut DeviceMap {
+        &mut self.devices
     }
 }
 
@@ -360,13 +360,6 @@ pub struct VirtualMachineRunning {
 }
 
 impl VirtualMachineRunning {
-    fn find_matching_port_dev(&mut self, port: u16) -> Option<&mut Box<dyn EmulatedDevice>> {
-        self.config
-            .devices
-            .iter_mut()
-            .find(|dev| dev.services_port(port))
-    }
-
     fn skip_emulated_instruction(&mut self) -> Result<()> {
         let mut rip = self.vmcs.read_field(vmcs::VmcsField::GuestRip)?;
         rip += self
@@ -375,6 +368,65 @@ impl VirtualMachineRunning {
         self.vmcs.write_field(vmcs::VmcsField::GuestRip, rip)?;
 
         //TODO: clear interrupts?
+        Ok(())
+    }
+
+    fn handle_portio(
+        &mut self,
+        guest_cpu: &mut vmexit::GuestCpuState,
+        exit: vmexit::ExitReason,
+    ) -> Result<()> {
+        let (port, input, size, string) = match exit.information {
+            Some(vmexit::ExitInformation::IoInstruction(qual)) => {
+                (qual.port, qual.input, qual.size, qual.string)
+            }
+            _ => unreachable!(),
+        };
+
+        let mut dev = self
+            .config
+            .devices
+            .device_for_mut(port.into())
+            .ok_or(Error::MissingDevice(format!("No device for port {}", port)))?;
+
+        if !string {
+            if !input {
+                let arr = (guest_cpu.rax as u32).to_be_bytes();
+                dev.on_port_write(port, &arr[..size as usize])?;
+            } else {
+                let mut out = [0u8; 4];
+                dev.on_port_read(port, &mut out[4 - size as usize..])?;
+                guest_cpu.rax &= (!guest_cpu.rax) << (size * 8);
+                guest_cpu.rax |= u32::from_be_bytes(out) as u64;
+            }
+        } else {
+            if !input {
+                let linear_addr = self.vmcs.read_field(vmcs::VmcsField::GuestLinearAddress)?;
+                let guest_addr = memory::GuestVirtAddr::Paging4Level(
+                    memory::Guest4LevelPagingAddr::new(linear_addr),
+                );
+                let guest_cr3 = self.vmcs.read_field(vmcs::VmcsField::GuestCr3)?;
+                let guest_cr3 = memory::GuestPhysAddr::new(guest_cr3);
+                let translated = self
+                    .addr_space
+                    .translate_linear_address(guest_addr, guest_cr3)?;
+                info!("vaddr = {:?}, translated = {:?}", guest_addr, translated);
+
+                //TODO: for now just print this so I feel accomplished
+                let frame = self.addr_space.find_host_frame(translated)?;
+                unsafe {
+                    let start = u16::from(translated.offset()) as usize;
+                    let data = frame.as_array()[start..]
+                        .iter()
+                        .cloned()
+                        .take_while(|b| *b != 0)
+                        .collect::<Vec<u8>>();
+                    info!("GUEST0: {:?}", String::from_utf8(data).unwrap());
+                }
+            } else {
+                //TODO: INS
+            }
+        }
         Ok(())
     }
 
@@ -431,56 +483,7 @@ impl VirtualMachineRunning {
                 self.skip_emulated_instruction()?;
             }
             vmexit::BasicExitReason::IoInstruction => {
-                let (port, input, size, string) = match exit.information {
-                    Some(vmexit::ExitInformation::IoInstruction(qual)) => {
-                        (qual.port, qual.input, qual.size, qual.string)
-                    }
-                    _ => unreachable!(),
-                };
-
-                let dev = self
-                    .find_matching_port_dev(port)
-                    .ok_or(Error::MissingDevice(format!("No device for port {}", port)))?;
-
-                if !string {
-                    if !input {
-                        let arr = (guest_cpu.rax as u32).to_be_bytes();
-                        dev.on_port_write(port, &arr[..size as usize])?;
-                    } else {
-                        let mut out = [0u8; 4];
-                        dev.on_port_read(port, &mut out[4 - size as usize..])?;
-                        guest_cpu.rax &= (!guest_cpu.rax) << (size * 8);
-                        guest_cpu.rax |= u32::from_be_bytes(out) as u64;
-                    }
-                } else {
-                    if !input {
-                        let linear_addr =
-                            self.vmcs.read_field(vmcs::VmcsField::GuestLinearAddress)?;
-                        let guest_addr = memory::GuestVirtAddr::Paging4Level(
-                            memory::Guest4LevelPagingAddr::new(linear_addr),
-                        );
-                        let guest_cr3 = self.vmcs.read_field(vmcs::VmcsField::GuestCr3)?;
-                        let guest_cr3 = memory::GuestPhysAddr::new(guest_cr3);
-                        let translated = self
-                            .addr_space
-                            .translate_linear_address(guest_addr, guest_cr3)?;
-                        info!("vaddr = {:?}, translated = {:?}", guest_addr, translated);
-
-                        //TODO: for now just print this so I feel accomplished
-                        let frame = self.addr_space.find_host_frame(translated)?;
-                        unsafe {
-                            let start = u16::from(translated.offset()) as usize;
-                            let data = frame.as_array()[start..]
-                                .iter()
-                                .cloned()
-                                .take_while(|b| *b != 0)
-                                .collect::<Vec<u8>>();
-                            info!("GUEST0: {:?}", String::from_utf8(data).unwrap());
-                        }
-                    } else {
-                        //TODO: INS
-                    }
-                }
+                self.handle_portio(guest_cpu, exit)?;
                 self.skip_emulated_instruction()?;
             }
             _ => info!("No handler for exit reason: {:?}", exit),

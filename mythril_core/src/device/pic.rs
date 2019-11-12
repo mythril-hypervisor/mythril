@@ -1,6 +1,7 @@
-use crate::device::EmulatedDevice;
+use crate::device::{DeviceRegion, EmulatedDevice};
 use crate::error::{Error, Result};
 use alloc::boxed::Box;
+use alloc::vec::Vec;
 
 #[derive(Default, Debug)]
 pub struct PicState {
@@ -25,14 +26,11 @@ impl Pic8259 {
 }
 
 impl EmulatedDevice for Pic8259 {
-    fn services_port(&self, port: u16) -> bool {
-        match port {
-            Self::PIC_MASTER_COMMAND
-            | Self::PIC_MASTER_DATA
-            | Self::PIC_SLAVE_COMMAND
-            | Self::PIC_SLAVE_DATA => true,
-            _ => false,
-        }
+    fn services(&self) -> Vec<DeviceRegion> {
+        vec![
+            DeviceRegion::PortIo(Self::PIC_MASTER_COMMAND..=Self::PIC_MASTER_DATA),
+            DeviceRegion::PortIo(Self::PIC_SLAVE_COMMAND..=Self::PIC_SLAVE_DATA),
+        ]
     }
 
     fn on_port_read(&mut self, port: u16, val: &mut [u8]) -> Result<()> {

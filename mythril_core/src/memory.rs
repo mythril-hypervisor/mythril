@@ -49,7 +49,7 @@ pub enum GuestVirtAddr {
     //TODO: 5 level paging
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Copy, Clone, Debug)]
 pub struct Guest4LevelPagingAddr(u64);
 impl Guest4LevelPagingAddr {
     pub fn new(addr: u64) -> Self {
@@ -89,7 +89,7 @@ impl Guest4LevelPagingAddr {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Copy, Clone, Debug)]
 pub struct GuestPhysAddr(u64);
 impl GuestPhysAddr {
     pub fn new(addr: u64) -> Self {
@@ -121,7 +121,7 @@ impl GuestPhysAddr {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Copy, Clone, Debug)]
 pub struct HostPhysAddr(u64);
 impl HostPhysAddr {
     pub fn new(addr: u64) -> Self {
@@ -137,6 +137,7 @@ impl HostPhysAddr {
     }
 }
 
+#[derive(PartialEq, Eq, PartialOrd, Ord, Copy, Clone, Debug)]
 pub struct HostPhysFrame(HostPhysAddr);
 impl HostPhysFrame {
     pub fn from_start_address(addr: HostPhysAddr) -> Result<Self> {
