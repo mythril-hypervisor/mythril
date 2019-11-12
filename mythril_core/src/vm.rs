@@ -392,7 +392,7 @@ impl VirtualMachineRunning {
         if !string {
             if !input {
                 let arr = (guest_cpu.rax as u32).to_be_bytes();
-                dev.on_port_write(port, &arr[..size as usize])?;
+                dev.on_port_write(port, &arr[4 - size as usize..])?;
             } else {
                 let mut out = [0u8; 4];
                 dev.on_port_read(port, &mut out[4 - size as usize..])?;
@@ -427,6 +427,18 @@ impl VirtualMachineRunning {
                 //TODO: INS
             }
         }
+        Ok(())
+    }
+
+    fn handle_ept_violation(
+        &mut self,
+        guest_cpu: &mut vmexit::GuestCpuState,
+        exit: vmexit::ExitReason,
+    ) -> Result<()> {
+        let addr = match exit.information {
+            Some(vmexit::ExitInformation::EptInformation(info)) => info.guest_phys_addr,
+            _ => unreachable!(),
+        };
         Ok(())
     }
 
@@ -484,6 +496,10 @@ impl VirtualMachineRunning {
             }
             vmexit::BasicExitReason::IoInstruction => {
                 self.handle_portio(guest_cpu, exit)?;
+                self.skip_emulated_instruction()?;
+            }
+            vmexit::BasicExitReason::EptViolation => {
+                self.handle_ept_violation(guest_cpu, exit)?;
                 self.skip_emulated_instruction()?;
             }
             _ => info!("No handler for exit reason: {:?}", exit),
