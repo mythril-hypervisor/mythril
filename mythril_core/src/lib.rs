@@ -3,6 +3,7 @@
 #![feature(never_type)]
 #![feature(const_fn)]
 #![feature(get_mut_unchecked)]
+#![feature(fixed_size_array)]
 
 #[macro_use]
 extern crate alloc;
