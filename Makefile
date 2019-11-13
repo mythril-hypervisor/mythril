@@ -15,7 +15,8 @@ qemu: $(efi_binary)
 	sudo ./scripts/uefi-run.sh $(efi_binary) scripts/OVMF.fd
 
 $(efi_binary): $(rs_src)
-	cd mythril_efi; $(CARGO) +$(CARGO_TOOLCHAIN) xbuild --target $(UEFI_TARGET)
+	$(CARGO) +$(CARGO_TOOLCHAIN) xbuild \
+		--target $(UEFI_TARGET) --manifest-path mythril_efi/Cargo.toml
 
 .PHONY: test_core
 test_core:
