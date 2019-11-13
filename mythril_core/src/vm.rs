@@ -424,7 +424,7 @@ impl VirtualMachineRunning {
                     info!("GUEST0: {:?}", String::from_utf8(data).unwrap());
                 }
             } else {
-                //TODO: INS
+                panic!("INS is not yet implemented");
             }
         }
         Ok(())
