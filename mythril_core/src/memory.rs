@@ -1,11 +1,13 @@
 use crate::allocator::FrameAllocator;
 use crate::error::{self, Error, Result};
+use crate::vmcs;
 use bitflags::bitflags;
 use core::ops::{Index, IndexMut};
 use core::ptr::NonNull;
 use derive_try_from_primitive::TryFromPrimitive;
 use ux;
 use x86::bits64::paging::*;
+use x86::controlregs::Cr0;
 
 #[inline]
 fn pml4_index(addr: u64) -> ux::u9 {
@@ -44,9 +46,22 @@ fn huge_page_offset(addr: u64) -> ux::u30 {
 
 #[derive(Copy, Clone, Debug)]
 pub enum GuestVirtAddr {
-    Real(GuestPhysAddr),
+    NoPaging(GuestPhysAddr),
     Paging4Level(Guest4LevelPagingAddr),
     //TODO: 5 level paging
+}
+
+impl GuestVirtAddr {
+    // Convert a 64 bit number to a virtual address in the context of the current
+    // guest configuration (as read from a VMCS)
+    pub fn new(val: u64, vmcs: &vmcs::ActiveVmcs) -> Result<Self> {
+        let cr0 = Cr0::from_bits_truncate(vmcs.read_field(vmcs::VmcsField::GuestCr0)? as usize);
+        if cr0.contains(Cr0::CR0_ENABLE_PAGING) {
+            Ok(GuestVirtAddr::Paging4Level(Guest4LevelPagingAddr::new(val)))
+        } else {
+            Ok(GuestVirtAddr::NoPaging(GuestPhysAddr::new(val)))
+        }
+    }
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Copy, Clone, Debug)]
@@ -213,7 +228,7 @@ impl GuestAddressSpace {
         cr3: GuestPhysAddr,
     ) -> Result<GuestPhysAddr> {
         match addr {
-            GuestVirtAddr::Real(rmode_addr) => Ok(GuestPhysAddr::new(rmode_addr.as_u64())),
+            GuestVirtAddr::NoPaging(addr) => Ok(GuestPhysAddr::new(addr.as_u64())),
             GuestVirtAddr::Paging4Level(vaddr) => self.translate_pl4_address(vaddr, cr3),
         }
     }
@@ -230,31 +245,16 @@ impl GuestAddressSpace {
         let guest_pml4 = guest_pml4_root.start_address().as_u64() as *const PML4;
         let guest_pml4e = unsafe { (*guest_pml4)[u16::from(addr.p4_index()) as usize] };
         let guest_pml4e_addr = GuestPhysAddr::new(guest_pml4e.address().as_u64());
-        info!(
-            "pml4e flags = {:?}, addr = {:?}",
-            guest_pml4e.flags(),
-            guest_pml4e_addr
-        );
         let guest_pml4e_host_frame = self.find_host_frame(guest_pml4e_addr)?;
 
         let guest_pdpt = guest_pml4e_host_frame.start_address().as_u64() as *const PDPT;
         let guest_pdpte = unsafe { (*guest_pdpt)[u16::from(addr.p3_index()) as usize] };
         let guest_pdpte_addr = GuestPhysAddr::new(guest_pdpte.address().as_u64());
-        info!(
-            "pdpte flags = {:?}, addr = {:?}",
-            guest_pdpte.flags(),
-            guest_pdpte_addr
-        );
         let guest_pdpte_host_frame = self.find_host_frame(guest_pdpte_addr)?;
 
         let guest_pdt = guest_pdpte_host_frame.start_address().as_u64() as *const PD;
         let guest_pdte = unsafe { (*guest_pdt)[u16::from(addr.p2_index()) as usize] };
         let guest_pdte_addr = GuestPhysAddr::new(guest_pdte.address().as_u64());
-        info!(
-            "pdte flags = {:?}, addr = {:?}",
-            guest_pdte.flags(),
-            guest_pdte_addr
-        );
 
         let translated_vaddr =
             guest_pdte.address().as_u64() + (u32::from(addr.large_page_offset()) as u64);

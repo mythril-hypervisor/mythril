@@ -371,17 +371,48 @@ impl VirtualMachineRunning {
         Ok(())
     }
 
+    fn emulate_outs(
+        &mut self,
+        guest_cpu: &mut vmexit::GuestCpuState,
+        exit: vmexit::IoInstructionInformation,
+    ) -> Result<()> {
+        let linear_addr = self.vmcs.read_field(vmcs::VmcsField::GuestLinearAddress)?;
+        let guest_addr = memory::GuestVirtAddr::new(linear_addr, &self.vmcs)?;
+        let guest_cr3 = self.vmcs.read_field(vmcs::VmcsField::GuestCr3)?;
+        let guest_cr3 = memory::GuestPhysAddr::new(guest_cr3);
+        let translated = self
+            .addr_space
+            .translate_linear_address(guest_addr, guest_cr3)?;
+        info!("vaddr = {:?}, translated = {:?}", guest_addr, translated);
+
+        //TODO: for now just print this so I feel accomplished
+        let frame = self.addr_space.find_host_frame(translated)?;
+        unsafe {
+            let start = u16::from(translated.offset()) as usize;
+            let data = frame.as_array()[start..]
+                .iter()
+                .cloned()
+                .take_while(|b| *b != 0)
+                .collect::<Vec<u8>>();
+            info!("GUEST0: {:?}", String::from_utf8(data).unwrap());
+        }
+        Ok(())
+    }
+
+    fn emulate_ins(
+        &mut self,
+        guest_cpu: &mut vmexit::GuestCpuState,
+        exit: vmexit::IoInstructionInformation,
+    ) -> Result<()> {
+        panic!("INS is not yet implemented");
+    }
+
     fn handle_portio(
         &mut self,
         guest_cpu: &mut vmexit::GuestCpuState,
-        exit: vmexit::ExitReason,
+        exit: vmexit::IoInstructionInformation,
     ) -> Result<()> {
-        let (port, input, size, string) = match exit.information {
-            Some(vmexit::ExitInformation::IoInstruction(qual)) => {
-                (qual.port, qual.input, qual.size, qual.string)
-            }
-            _ => unreachable!(),
-        };
+        let (port, input, size, string) = (exit.port, exit.input, exit.size, exit.string);
 
         let mut dev = self
             .config
@@ -401,30 +432,9 @@ impl VirtualMachineRunning {
             }
         } else {
             if !input {
-                let linear_addr = self.vmcs.read_field(vmcs::VmcsField::GuestLinearAddress)?;
-                let guest_addr = memory::GuestVirtAddr::Paging4Level(
-                    memory::Guest4LevelPagingAddr::new(linear_addr),
-                );
-                let guest_cr3 = self.vmcs.read_field(vmcs::VmcsField::GuestCr3)?;
-                let guest_cr3 = memory::GuestPhysAddr::new(guest_cr3);
-                let translated = self
-                    .addr_space
-                    .translate_linear_address(guest_addr, guest_cr3)?;
-                info!("vaddr = {:?}, translated = {:?}", guest_addr, translated);
-
-                //TODO: for now just print this so I feel accomplished
-                let frame = self.addr_space.find_host_frame(translated)?;
-                unsafe {
-                    let start = u16::from(translated.offset()) as usize;
-                    let data = frame.as_array()[start..]
-                        .iter()
-                        .cloned()
-                        .take_while(|b| *b != 0)
-                        .collect::<Vec<u8>>();
-                    info!("GUEST0: {:?}", String::from_utf8(data).unwrap());
-                }
+                self.emulate_outs(guest_cpu, exit)?;
             } else {
-                panic!("INS is not yet implemented");
+                self.emulate_ins(guest_cpu, exit)?;
             }
         }
         Ok(())
@@ -433,12 +443,9 @@ impl VirtualMachineRunning {
     fn handle_ept_violation(
         &mut self,
         guest_cpu: &mut vmexit::GuestCpuState,
-        exit: vmexit::ExitReason,
+        exit: vmexit::EptInformation,
     ) -> Result<()> {
-        let addr = match exit.information {
-            Some(vmexit::ExitInformation::EptInformation(info)) => info.guest_phys_addr,
-            _ => unreachable!(),
-        };
+        let _ = exit.guest_phys_addr;
         Ok(())
     }
 
@@ -447,13 +454,8 @@ impl VirtualMachineRunning {
         guest_cpu: &mut vmexit::GuestCpuState,
         exit: vmexit::ExitReason,
     ) -> Result<()> {
-        match exit.reason {
-            vmexit::BasicExitReason::CrAccess => {
-                let info = match exit.information {
-                    Some(vmexit::ExitInformation::CrAccess(info)) => info,
-                    _ => unreachable!(),
-                };
-
+        match exit.info {
+            vmexit::ExitInformation::CrAccess(info) => {
                 match info.cr_num {
                     0 => match info.access_type {
                         vmexit::CrAccessType::Clts => {
@@ -482,7 +484,7 @@ impl VirtualMachineRunning {
                 self.skip_emulated_instruction()?;
             }
 
-            vmexit::BasicExitReason::CpuId => {
+            vmexit::ExitInformation::CpuId => {
                 //FIXME: for now just use the actual cpuid
                 let res = raw_cpuid::native_cpuid::cpuid_count(
                     guest_cpu.rax as u32,
@@ -494,12 +496,12 @@ impl VirtualMachineRunning {
                 guest_cpu.rdx = res.edx as u64 | (guest_cpu.rdx & 0xffffffff00000000);
                 self.skip_emulated_instruction()?;
             }
-            vmexit::BasicExitReason::IoInstruction => {
-                self.handle_portio(guest_cpu, exit)?;
+            vmexit::ExitInformation::IoInstruction(info) => {
+                self.handle_portio(guest_cpu, info)?;
                 self.skip_emulated_instruction()?;
             }
-            vmexit::BasicExitReason::EptViolation => {
-                self.handle_ept_violation(guest_cpu, exit)?;
+            vmexit::ExitInformation::EptViolation(info) => {
+                self.handle_ept_violation(guest_cpu, info)?;
                 self.skip_emulated_instruction()?;
             }
             _ => info!("No handler for exit reason: {:?}", exit),

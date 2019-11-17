@@ -1,6 +1,7 @@
 use crate::error::{self, Error, Result};
 use crate::memory::GuestPhysAddr;
 use crate::{vm, vmcs};
+use alloc::fmt::Debug;
 use bitflags::bitflags;
 use derive_try_from_primitive::TryFromPrimitive;
 
@@ -50,85 +51,194 @@ pub extern "C" fn vmresume_failure_handler(rflags: u64) {
     error::check_vm_insruction(rflags, "Failed to vmresume".into()).expect("vmresume failed");
 }
 
-// See Table C-1 in Appendix C
-#[derive(Clone, Copy, Debug, TryFromPrimitive)]
-#[repr(u32)]
-pub enum BasicExitReason {
-    NonMaskableInterrupt = 0,
-    ExternalInterrupt = 1,
-    TripleFault = 2,
-    InitSignal = 3,
-    StartUpIpi = 4,
-    IoSystemManagementInterrupt = 5,
-    OtherSystemManagementInterrupt = 6,
-    InterruptWindow = 7,
-    NonMaskableInterruptWindow = 8,
-    TaskSwitch = 9,
-    CpuId = 10,
-    GetSec = 11,
-    Hlt = 12,
-    Invd = 13,
-    InvlPg = 14,
-    Rdpmc = 15,
-    Rdtsc = 16,
-    Rsm = 17,
-    VmCall = 18,
-    VmClear = 19,
-    VmLaunch = 20,
-    VmPtrLd = 21,
-    VmPtrRst = 22,
-    VmRead = 23,
-    VmResume = 24,
-    VmWrite = 25,
-    VmxOff = 26,
-    VmxOn = 27,
-    CrAccess = 28,
-    MovDr = 29,
-    IoInstruction = 30,
-    RdMsr = 31,
-    WrMsr = 32,
-    VmEntryInvalidGuestState = 33,
-    VmEntryMsrLoad = 34,
-    Mwait = 36,
-    MonitorTrapFlag = 37,
-    Monitor = 39,
-    Pause = 40,
-    VmEntryMachineCheck = 41,
-    TprBelowThreshold = 43,
-    ApicAccess = 44,
-    VirtualEio = 45,
-    AccessGdtridtr = 46,
-    AccessLdtrTr = 47,
-    EptViolation = 48,
-    EptMisconfigure = 49,
-    InvEpt = 50,
-    Rdtscp = 51,
-    VmxPreemptionTimerExpired = 52,
-    Invvpid = 53,
-    Wbinvd = 54,
-    Xsetbv = 55,
-    ApicWrite = 56,
-    RdRand = 57,
-    Invpcid = 58,
-    VmFunc = 59,
-    Encls = 60,
-    RdSeed = 61,
-    PageModificationLogFull = 62,
-    Xsaves = 63,
-    Xrstors = 64,
-
-    // Not in the spec, added for our purposes
-    UnknownExitReason = 65,
+pub trait ExtendedExitInformation
+where
+    Self: core::marker::Sized,
+{
+    fn from_active_vmcs(vmcs: &vmcs::ActiveVmcs) -> Result<Self>;
 }
 
 #[derive(Clone, Debug)]
-pub struct IoInstructionQualification {
+pub struct ExitReason {
+    pub flags: ExitReasonFlags,
+    pub info: ExitInformation,
+}
+
+// See Table C-1 in Appendix C
+#[derive(Clone, Debug)]
+pub enum ExitInformation {
+    NonMaskableInterrupt(VectoredEventInformation),
+    ExternalInterrupt,
+    TripleFault,
+    InitSignal,
+    StartUpIpi,
+    IoSystemManagementInterrupt,
+    OtherSystemManagementInterrupt,
+    InterruptWindow,
+    NonMaskableInterruptWindow,
+    TaskSwitch,
+    CpuId,
+    GetSec,
+    Hlt,
+    Invd,
+    InvlPg,
+    Rdpmc,
+    Rdtsc,
+    Rsm,
+    VmCall,
+    VmClear,
+    VmLaunch,
+    VmPtrLd,
+    VmPtrRst,
+    VmRead,
+    VmResume,
+    VmWrite,
+    VmxOff,
+    VmxOn,
+    CrAccess(CrInformation),
+    MovDr,
+    IoInstruction(IoInstructionInformation),
+    RdMsr,
+    WrMsr,
+    VmEntryInvalidGuestState,
+    VmEntryMsrLoad,
+    Mwait,
+    MonitorTrapFlag,
+    Monitor,
+    Pause,
+    VmEntryMachineCheck,
+    TprBelowThreshold,
+    ApicAccess,
+    VirtualEio,
+    AccessGdtridtr,
+    AccessLdtrTr,
+    EptViolation(EptInformation),
+    EptMisconfigure,
+    InvEpt,
+    Rdtscp,
+    VmxPreemptionTimerExpired,
+    Invvpid,
+    Wbinvd,
+    Xsetbv,
+    ApicWrite,
+    RdRand,
+    Invpcid,
+    VmFunc,
+    Encls,
+    RdSeed,
+    PageModificationLogFull,
+    Xsaves,
+    Xrstors,
+}
+
+impl ExitReason {
+    fn from_active_vmcs(vmcs: &mut vmcs::ActiveVmcs) -> Result<Self> {
+        let reason = vmcs.read_field(vmcs::VmcsField::VmExitReason)?;
+        let basic_reason = (reason & 0x7fff) as u32;
+        let flags = ExitReasonFlags::from_bits_truncate(reason);
+        let info = match basic_reason {
+            0 => ExitInformation::NonMaskableInterrupt(VectoredEventInformation::from_active_vmcs(
+                vmcs,
+            )?),
+            1 => ExitInformation::ExternalInterrupt,
+            2 => ExitInformation::TripleFault,
+            3 => ExitInformation::InitSignal,
+            4 => ExitInformation::StartUpIpi,
+            5 => ExitInformation::IoSystemManagementInterrupt,
+            6 => ExitInformation::OtherSystemManagementInterrupt,
+            7 => ExitInformation::InterruptWindow,
+            8 => ExitInformation::NonMaskableInterruptWindow,
+            9 => ExitInformation::TaskSwitch,
+            10 => ExitInformation::CpuId,
+            11 => ExitInformation::GetSec,
+            12 => ExitInformation::Hlt,
+            13 => ExitInformation::Invd,
+            14 => ExitInformation::InvlPg,
+            15 => ExitInformation::Rdpmc,
+            16 => ExitInformation::Rdtsc,
+            17 => ExitInformation::Rsm,
+            18 => ExitInformation::VmCall,
+            19 => ExitInformation::VmClear,
+            20 => ExitInformation::VmLaunch,
+            21 => ExitInformation::VmPtrLd,
+            22 => ExitInformation::VmPtrRst,
+            23 => ExitInformation::VmRead,
+            24 => ExitInformation::VmResume,
+            25 => ExitInformation::VmWrite,
+            26 => ExitInformation::VmxOff,
+            27 => ExitInformation::VmxOn,
+            28 => ExitInformation::CrAccess(CrInformation::from_active_vmcs(vmcs)?),
+            29 => ExitInformation::MovDr,
+            30 => ExitInformation::IoInstruction(IoInstructionInformation::from_active_vmcs(vmcs)?),
+            31 => ExitInformation::RdMsr,
+            32 => ExitInformation::WrMsr,
+            33 => ExitInformation::VmEntryInvalidGuestState,
+            34 => ExitInformation::VmEntryMsrLoad,
+            // 35 is unused
+            36 => ExitInformation::Mwait,
+            37 => ExitInformation::MonitorTrapFlag,
+            // 38 is unused
+            39 => ExitInformation::Monitor,
+            40 => ExitInformation::Pause,
+            41 => ExitInformation::VmEntryMachineCheck,
+            43 => ExitInformation::TprBelowThreshold,
+            44 => ExitInformation::ApicAccess,
+            45 => ExitInformation::VirtualEio,
+            46 => ExitInformation::AccessGdtridtr,
+            47 => ExitInformation::AccessLdtrTr,
+            48 => ExitInformation::EptViolation(EptInformation::from_active_vmcs(vmcs)?),
+            49 => ExitInformation::EptMisconfigure,
+            50 => ExitInformation::InvEpt,
+            51 => ExitInformation::Rdtscp,
+            52 => ExitInformation::VmxPreemptionTimerExpired,
+            53 => ExitInformation::Invvpid,
+            54 => ExitInformation::Wbinvd,
+            55 => ExitInformation::Xsetbv,
+            56 => ExitInformation::ApicWrite,
+            57 => ExitInformation::RdRand,
+            58 => ExitInformation::Invpcid,
+            59 => ExitInformation::VmFunc,
+            60 => ExitInformation::Encls,
+            61 => ExitInformation::RdSeed,
+            62 => ExitInformation::PageModificationLogFull,
+            63 => ExitInformation::Xsaves,
+            64 => ExitInformation::Xrstors,
+            reason => {
+                return Err(Error::InvalidValue(format!(
+                    "Unexpected basic vmexit reason: {}",
+                    reason
+                )))
+            }
+        };
+        Ok(ExitReason {
+            flags: flags,
+            info: info,
+        })
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct IoInstructionInformation {
     pub size: u8,
     pub input: bool,
     pub string: bool,
     pub rep: bool,
     pub immediate: bool,
     pub port: u16,
+}
+
+impl ExtendedExitInformation for IoInstructionInformation {
+    fn from_active_vmcs(vmcs: &vmcs::ActiveVmcs) -> Result<Self> {
+        let qualifier = vmcs.read_field(vmcs::VmcsField::ExitQualification)?;
+        Ok(IoInstructionInformation {
+            size: (qualifier & 7) as u8 + 1,
+            input: qualifier & (1 << 3) != 0,
+            string: qualifier & (1 << 4) != 0,
+            rep: qualifier & (1 << 5) != 0,
+            immediate: qualifier & (1 << 6) != 0,
+            port: ((qualifier & 0xffff0000) >> 16) as u16,
+        })
+    }
 }
 
 #[derive(Clone, Copy, Debug, TryFromPrimitive)]
@@ -149,6 +259,28 @@ pub struct VectoredEventInformation {
     pub valid: bool,
 }
 
+impl ExtendedExitInformation for VectoredEventInformation {
+    fn from_active_vmcs(vmcs: &vmcs::ActiveVmcs) -> Result<Self> {
+        let inter_info = vmcs.read_field(vmcs::VmcsField::VmExitIntrInfo)?;
+        let inter_error = vmcs.read_field(vmcs::VmcsField::VmExitIntrErrorCode)?;
+
+        let error_code = if inter_info & (1 << 11) != 0 {
+            Some(inter_error as u32)
+        } else {
+            None
+        };
+
+        Ok(VectoredEventInformation {
+            vector: (inter_info & 0xff) as u8,
+            interrupt_type: InterruptType::try_from(((inter_info & 0x700) >> 8) as u8)
+                .ok_or(Error::InvalidValue("Invalid interrupt type".into()))?,
+            error_code: error_code,
+            nmi_unblocking_iret: inter_info & (1 << 12) != 0,
+            valid: inter_info & (1 << 31) != 0,
+        })
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct EptInformation {
     pub read: bool,
@@ -165,6 +297,38 @@ pub struct EptInformation {
     pub nx_page: bool,
     pub nmi_unblocking_iret: bool,
     pub guest_phys_addr: GuestPhysAddr,
+}
+
+impl ExtendedExitInformation for EptInformation {
+    fn from_active_vmcs(vmcs: &vmcs::ActiveVmcs) -> Result<Self> {
+        let qualifier = vmcs.read_field(vmcs::VmcsField::ExitQualification)?;
+        let guest_linear_addr = if qualifier & (1 << 7) != 0 {
+            Some(GuestPhysAddr::new(
+                vmcs.read_field(vmcs::VmcsField::GuestLinearAddress)?,
+            ))
+        } else {
+            None
+        };
+        let guest_phys_addr =
+            GuestPhysAddr::new(vmcs.read_field(vmcs::VmcsField::GuestPhysicalAddress)?);
+
+        Ok(EptInformation {
+            read: qualifier & (1 << 0) != 0,
+            write: qualifier & (1 << 1) != 0,
+            exec: qualifier & (1 << 2) != 0,
+            read_allowed: qualifier & (1 << 3) != 0,
+            write_allowed: qualifier & (1 << 4) != 0,
+            priv_exec_allowed: qualifier & (1 << 5) != 0,
+            user_exec_allowed: qualifier & (1 << 6) != 0,
+            guest_linear_addr: guest_linear_addr,
+            after_page_translation: qualifier & (1 << 8) != 0,
+            user_mode_address: qualifier & (1 << 9) != 0,
+            read_write_page: qualifier & (1 << 10) != 0,
+            nx_page: qualifier & (1 << 11) != 0,
+            nmi_unblocking_iret: qualifier & (1 << 12) != 0,
+            guest_phys_addr: guest_phys_addr,
+        })
+    }
 }
 
 #[derive(Clone, Copy, Debug, TryFromPrimitive)]
@@ -256,113 +420,32 @@ pub struct CrInformation {
     pub lmsw_data: Option<u16>,
 }
 
-#[derive(Clone, Debug)]
-pub enum ExitInformation {
-    IoInstruction(IoInstructionQualification),
-    VectoredEvent(VectoredEventInformation),
-    EptInformation(EptInformation),
-    CrAccess(CrInformation),
-}
-
-impl ExitInformation {
-    fn from_active_vmcs(
-        basic: BasicExitReason,
-        vmcs: &mut vmcs::ActiveVmcs,
-    ) -> Result<Option<Self>> {
+impl ExtendedExitInformation for CrInformation {
+    fn from_active_vmcs(vmcs: &vmcs::ActiveVmcs) -> Result<Self> {
         let qualifier = vmcs.read_field(vmcs::VmcsField::ExitQualification)?;
-        let inter_info = vmcs.read_field(vmcs::VmcsField::VmExitIntrInfo)?;
-        let inter_error = vmcs.read_field(vmcs::VmcsField::VmExitIntrErrorCode)?;
-        match basic {
-            BasicExitReason::CrAccess => {
-                let access_type = CrAccessType::try_from(((qualifier & 0b110000) >> 4) as u8)
-                    .ok_or(Error::InvalidValue("Invalid CR access type".into()))?;
-                let reg = ((qualifier & 0xf00) >> 8) as u8;
-                let cr_num = (qualifier & 0b1111) as u8;
-                let (cr_num, reg, source) = match access_type {
-                    CrAccessType::MovToCr | CrAccessType::MovFromCr => (
-                        cr_num,
-                        Some(
-                            MovCrRegister::try_from(reg)
-                                .ok_or(Error::InvalidValue("Invalid general register".into()))?,
-                        ),
-                        None,
-                    ),
-                    _ => (0, None, Some(((qualifier & 0xffff0000) >> 16) as u16)),
-                };
-                Ok(Some(ExitInformation::CrAccess(CrInformation {
-                    cr_num: cr_num,
-                    access_type: access_type,
-                    lmsw_memory_operand: qualifier & (1 << 6) != 0,
-                    register: reg,
-                    lmsw_data: source,
-                })))
-            }
-
-            BasicExitReason::EptViolation => {
-                let guest_linear_addr = if qualifier & (1 << 7) != 0 {
-                    Some(GuestPhysAddr::new(
-                        vmcs.read_field(vmcs::VmcsField::GuestLinearAddress)?,
-                    ))
-                } else {
-                    None
-                };
-                let guest_phys_addr =
-                    GuestPhysAddr::new(vmcs.read_field(vmcs::VmcsField::GuestPhysicalAddress)?);
-
-                Ok(Some(ExitInformation::EptInformation(EptInformation {
-                    read: qualifier & (1 << 0) != 0,
-                    write: qualifier & (1 << 1) != 0,
-                    exec: qualifier & (1 << 2) != 0,
-                    read_allowed: qualifier & (1 << 3) != 0,
-                    write_allowed: qualifier & (1 << 4) != 0,
-                    priv_exec_allowed: qualifier & (1 << 5) != 0,
-                    user_exec_allowed: qualifier & (1 << 6) != 0,
-                    guest_linear_addr: guest_linear_addr,
-                    after_page_translation: qualifier & (1 << 8) != 0,
-                    user_mode_address: qualifier & (1 << 9) != 0,
-                    read_write_page: qualifier & (1 << 10) != 0,
-                    nx_page: qualifier & (1 << 11) != 0,
-                    nmi_unblocking_iret: qualifier & (1 << 12) != 0,
-                    guest_phys_addr: guest_phys_addr,
-                })))
-            }
-            BasicExitReason::IoInstruction => Ok(Some(ExitInformation::IoInstruction(
-                IoInstructionQualification {
-                    size: (qualifier & 7) as u8 + 1,
-                    input: qualifier & (1 << 3) != 0,
-                    string: qualifier & (1 << 4) != 0,
-                    rep: qualifier & (1 << 5) != 0,
-                    immediate: qualifier & (1 << 6) != 0,
-                    port: ((qualifier & 0xffff0000) >> 16) as u16,
-                },
-            ))),
-            BasicExitReason::NonMaskableInterrupt => {
-                let error_code = if inter_info & (1 << 11) != 0 {
-                    Some(inter_error as u32)
-                } else {
-                    None
-                };
-                Ok(Some(ExitInformation::VectoredEvent(
-                    VectoredEventInformation {
-                        vector: (inter_info & 0xff) as u8,
-                        interrupt_type: InterruptType::try_from(((inter_info & 0x700) >> 8) as u8)
-                            .ok_or(Error::InvalidValue("Invalid interrupt type".into()))?,
-                        error_code: error_code,
-                        nmi_unblocking_iret: inter_info & (1 << 12) != 0,
-                        valid: inter_info & (1 << 31) != 0,
-                    },
-                )))
-            }
-            _ => Ok(None),
-        }
+        let access_type = CrAccessType::try_from(((qualifier & 0b110000) >> 4) as u8)
+            .ok_or(Error::InvalidValue("Invalid CR access type".into()))?;
+        let reg = ((qualifier & 0xf00) >> 8) as u8;
+        let cr_num = (qualifier & 0b1111) as u8;
+        let (cr_num, reg, source) = match access_type {
+            CrAccessType::MovToCr | CrAccessType::MovFromCr => (
+                cr_num,
+                Some(
+                    MovCrRegister::try_from(reg)
+                        .ok_or(Error::InvalidValue("Invalid general register".into()))?,
+                ),
+                None,
+            ),
+            _ => (0, None, Some(((qualifier & 0xffff0000) >> 16) as u16)),
+        };
+        Ok(CrInformation {
+            cr_num: cr_num,
+            access_type: access_type,
+            lmsw_memory_operand: qualifier & (1 << 6) != 0,
+            register: reg,
+            lmsw_data: source,
+        })
     }
-}
-
-#[derive(Clone, Debug)]
-pub struct ExitReason {
-    pub flags: ExitReasonFlags,
-    pub reason: BasicExitReason,
-    pub information: Option<ExitInformation>,
 }
 
 bitflags! {
@@ -371,18 +454,5 @@ bitflags! {
         const PENDING_MTF_EXIT =    1 << 28;
         const EXIT_FROM_ROOT =      1 << 29;
         const VM_ENTRY_FAIL =       1 << 31;
-    }
-}
-
-impl ExitReason {
-    fn from_active_vmcs(vmcs: &mut vmcs::ActiveVmcs) -> Result<Self> {
-        let reason = vmcs.read_field(vmcs::VmcsField::VmExitReason)?;
-        let basic_reason = BasicExitReason::try_from((reason & 0x7fff) as u32)
-            .unwrap_or(BasicExitReason::UnknownExitReason);
-        Ok(ExitReason {
-            flags: ExitReasonFlags::from_bits_truncate(reason),
-            reason: basic_reason,
-            information: ExitInformation::from_active_vmcs(basic_reason, vmcs)?,
-        })
     }
 }
