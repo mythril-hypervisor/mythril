@@ -4,22 +4,22 @@ on: [push]
 
 jobs:
   fmt:
-    runs-on: ubuntu-18.04
+    container: adamschwalm/hypervisor-build:docker-2
     steps:
     - uses: actions/checkout@v1
     - name: Format
-      run: docker run -v $GITHUB_WORKSPACE:/src adamschwalm/hypervisor-build:docker-2 make fmt
+      run: make fmt
   test:
-    runs-on: ubuntu-18.04
+    container: adamschwalm/hypervisor-build:docker-2
     needs: fmt
     steps:
     - uses: actions/checkout@v1
     - name: Unit Tests
-      run: docker run -v $GITHUB_WORKSPACE:/src adamschwalm/hypervisor-build:docker-2 make test
+      run: make test
   build:
-    runs-on: ubuntu-18.04
+    container: adamschwalm/hypervisor-build:docker-2
     needs: fmt
     steps:
     - uses: actions/checkout@v1
     - name: EFI Image Build
-      run: docker run -v $GITHUB_WORKSPACE:/src adamschwalm/hypervisor-build:docker-2 make efi
+      run: make efi
