@@ -57,7 +57,7 @@ impl<'a> FrameAllocator for EfiAllocator<'a> {
         //FIXME: For now, zero every frame we allocate
         let ptr = pg as *mut u8;
         unsafe {
-            core::ptr::write_bytes(ptr, 0, 4096);
+            core::ptr::write_bytes(ptr, 0, HostPhysFrame::SIZE);
         }
 
         HostPhysFrame::from_start_address(HostPhysAddr::new(pg))

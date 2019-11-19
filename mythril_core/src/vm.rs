@@ -1,5 +1,5 @@
 use crate::allocator::FrameAllocator;
-use crate::device::{DeviceMap, EmulatedDevice};
+use crate::device::{DeviceMap, EmulatedDevice, Port};
 use crate::error::{self, Error, Result};
 use crate::memory::{self, GuestAddressSpace, GuestPhysAddr};
 use crate::percpu;
@@ -373,34 +373,45 @@ impl VirtualMachineRunning {
 
     fn emulate_outs(
         &mut self,
+        port: Port,
         guest_cpu: &mut vmexit::GuestCpuState,
         exit: vmexit::IoInstructionInformation,
     ) -> Result<()> {
+        let mut dev = self
+            .config
+            .devices
+            .device_for_mut(port)
+            .ok_or(Error::MissingDevice(format!("No device for port {}", port)))?;
+
         let linear_addr = self.vmcs.read_field(vmcs::VmcsField::GuestLinearAddress)?;
         let guest_addr = memory::GuestVirtAddr::new(linear_addr, &self.vmcs)?;
-        let guest_cr3 = self.vmcs.read_field(vmcs::VmcsField::GuestCr3)?;
-        let guest_cr3 = memory::GuestPhysAddr::new(guest_cr3);
-        let translated = self
-            .addr_space
-            .translate_linear_address(guest_addr, guest_cr3)?;
-        info!("vaddr = {:?}, translated = {:?}", guest_addr, translated);
 
-        //TODO: for now just print this so I feel accomplished
-        let frame = self.addr_space.find_host_frame(translated)?;
-        unsafe {
-            let start = u16::from(translated.offset()) as usize;
-            let data = frame.as_array()[start..]
-                .iter()
-                .cloned()
-                .take_while(|b| *b != 0)
-                .collect::<Vec<u8>>();
-            info!("GUEST0: {:?}", String::from_utf8(data).unwrap());
+        // FIXME: This could actually be any priv level due to IOPL, but for now
+        //        assume that is requires supervisor
+        let access = memory::GuestAccess::Read(memory::PrivilegeLevel(0));
+
+        // FIXME: The direction we read is determined by the DF flag (I think)
+        // FIXME: We should probably only be using some of the lower order bits
+        let bytes = self.addr_space.read_bytes(
+            &self.vmcs,
+            guest_addr,
+            (guest_cpu.rcx * exit.size as u64) as usize,
+            access,
+        )?;
+
+        // FIXME: Actually test for REP
+        for chunk in bytes.chunks_exact(exit.size as usize) {
+            dev.on_port_write(port, chunk)?;
         }
+
+        guest_cpu.rsi += bytes.len() as u64;
+        guest_cpu.rcx = 0;
         Ok(())
     }
 
     fn emulate_ins(
         &mut self,
+        port: Port,
         guest_cpu: &mut vmexit::GuestCpuState,
         exit: vmexit::IoInstructionInformation,
     ) -> Result<()> {
@@ -432,9 +443,9 @@ impl VirtualMachineRunning {
             }
         } else {
             if !input {
-                self.emulate_outs(guest_cpu, exit)?;
+                self.emulate_outs(port, guest_cpu, exit)?;
             } else {
-                self.emulate_ins(guest_cpu, exit)?;
+                self.emulate_ins(port, guest_cpu, exit)?;
             }
         }
         Ok(())

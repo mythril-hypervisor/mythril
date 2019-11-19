@@ -1,8 +1,9 @@
 use crate::allocator::FrameAllocator;
 use crate::error::{self, Error, Result};
 use crate::vmcs;
+use alloc::vec::Vec;
 use bitflags::bitflags;
-use core::ops::{Index, IndexMut};
+use core::ops::{Add, Index, IndexMut};
 use core::ptr::NonNull;
 use derive_try_from_primitive::TryFromPrimitive;
 use ux;
@@ -62,6 +63,24 @@ impl GuestVirtAddr {
             Ok(GuestVirtAddr::NoPaging(GuestPhysAddr::new(val)))
         }
     }
+
+    pub fn as_u64(&self) -> u64 {
+        match self {
+            Self::NoPaging(addr) => addr.as_u64(),
+            Self::Paging4Level(addr) => addr.as_u64(),
+        }
+    }
+}
+
+impl Add<usize> for GuestVirtAddr {
+    type Output = GuestVirtAddr;
+
+    fn add(self, rhs: usize) -> Self::Output {
+        match self {
+            Self::NoPaging(addr) => Self::NoPaging(addr + rhs),
+            Self::Paging4Level(addr) => Self::Paging4Level(addr + rhs),
+        }
+    }
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Copy, Clone, Debug)]
@@ -104,6 +123,14 @@ impl Guest4LevelPagingAddr {
     }
 }
 
+impl Add<usize> for Guest4LevelPagingAddr {
+    type Output = Guest4LevelPagingAddr;
+
+    fn add(self, rhs: usize) -> Self::Output {
+        Guest4LevelPagingAddr(self.0 + (rhs as u64))
+    }
+}
+
 #[derive(PartialEq, Eq, PartialOrd, Ord, Copy, Clone, Debug)]
 pub struct GuestPhysAddr(u64);
 impl GuestPhysAddr {
@@ -136,6 +163,14 @@ impl GuestPhysAddr {
     }
 }
 
+impl Add<usize> for GuestPhysAddr {
+    type Output = GuestPhysAddr;
+
+    fn add(self, rhs: usize) -> Self::Output {
+        GuestPhysAddr(self.0 + (rhs as u64))
+    }
+}
+
 #[derive(PartialEq, Eq, PartialOrd, Ord, Copy, Clone, Debug)]
 pub struct HostPhysAddr(u64);
 impl HostPhysAddr {
@@ -155,6 +190,8 @@ impl HostPhysAddr {
 #[derive(PartialEq, Eq, PartialOrd, Ord, Copy, Clone, Debug)]
 pub struct HostPhysFrame(HostPhysAddr);
 impl HostPhysFrame {
+    pub const SIZE: usize = 4096;
+
     pub fn from_start_address(addr: HostPhysAddr) -> Result<Self> {
         if !addr.is_frame_aligned() {
             Err(Error::InvalidValue(
@@ -169,13 +206,13 @@ impl HostPhysFrame {
         self.0
     }
 
-    pub unsafe fn as_array(&self) -> &[u8; 4096] {
-        let ptr = self.0.as_u64() as *const [u8; 4096];
+    pub unsafe fn as_array(&self) -> &[u8; Self::SIZE] {
+        let ptr = self.0.as_u64() as *const [u8; Self::SIZE];
         ptr.as_ref().unwrap()
     }
 
-    pub unsafe fn as_mut_array(&self) -> &mut [u8; 4096] {
-        let ptr = self.0.as_u64() as *mut [u8; 4096];
+    pub unsafe fn as_mut_array(&self) -> &mut [u8; Self::SIZE] {
+        let ptr = self.0.as_u64() as *mut [u8; Self::SIZE];
         ptr.as_mut().unwrap()
     }
 }
@@ -183,6 +220,16 @@ impl HostPhysFrame {
 pub struct GuestAddressSpace {
     frame: HostPhysFrame,
     root: NonNull<EptPml4Table>,
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct PrivilegeLevel(pub u8);
+
+#[derive(Copy, Clone, Debug)]
+pub enum GuestAccess {
+    Read(PrivilegeLevel),
+    Write(PrivilegeLevel),
+    Fetch(PrivilegeLevel),
 }
 
 impl GuestAddressSpace {
@@ -226,10 +273,11 @@ impl GuestAddressSpace {
         &self,
         addr: GuestVirtAddr,
         cr3: GuestPhysAddr,
+        access: GuestAccess,
     ) -> Result<GuestPhysAddr> {
         match addr {
             GuestVirtAddr::NoPaging(addr) => Ok(GuestPhysAddr::new(addr.as_u64())),
-            GuestVirtAddr::Paging4Level(vaddr) => self.translate_pl4_address(vaddr, cr3),
+            GuestVirtAddr::Paging4Level(vaddr) => self.translate_pl4_address(vaddr, cr3, access),
         }
     }
 
@@ -239,6 +287,7 @@ impl GuestAddressSpace {
         &self,
         addr: Guest4LevelPagingAddr,
         cr3: GuestPhysAddr,
+        access: GuestAccess,
     ) -> Result<GuestPhysAddr> {
         let guest_pml4_root = self.find_host_frame(cr3)?;
 
@@ -287,6 +336,85 @@ impl GuestAddressSpace {
             return Err(Error::InvalidValue("No PT entry for GuestPhysAddr".into()));
         }
         HostPhysFrame::from_start_address(ept_pte.addr())
+    }
+
+    pub fn frame_iter(
+        &self,
+        vmcs: &vmcs::ActiveVmcs,
+        addr: GuestVirtAddr,
+        access: GuestAccess,
+    ) -> Result<FrameIter> {
+        let guest_cr3 = vmcs.read_field(vmcs::VmcsField::GuestCr3)?;
+        let guest_cr3 = GuestPhysAddr::new(guest_cr3);
+        //TODO: align the addr to 4096 boundary
+        Ok(FrameIter {
+            space: self,
+            addr: addr,
+            access: access,
+            cr3: guest_cr3,
+        })
+    }
+
+    pub fn read_bytes(
+        &self,
+        vmcs: &vmcs::ActiveVmcs,
+        mut addr: GuestVirtAddr,
+        mut length: usize,
+        access: GuestAccess,
+    ) -> Result<Vec<u8>> {
+        let mut out = vec![];
+        let mut iter = self.frame_iter(vmcs, addr, access)?;
+
+        // How many frames this region spans
+        let count = (length + HostPhysFrame::SIZE - 1) / HostPhysFrame::SIZE;
+
+        let mut start_offset = addr.as_u64() as usize % HostPhysFrame::SIZE;
+        for frame in iter.take(count) {
+            let frame = frame?;
+            let array = unsafe { frame.as_array() };
+            let slice = if start_offset + length <= HostPhysFrame::SIZE {
+                &array[start_offset..start_offset + length]
+            } else {
+                &array[start_offset..]
+            };
+            out.extend_from_slice(slice);
+
+            length -= slice.len();
+
+            // All frames after the first have no start_offset
+            start_offset = 0;
+        }
+
+        Ok(out)
+    }
+}
+
+pub struct FrameIter<'a> {
+    space: &'a GuestAddressSpace,
+    addr: GuestVirtAddr,
+    access: GuestAccess,
+    cr3: GuestPhysAddr,
+}
+
+impl<'a> Iterator for FrameIter<'a> {
+    type Item = Result<HostPhysFrame>;
+
+    //TODO: stop at end of address space
+    fn next(&mut self) -> Option<Self::Item> {
+        let old = self.addr;
+
+        // This is the smallest possible guest page size, so permissions
+        // can't change except at this granularity
+        self.addr = self.addr + 4096;
+
+        let physaddr = match self
+            .space
+            .translate_linear_address(old, self.cr3, self.access)
+        {
+            Ok(addr) => addr,
+            Err(e) => return Some(Err(e)),
+        };
+        Some(self.space.find_host_frame(physaddr))
     }
 }
 

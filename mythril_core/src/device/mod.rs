@@ -162,11 +162,12 @@ pub trait EmulatedDevice {
 
 pub struct ComDevice {
     port: Port,
+    buff: Vec<u8>,
 }
 
 impl ComDevice {
     pub fn new(port: Port) -> Box<dyn EmulatedDevice> {
-        Box::new(Self { port })
+        Box::new(Self { port, buff: vec![] })
     }
 }
 
@@ -183,14 +184,24 @@ impl EmulatedDevice for ComDevice {
     }
 
     fn on_port_write(&mut self, _port: Port, val: &[u8]) -> Result<()> {
-        // TODO: I'm not sure what the correct behavior is here for a Com device.
-        //       For now, just print each byte (except NUL because that crashes)
-        let s: String = String::from_utf8_lossy(val)
-            .into_owned()
-            .chars()
-            .filter(|c| *c != (0 as char))
-            .collect();
-        info!("{}", s);
+        self.buff.extend_from_slice(val);
+
+        // Flush on newlines
+        if val.iter().filter(|b| **b == 10).next().is_some() {
+            // TODO: I'm not sure what the correct behavior is here for a Com device.
+            //       For now, just print each byte (except NUL because that crashes)
+            let s: String = String::from_utf8_lossy(&self.buff)
+                .into_owned()
+                .chars()
+                .filter(|c| *c != (0 as char))
+                .collect();
+
+            // FIXME: for now print guest output with some newlines to make
+            //        it a bit more visible
+            info!("\n\nGUEST: {}\n\n", s);
+            self.buff.clear();
+        }
+
         Ok(())
     }
 }
