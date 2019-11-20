@@ -17,6 +17,8 @@ enum FwCfgSelector {
 #[derive(Debug)]
 pub struct QemuFwCfg {
     selector: FwCfgSelector,
+    signature: [u8; 4],
+    rev: [u8; 4],
 }
 
 impl QemuFwCfg {
@@ -27,6 +29,8 @@ impl QemuFwCfg {
     pub fn new() -> Box<Self> {
         Box::new(Self {
             selector: FwCfgSelector::Signature,
+            signature: [0x51, 0x45, 0x4d, 0x55], // QEMU
+            rev: [0x01, 0x00, 0x00, 0x00],
         })
     }
 }
@@ -45,9 +49,21 @@ impl EmulatedDevice for QemuFwCfg {
                 val.copy_from_slice(data.as_slice());
             }
             Self::FW_CFG_PORT_DATA => {
-                // For now, we don't support the fwcfg, so just return zeros
-                let data = 0u32.to_be_bytes();
-                val.copy_from_slice(&data[..val.len()]);
+                match self.selector {
+                    FwCfgSelector::Signature => {
+                        val.copy_from_slice(&self.signature[..val.len()]);
+                        self.signature.rotate_left(val.len());
+                    }
+                    FwCfgSelector::Id => {
+                        val.copy_from_slice(&self.rev[..val.len()]);
+                        self.rev.rotate_left(val.len());
+                    }
+                    FwCfgSelector::FileDir => {
+                        // For now, just return zeros for other fields
+                        let data = 0u32.to_be_bytes();
+                        val.copy_from_slice(&data[..val.len()]);
+                    }
+                }
             }
             _ => unreachable!(),
         }
