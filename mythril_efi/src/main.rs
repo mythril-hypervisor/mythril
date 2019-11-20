@@ -36,11 +36,11 @@ fn efi_main(_handle: Handle, system_table: SystemTable<Boot>) -> Status {
         .unwrap_or(());
     config
         .device_map()
-        .register_device(device::ComDevice::new(0x3F8))
+        .register_device(device::com::ComDevice::new(0x3F8))
         .unwrap();
     config
         .device_map()
-        .register_device(device::ComDevice::new(0x402))
+        .register_device(device::com::ComDevice::new(0x402))
         .unwrap(); // The qemu debug port
     config
         .device_map()
