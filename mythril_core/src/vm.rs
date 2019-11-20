@@ -415,7 +415,27 @@ impl VirtualMachineRunning {
         guest_cpu: &mut vmexit::GuestCpuState,
         exit: vmexit::IoInstructionInformation,
     ) -> Result<()> {
-        panic!("INS is not yet implemented");
+        let mut dev = self
+            .config
+            .devices
+            .device_for_mut(port)
+            .ok_or(Error::MissingDevice(format!("No device for port {}", port)))?;
+
+        let linear_addr = self.vmcs.read_field(vmcs::VmcsField::GuestLinearAddress)?;
+        let guest_addr = memory::GuestVirtAddr::new(linear_addr, &self.vmcs)?;
+        let access = memory::GuestAccess::Read(memory::PrivilegeLevel(0));
+
+        let mut bytes = vec![0u8; guest_cpu.rcx as usize];
+        for chunk in bytes.chunks_exact_mut(exit.size as usize) {
+            dev.on_port_read(port, chunk)?;
+        }
+
+        self.addr_space
+            .write_bytes(&self.vmcs, guest_addr, &bytes, access)?;
+
+        guest_cpu.rsi += bytes.len() as u64;
+        guest_cpu.rcx = 0;
+        Ok(())
     }
 
     fn handle_portio(

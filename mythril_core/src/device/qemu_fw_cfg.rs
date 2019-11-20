@@ -47,7 +47,7 @@ impl EmulatedDevice for QemuFwCfg {
             Self::FW_CFG_PORT_DATA => {
                 // For now, we don't support the fwcfg, so just return zeros
                 let data = 0u32.to_be_bytes();
-                val.copy_from_slice(data.as_slice());
+                val.copy_from_slice(&data[..val.len()]);
             }
             _ => unreachable!(),
         }

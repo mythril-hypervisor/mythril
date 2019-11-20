@@ -387,6 +387,38 @@ impl GuestAddressSpace {
 
         Ok(out)
     }
+
+    pub fn write_bytes(
+        &mut self,
+        vmcs: &vmcs::ActiveVmcs,
+        mut addr: GuestVirtAddr,
+        mut bytes: &[u8],
+        access: GuestAccess,
+    ) -> Result<()> {
+        let mut iter = self.frame_iter(vmcs, addr, access)?;
+
+        // How many frames this region spans
+        let count = (bytes.len() + HostPhysFrame::SIZE - 1) / HostPhysFrame::SIZE;
+
+        let mut start_offset = addr.as_u64() as usize % HostPhysFrame::SIZE;
+        for frame in iter.take(count) {
+            let frame = frame?;
+            let array = unsafe { frame.as_mut_array() };
+            let slice = if start_offset + bytes.len() <= HostPhysFrame::SIZE {
+                array[start_offset..start_offset + bytes.len()].copy_from_slice(&bytes);
+                break;
+            } else {
+                &array[start_offset..]
+                    .copy_from_slice(&bytes[..(HostPhysFrame::SIZE - start_offset)]);
+                bytes = &bytes[(HostPhysFrame::SIZE - start_offset)..];
+            };
+
+            // All frames after the first have no start_offset
+            start_offset = 0;
+        }
+
+        Ok(())
+    }
 }
 
 pub struct FrameIter<'a> {
