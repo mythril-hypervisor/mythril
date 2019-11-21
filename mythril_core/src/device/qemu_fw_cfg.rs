@@ -10,8 +10,37 @@ use derive_try_from_primitive::TryFromPrimitive;
 #[repr(u16)]
 enum FwCfgSelector {
     Signature = 0x0000,
-    Id = 0x0001,
+    InterfaceVersion = 0x0001,
+    SystemUuid = 0x0002,
+    RamSize = 0x0003,
+    GraphicsEnabled = 0x0004,
+    SmpCpuCount = 0x0005,
+    MachineId = 0x0006,
+    KernelAddress = 0x0007,
+    KernelSize = 0x0008,
+    KernelCommandLine = 0x0009,
+    InitrdAddress = 0x000a,
+    InitrdSize = 0x000b,
+    BootDevice = 0x000c,
+    NumaData = 0x000d,
+    BootMenu = 0x000e,
+    MaximumCpuCount = 0x000f,
+    KernelEntry = 0x0010,
+    KernelData = 0x0011,
+    InitrdData = 0x0012,
+    CommandLineAddress = 0x0013,
+    CommandLineSize = 0x0014,
+    CommandLineData = 0x0015,
+    KernelSetupAddress = 0x0016,
+    KernelSetupSize = 0x0017,
+    KernelSetupData = 0x0018,
     FileDir = 0x0019,
+
+    X86AcpiTables = 0x8000,
+    X86SmbiosTables = 0x8001,
+    X86Irq0Override = 0x8002,
+    X86E820Table = 0x8003,
+    X86HpetData = 0x8004,
 }
 
 #[derive(Debug)]
@@ -54,11 +83,11 @@ impl EmulatedDevice for QemuFwCfg {
                         val.copy_from_slice(&self.signature[..val.len()]);
                         self.signature.rotate_left(val.len());
                     }
-                    FwCfgSelector::Id => {
+                    FwCfgSelector::InterfaceVersion => {
                         val.copy_from_slice(&self.rev[..val.len()]);
                         self.rev.rotate_left(val.len());
                     }
-                    FwCfgSelector::FileDir => {
+                    _ => {
                         // For now, just return zeros for other fields
                         let data = 0u32.to_be_bytes();
                         val.copy_from_slice(&data[..val.len()]);
