@@ -52,6 +52,10 @@ fn efi_main(_handle: Handle, system_table: SystemTable<Boot>) -> Status {
         .unwrap();
     config
         .device_map()
+        .register_device(device::pos::ProgrammableOptionSelect::new())
+        .unwrap();
+    config
+        .device_map()
         .register_device(device::rtc::CmosRtc::new())
         .unwrap();
     config
