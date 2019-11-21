@@ -38,6 +38,9 @@ enum CmosRegister {
     ExtendedPostMemMsb = 0x31,
     BcdCenturyDate = 0x32,
     InfoFlags = 0x33,
+
+    // Not in any spec, used to represent unknown values
+    Unknown = 0xff,
 }
 
 #[derive(Debug)]
@@ -68,12 +71,7 @@ impl EmulatedDevice for CmosRtc {
             Self::RTC_DATA => {
                 match self.addr {
                     CmosRegister::ShutdownStatus => 0u8, // For now, always report soft reset
-                    unknown => {
-                        return Err(Error::NotImplemented(format!(
-                            "Read of RTC data reg ({:?}) not yet supported",
-                            unknown
-                        )))
-                    }
+                    unknown => 0u8,
                 }
             }
             _ => unreachable!(),
@@ -86,15 +84,23 @@ impl EmulatedDevice for CmosRtc {
     fn on_port_write(&mut self, port: Port, val: &[u8]) -> Result<()> {
         match port {
             Self::RTC_ADDRESS => {
-                self.addr = CmosRegister::try_from(val[0]).ok_or(Error::InvalidValue(format!(
-                    "Unknown Cmos register value: 0x{:x}",
-                    val[0]
-                )))?
+                // OVMF expects to be able to read pretty much any address
+                // (and just get zeros for meaningless ones)
+                self.addr = CmosRegister::try_from(val[0]).unwrap_or(CmosRegister::Unknown);
             }
             _ => {
-                return Err(Error::NotImplemented(
-                    "Write to RTC data port not yet supported".into(),
-                ))
+                match self.addr {
+                    CmosRegister::ShutdownStatus => {
+                        // It's not clear what's supposed to happen here, just ignore
+                        // it for now
+                    }
+                    addr => {
+                        return Err(Error::NotImplemented(format!(
+                            "Write to RTC address ({:?}) not yet supported: {:?}",
+                            addr, val
+                        )))
+                    }
+                }
             }
         }
         Ok(())
