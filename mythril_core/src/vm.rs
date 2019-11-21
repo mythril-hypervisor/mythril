@@ -517,10 +517,16 @@ impl VirtualMachineRunning {
 
             vmexit::ExitInformation::CpuId => {
                 //FIXME: for now just use the actual cpuid
-                let res = raw_cpuid::native_cpuid::cpuid_count(
+                let mut res = raw_cpuid::native_cpuid::cpuid_count(
                     guest_cpu.rax as u32,
                     guest_cpu.rcx as u32,
                 );
+
+                // Disable MTRR support in the features info leaf (for now)
+                if guest_cpu.rax as u32 == 1 {
+                    res.edx &= !(1 << 12);
+                }
+
                 guest_cpu.rax = res.eax as u64 | (guest_cpu.rax & 0xffffffff00000000);
                 guest_cpu.rbx = res.ebx as u64 | (guest_cpu.rbx & 0xffffffff00000000);
                 guest_cpu.rcx = res.ecx as u64 | (guest_cpu.rcx & 0xffffffff00000000);
