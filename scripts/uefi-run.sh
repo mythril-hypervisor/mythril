@@ -39,4 +39,5 @@ qemu-system-x86_64 -bios ./scripts/OVMF.fd \
                    -gdb tcp::1234 \
                    -debugcon file:debug.log \
                    -no-reboot \
-                   -global isa-debugcon.iobase=0x402
+                   -global isa-debugcon.iobase=0x402 \
+                   -m 1G
