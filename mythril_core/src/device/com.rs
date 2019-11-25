@@ -42,7 +42,7 @@ impl EmulatedDevice for ComDevice {
 
             // FIXME: for now print guest output with some newlines to make
             //        it a bit more visible
-            info!("\n\nGUEST: {}\n\n", s);
+            info!("GUEST: {}", s);
             self.buff.clear();
         }
 

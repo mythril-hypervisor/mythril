@@ -476,7 +476,10 @@ impl VirtualMachineRunning {
         guest_cpu: &mut vmexit::GuestCpuState,
         exit: vmexit::EptInformation,
     ) -> Result<()> {
-        let _ = exit.guest_phys_addr;
+        let addr = self
+            .vmcs
+            .read_field(vmcs::VmcsField::GuestPhysicalAddress)?;
+        info!("ept violation: guest phys addr = 0x{:x}", addr);
         Ok(())
     }
 
