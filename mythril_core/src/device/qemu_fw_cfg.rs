@@ -48,6 +48,7 @@ pub struct QemuFwCfg {
     selector: FwCfgSelector,
     signature: [u8; 4],
     rev: [u8; 4],
+    smp_cpu: [u8; 4],
 }
 
 impl QemuFwCfg {
@@ -60,6 +61,7 @@ impl QemuFwCfg {
             selector: FwCfgSelector::Signature,
             signature: [0x51, 0x45, 0x4d, 0x55], // QEMU
             rev: [0x01, 0x00, 0x00, 0x00],
+            smp_cpu: [0x01, 0x00, 0x00, 0x00],
         })
     }
 }
@@ -86,6 +88,14 @@ impl EmulatedDevice for QemuFwCfg {
                     FwCfgSelector::InterfaceVersion => {
                         val.copy_from_slice(&self.rev[..val.len()]);
                         self.rev.rotate_left(val.len());
+                    }
+                    FwCfgSelector::SmpCpuCount => {
+                        val.copy_from_slice(&self.smp_cpu[..val.len()]);
+                        self.smp_cpu.rotate_left(val.len());
+                    }
+                    FwCfgSelector::FileDir => {
+                        let data = 0u32.to_be_bytes();
+                        val.copy_from_slice(&data[..val.len()]);
                     }
                     _ => {
                         // For now, just return zeros for other fields
