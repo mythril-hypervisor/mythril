@@ -19,6 +19,8 @@ impl Pic8259 {
     const PIC_MASTER_DATA: Port = Self::PIC_MASTER_COMMAND + 1;
     const PIC_SLAVE_COMMAND: Port = 0x00a0;
     const PIC_SLAVE_DATA: Port = Self::PIC_SLAVE_COMMAND + 1;
+    const PIC_ECLR_COMMAND: Port = 0x4d0;
+    const PIC_ECLR_DATA: Port = Self::PIC_ECLR_COMMAND + 1;
 
     pub fn new() -> Box<Self> {
         Box::new(Pic8259::default())
@@ -30,6 +32,7 @@ impl EmulatedDevice for Pic8259 {
         vec![
             DeviceRegion::PortIo(Self::PIC_MASTER_COMMAND..=Self::PIC_MASTER_DATA),
             DeviceRegion::PortIo(Self::PIC_SLAVE_COMMAND..=Self::PIC_SLAVE_DATA),
+            DeviceRegion::PortIo(Self::PIC_ECLR_COMMAND..=Self::PIC_ECLR_DATA),
         ]
     }
 
