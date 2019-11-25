@@ -433,7 +433,7 @@ impl VirtualMachineRunning {
         self.addr_space
             .write_bytes(&self.vmcs, guest_addr, &bytes, access)?;
 
-        guest_cpu.rsi += bytes.len() as u64;
+        guest_cpu.rdi += bytes.len() as u64;
         guest_cpu.rcx = 0;
         Ok(())
     }
