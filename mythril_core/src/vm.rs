@@ -127,8 +127,8 @@ where
         let alloc = services.allocator();
         let mut guest_space = GuestAddressSpace::new(alloc)?;
 
-        // FIXME: For now, just map 32MB of RAM
-        for i in 0..8192 {
+        // FIXME: For now, just map 320MB of RAM
+        for i in 0..81920 {
             let mut host_frame = alloc.allocate_frame()?;
 
             guest_space.map_frame(
