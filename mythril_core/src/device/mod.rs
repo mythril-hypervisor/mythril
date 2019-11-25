@@ -10,6 +10,7 @@ use core::ops::RangeInclusive;
 pub mod com;
 pub mod pci;
 pub mod pic;
+pub mod pit;
 pub mod pos;
 pub mod qemu_fw_cfg;
 pub mod rtc;
