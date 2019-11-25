@@ -39,6 +39,25 @@ enum CmosRegister {
     BcdCenturyDate = 0x32,
     InfoFlags = 0x33,
 
+    // The follow fields appear to be qemu extensions used by OVMF
+    //
+    // From OvmfPkg/PlatformPei/MemDetect.c:
+    // CMOS 0x34/0x35 specifies the system memory above 16 MB.
+    // * CMOS(0x35) is the high byte
+    // * CMOS(0x34) is the low byte
+    // * The size is specified in 64kb chunks
+    QemuMemAbove16MbLsb = 0x34,
+    QemuMemAbove16MbMsb = 0x35,
+
+    // CMOS 0x5b-0x5d specifies the system memory above 4GB MB.
+    // * CMOS(0x5d) is the most significant size byte
+    // * CMOS(0x5c) is the middle size byte
+    // * CMOS(0x5b) is the least significant size byte
+    // * The size is specified in 64kb chunks
+    QemuMemAbove4GbLsb = 0x5b,
+    QemuMemAbove4GbMmsb = 0x5c,
+    QemuMemAbove4GbMsb = 0x5d,
+
     // Not in any spec, used to represent unknown values
     Unknown = 0xff,
 }
@@ -66,18 +85,31 @@ impl EmulatedDevice for CmosRtc {
     }
 
     fn on_port_read(&mut self, port: Port, val: &mut [u8]) -> Result<()> {
-        let data = match port {
-            Self::RTC_ADDRESS => self.addr as u8,
+        match port {
+            Self::RTC_ADDRESS => {
+                let data = (self.addr as u8).to_be_bytes();
+                val.copy_from_slice(&data[..val.len()]);
+            }
             Self::RTC_DATA => {
                 match self.addr {
-                    CmosRegister::ShutdownStatus => 0u8, // For now, always report soft reset
-                    unknown => 0u8,
+                    CmosRegister::ShutdownStatus => {
+                        let data = 0u32.to_be_bytes(); // For now, always report soft reset
+                        val.copy_from_slice(&data[..val.len()]);
+                    }
+                    CmosRegister::QemuMemAbove16MbMsb => {
+                        //FIXME: for now just report 80MB available
+                        let data = 0x5u8.to_be_bytes();
+                        val.copy_from_slice(&data[..val.len()]);
+                    }
+                    _ => {
+                        let data = 0u32.to_be_bytes();
+                        val.copy_from_slice(&data[..val.len()]);
+                    }
                 }
             }
             _ => unreachable!(),
         }
-        .to_be_bytes();
-        val.copy_from_slice(&data);
+
         Ok(())
     }
 
