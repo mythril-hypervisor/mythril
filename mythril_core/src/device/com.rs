@@ -1,4 +1,4 @@
-use crate::device::{DeviceRegion, EmulatedDevice, Port};
+use crate::device::{DeviceRegion, EmulatedDevice, Port, PortIoValue};
 use crate::error::{Error, Result};
 use alloc::boxed::Box;
 use alloc::string::String;
@@ -20,18 +20,18 @@ impl EmulatedDevice for ComDevice {
         vec![DeviceRegion::PortIo(self.port..=self.port)]
     }
 
-    fn on_port_read(&mut self, _port: Port, val: &mut [u8]) -> Result<()> {
+    fn on_port_read(&mut self, _port: Port, val: &mut PortIoValue) -> Result<()> {
         // This is a magical value (called BOCHS_DEBUG_PORT_MAGIC by edk2)
         // FIXME: this should only be returned for a special 'debug' com device
-        val[0] = 0xe9;
+        *val = 0xe9u8.into();
         Ok(())
     }
 
-    fn on_port_write(&mut self, _port: Port, val: &[u8]) -> Result<()> {
-        self.buff.extend_from_slice(val);
+    fn on_port_write(&mut self, _port: Port, val: PortIoValue) -> Result<()> {
+        self.buff.extend_from_slice(val.as_slice());
 
         // Flush on newlines
-        if val.iter().filter(|b| **b == 10).next().is_some() {
+        if val.as_slice().iter().filter(|b| **b == 10).next().is_some() {
             // TODO: I'm not sure what the correct behavior is here for a Com device.
             //       For now, just print each byte (except NUL because that crashes)
             let s: String = String::from_utf8_lossy(&self.buff)

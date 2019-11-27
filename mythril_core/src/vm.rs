@@ -1,5 +1,5 @@
 use crate::allocator::FrameAllocator;
-use crate::device::{DeviceMap, EmulatedDevice, Port};
+use crate::device::{DeviceMap, EmulatedDevice, Port, PortIoValue};
 use crate::error::{self, Error, Result};
 use crate::memory::{self, GuestAddressSpace, GuestPhysAddr};
 use crate::percpu;
@@ -8,6 +8,7 @@ use crate::{vmcs, vmexit, vmx};
 use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
+use core::convert::TryFrom;
 use core::marker::PhantomData;
 use x86::bits64::segmentation::{rdfsbase, rdgsbase};
 use x86::controlregs::{cr0, cr3, cr4};
@@ -282,7 +283,8 @@ where
 
         vmcs.write_with_fixed(
             vmcs::VmcsField::SecondaryVmExecControl,
-            (vmcs::SecondaryExecFlags::ENABLE_EPT
+            (vmcs::SecondaryExecFlags::VIRTUALIZE_APIC_ACCESSES
+                | vmcs::SecondaryExecFlags::ENABLE_EPT
                 | vmcs::SecondaryExecFlags::ENABLE_VPID
                 | vmcs::SecondaryExecFlags::UNRESTRICTED_GUEST)
                 .bits(),
@@ -401,7 +403,7 @@ impl VirtualMachineRunning {
 
         // FIXME: Actually test for REP
         for chunk in bytes.chunks_exact(exit.size as usize) {
-            dev.on_port_write(port, chunk)?;
+            dev.on_port_write(port, PortIoValue::try_from(chunk)?)?;
         }
 
         guest_cpu.rsi += bytes.len() as u64;
@@ -427,7 +429,9 @@ impl VirtualMachineRunning {
 
         let mut bytes = vec![0u8; guest_cpu.rcx as usize];
         for chunk in bytes.chunks_exact_mut(exit.size as usize) {
-            dev.on_port_read(port, chunk)?;
+            let mut val = PortIoValue::try_from(&*chunk)?;
+            dev.on_port_read(port, &mut val)?;
+            chunk.copy_from_slice(val.as_slice());
         }
 
         self.addr_space
@@ -454,12 +458,17 @@ impl VirtualMachineRunning {
         if !string {
             if !input {
                 let arr = (guest_cpu.rax as u32).to_be_bytes();
-                dev.on_port_write(port, &arr[4 - size as usize..])?;
+                dev.on_port_write(port, PortIoValue::try_from(&arr[4 - size as usize..])?)?;
             } else {
-                let mut out = [0u8; 4];
-                dev.on_port_read(port, &mut out[4 - size as usize..])?;
+                let mut val = match size {
+                    1 => PortIoValue::OneByte([0]),
+                    2 => PortIoValue::TwoBytes([0, 0]),
+                    4 => PortIoValue::FourBytes([0, 0, 0, 0]),
+                    _ => panic!("Invalid portio read size: {}", size),
+                };
+                dev.on_port_read(port, &mut val)?;
                 guest_cpu.rax &= (!guest_cpu.rax) << (size * 8);
-                guest_cpu.rax |= u32::from_be_bytes(out) as u64;
+                guest_cpu.rax |= val.as_u32() as u64;
             }
         } else {
             if !input {

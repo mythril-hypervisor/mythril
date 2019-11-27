@@ -1,4 +1,4 @@
-use crate::device::{DeviceRegion, EmulatedDevice, Port};
+use crate::device::{DeviceRegion, EmulatedDevice, Port, PortIoValue};
 use crate::error::{Error, Result};
 use alloc::boxed::Box;
 use alloc::vec::Vec;
@@ -24,11 +24,11 @@ impl EmulatedDevice for Pit8254 {
         )]
     }
 
-    fn on_port_read(&mut self, port: Port, val: &mut [u8]) -> Result<()> {
+    fn on_port_read(&mut self, port: Port, val: &mut PortIoValue) -> Result<()> {
         Ok(())
     }
 
-    fn on_port_write(&mut self, port: Port, val: &[u8]) -> Result<()> {
+    fn on_port_write(&mut self, port: Port, val: PortIoValue) -> Result<()> {
         Ok(())
     }
 }

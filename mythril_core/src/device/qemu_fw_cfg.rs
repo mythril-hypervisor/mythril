@@ -1,4 +1,4 @@
-use crate::device::{DeviceRegion, EmulatedDevice, Port};
+use crate::device::{DeviceRegion, EmulatedDevice, Port, PortIoValue};
 use crate::error::{Error, Result};
 use alloc::boxed::Box;
 use alloc::vec::Vec;
@@ -73,34 +73,32 @@ impl EmulatedDevice for QemuFwCfg {
         ]
     }
 
-    fn on_port_read(&mut self, port: Port, val: &mut [u8]) -> Result<()> {
+    fn on_port_read(&mut self, port: Port, val: &mut PortIoValue) -> Result<()> {
+        let len = val.len();
         match port {
             Self::FW_CFG_PORT_SEL => {
-                let data = (self.selector as u16).to_be_bytes();
-                val.copy_from_slice(data.as_slice());
+                val.copy_from_u32(self.selector as u16 as u32);
             }
             Self::FW_CFG_PORT_DATA => {
                 match self.selector {
                     FwCfgSelector::Signature => {
-                        val.copy_from_slice(&self.signature[..val.len()]);
-                        self.signature.rotate_left(val.len());
+                        val.as_mut_slice().copy_from_slice(&self.signature[..len]);
+                        self.signature.rotate_left(len);
                     }
                     FwCfgSelector::InterfaceVersion => {
-                        val.copy_from_slice(&self.rev[..val.len()]);
-                        self.rev.rotate_left(val.len());
+                        val.as_mut_slice().copy_from_slice(&self.rev[..len]);
+                        self.rev.rotate_left(len);
                     }
                     FwCfgSelector::SmpCpuCount => {
-                        val.copy_from_slice(&self.smp_cpu[..val.len()]);
-                        self.smp_cpu.rotate_left(val.len());
+                        val.as_mut_slice().copy_from_slice(&self.smp_cpu[..len]);
+                        self.smp_cpu.rotate_left(len);
                     }
                     FwCfgSelector::FileDir => {
-                        let data = 0u32.to_be_bytes();
-                        val.copy_from_slice(&data[..val.len()]);
+                        val.copy_from_u32(0);
                     }
                     _ => {
                         // For now, just return zeros for other fields
-                        let data = 0u32.to_be_bytes();
-                        val.copy_from_slice(&data[..val.len()]);
+                        val.copy_from_u32(0);
                     }
                 }
             }
@@ -109,18 +107,14 @@ impl EmulatedDevice for QemuFwCfg {
         Ok(())
     }
 
-    fn on_port_write(&mut self, port: Port, val: &[u8]) -> Result<()> {
+    fn on_port_write(&mut self, port: Port, val: PortIoValue) -> Result<()> {
         match port {
             Self::FW_CFG_PORT_SEL => {
-                let val: [u8; 2] = val.try_into().map_err(|_| {
-                    Error::InvalidValue("Insufficient qemu fw cfg selector write bytes".into())
-                })?;
-                let val = u16::from_be_bytes(val);
-
-                self.selector = FwCfgSelector::try_from(val).ok_or(Error::InvalidValue(format!(
-                    "Unknown FwCfgSelector value: 0x{:x}",
-                    val
-                )))?
+                self.selector =
+                    FwCfgSelector::try_from(val.try_into()?).ok_or(Error::InvalidValue(format!(
+                        "Unknown FwCfgSelector value: 0x{:x}",
+                        val.as_u32()
+                    )))?
             }
             _ => {
                 return Err(Error::NotImplemented(

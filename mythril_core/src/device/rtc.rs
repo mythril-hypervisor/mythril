@@ -1,7 +1,8 @@
-use crate::device::{DeviceRegion, EmulatedDevice, Port};
+use crate::device::{DeviceRegion, EmulatedDevice, Port, PortIoValue};
 use crate::error::{Error, Result};
 use alloc::boxed::Box;
 use alloc::vec::Vec;
+use core::convert::TryInto;
 use derive_try_from_primitive::TryFromPrimitive;
 
 #[derive(Copy, Clone, Debug, TryFromPrimitive)]
@@ -84,26 +85,22 @@ impl EmulatedDevice for CmosRtc {
         vec![DeviceRegion::PortIo(Self::RTC_ADDRESS..=Self::RTC_DATA)]
     }
 
-    fn on_port_read(&mut self, port: Port, val: &mut [u8]) -> Result<()> {
+    fn on_port_read(&mut self, port: Port, val: &mut PortIoValue) -> Result<()> {
         match port {
             Self::RTC_ADDRESS => {
-                let data = (self.addr as u8).to_be_bytes();
-                val.copy_from_slice(&data[..val.len()]);
+                *val = (self.addr as u8).into();
             }
             Self::RTC_DATA => {
                 match self.addr {
                     CmosRegister::ShutdownStatus => {
-                        let data = 0u32.to_be_bytes(); // For now, always report soft reset
-                        val.copy_from_slice(&data[..val.len()]);
+                        val.copy_from_u32(0u32); // For now, always report soft reset
                     }
                     CmosRegister::QemuMemAbove16MbMsb => {
                         //FIXME: for now just report 80MB available
-                        let data = 0x5u8.to_be_bytes();
-                        val.copy_from_slice(&data[..val.len()]);
+                        val.copy_from_u32(0x5);
                     }
                     _ => {
-                        let data = 0u32.to_be_bytes();
-                        val.copy_from_slice(&data[..val.len()]);
+                        val.copy_from_u32(0x00);
                     }
                 }
             }
@@ -113,12 +110,13 @@ impl EmulatedDevice for CmosRtc {
         Ok(())
     }
 
-    fn on_port_write(&mut self, port: Port, val: &[u8]) -> Result<()> {
+    fn on_port_write(&mut self, port: Port, val: PortIoValue) -> Result<()> {
         match port {
             Self::RTC_ADDRESS => {
                 // OVMF expects to be able to read pretty much any address
                 // (and just get zeros for meaningless ones)
-                self.addr = CmosRegister::try_from(val[0]).unwrap_or(CmosRegister::Unknown);
+                self.addr =
+                    CmosRegister::try_from(val.try_into()?).unwrap_or(CmosRegister::Unknown);
             }
             _ => {
                 match self.addr {

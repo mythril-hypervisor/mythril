@@ -5,7 +5,9 @@ use alloc::collections::btree_map::BTreeMap;
 use alloc::rc::Rc;
 use alloc::vec::Vec;
 use core::cmp::Ordering;
+use core::convert::{TryFrom, TryInto};
 use core::ops::RangeInclusive;
+use core::slice;
 
 pub mod com;
 pub mod pci;
@@ -148,15 +150,147 @@ pub trait EmulatedDevice {
             "MemoryMapped device does not support writing".into(),
         ))
     }
-    fn on_port_read(&mut self, _port: Port, _val: &mut [u8]) -> Result<()> {
+    fn on_port_read(&mut self, _port: Port, _val: &mut PortIoValue) -> Result<()> {
         Err(Error::NotImplemented(
             "PortIo device does not support reading".into(),
         ))
     }
-    fn on_port_write(&mut self, _port: Port, _val: &[u8]) -> Result<()> {
+    fn on_port_write(&mut self, _port: Port, _val: PortIoValue) -> Result<()> {
         Err(Error::NotImplemented(
             "PortIo device does not support writing".into(),
         ))
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum PortIoValue {
+    OneByte([u8; 1]),
+    TwoBytes([u8; 2]),
+    FourBytes([u8; 4]),
+}
+
+impl PortIoValue {
+    pub fn len(&self) -> usize {
+        self.as_slice().len()
+    }
+
+    pub fn as_slice(&self) -> &[u8] {
+        match self {
+            PortIoValue::OneByte(ref val) => val,
+            PortIoValue::TwoBytes(ref val) => val,
+            PortIoValue::FourBytes(ref val) => val,
+        }
+    }
+
+    pub fn as_mut_slice(&mut self) -> &mut [u8] {
+        match self {
+            PortIoValue::OneByte(ref mut val) => val,
+            PortIoValue::TwoBytes(ref mut val) => val,
+            PortIoValue::FourBytes(ref mut val) => val,
+        }
+    }
+
+    pub fn as_u32(&self) -> u32 {
+        let arr = match self {
+            PortIoValue::OneByte(ref val) => [0, 0, 0, val[0]],
+            PortIoValue::TwoBytes(ref val) => [0, 0, val[0], val[1]],
+            PortIoValue::FourBytes(ref val) => val.clone(),
+        };
+        u32::from_be_bytes(arr)
+    }
+
+    pub fn copy_from_u32(&mut self, val: u32) {
+        let arr = val.to_be_bytes();
+        let len = self.len();
+        self.as_mut_slice().copy_from_slice(&arr[4 - len..]);
+    }
+}
+
+impl TryFrom<&[u8]> for PortIoValue {
+    type Error = Error;
+
+    fn try_from(value: &[u8]) -> Result<Self> {
+        match value.len() {
+            1 => {
+                let mut arr = [0u8; 1];
+                arr.copy_from_slice(value);
+                Ok(PortIoValue::OneByte(arr))
+            }
+            2 => {
+                let mut arr = [0u8; 2];
+                arr.copy_from_slice(value);
+                Ok(PortIoValue::TwoBytes(arr))
+            }
+            4 => {
+                let mut arr = [0u8; 4];
+                arr.copy_from_slice(value);
+                Ok(PortIoValue::FourBytes(arr))
+            }
+            length => Err(Error::InvalidValue(format!(
+                "Invalid slice length for PortIoValue: {}",
+                length
+            ))),
+        }
+    }
+}
+
+impl TryInto<u8> for PortIoValue {
+    type Error = Error;
+
+    fn try_into(self) -> Result<u8> {
+        match self {
+            PortIoValue::OneByte(val) => Ok(val[0]),
+            val => Err(Error::InvalidValue(format!(
+                "Value {:?} cannot be converted to u8",
+                val
+            ))),
+        }
+    }
+}
+
+impl TryInto<u16> for PortIoValue {
+    type Error = Error;
+
+    fn try_into(self) -> Result<u16> {
+        match self {
+            PortIoValue::TwoBytes(val) => Ok(u16::from_be_bytes(val)),
+            val => Err(Error::InvalidValue(format!(
+                "Value {:?} cannot be converted to u16",
+                val
+            ))),
+        }
+    }
+}
+
+impl TryInto<u32> for PortIoValue {
+    type Error = Error;
+
+    fn try_into(self) -> Result<u32> {
+        match self {
+            PortIoValue::FourBytes(val) => Ok(u32::from_be_bytes(val)),
+            val => Err(Error::InvalidValue(format!(
+                "Value {:?} cannot be converted to u32",
+                val
+            ))),
+        }
+    }
+}
+
+impl From<u8> for PortIoValue {
+    fn from(value: u8) -> Self {
+        PortIoValue::OneByte([value])
+    }
+}
+
+impl From<u16> for PortIoValue {
+    fn from(value: u16) -> Self {
+        PortIoValue::TwoBytes(value.to_be_bytes())
+    }
+}
+
+impl From<u32> for PortIoValue {
+    fn from(value: u32) -> Self {
+        PortIoValue::FourBytes(value.to_be_bytes())
     }
 }
 
@@ -164,6 +298,7 @@ pub trait EmulatedDevice {
 mod test {
     use super::*;
     use crate::device::com::*;
+    use core::convert::TryInto;
 
     #[test]
     fn test_memmap_write_to_portio_fails() {
@@ -180,5 +315,28 @@ mod test {
         let dev = map.device_for(0u16).unwrap();
 
         assert_eq!(map.device_for(1u16).is_none(), true);
+    }
+
+    #[test]
+    fn test_portio_value() {
+        let val: Result<PortIoValue> = [0x12, 0x34, 0x56, 0x78][..].try_into();
+        assert_eq!(val.is_ok(), true);
+
+        let val: Result<PortIoValue> = [0x12, 0x34, 0x56][..].try_into();
+        assert_eq!(val.is_err(), true);
+
+        let val: PortIoValue = [0x12, 0x34, 0x56, 0x78][..].try_into().unwrap();
+        assert_eq!(val.as_u32(), 0x12345678);
+
+        let val: PortIoValue = [0x12, 0x34][..].try_into().unwrap();
+        assert_eq!(val.as_u32(), 0x1234);
+    }
+
+    #[test]
+    fn test_portio_value_read() {
+        let mut val = PortIoValue::TwoBytes([0x00, 0x00]);
+        val.copy_from_u32(0x1234u32);
+        assert_eq!([0x12, 0x34], val.as_slice());
+        assert_eq!(0x1234, val.as_u32());
     }
 }

@@ -1,7 +1,8 @@
-use crate::device::{DeviceRegion, EmulatedDevice, Port};
+use crate::device::{DeviceRegion, EmulatedDevice, Port, PortIoValue};
 use crate::error::{Error, Result};
 use alloc::boxed::Box;
 use alloc::vec::Vec;
+use core::convert::TryInto;
 
 #[derive(Default, Debug)]
 pub struct PicState {
@@ -36,7 +37,7 @@ impl EmulatedDevice for Pic8259 {
         ]
     }
 
-    fn on_port_read(&mut self, port: Port, val: &mut [u8]) -> Result<()> {
+    fn on_port_read(&mut self, port: Port, val: &mut PortIoValue) -> Result<()> {
         let data = match port {
             Self::PIC_MASTER_DATA => self.master_state.imr,
             Self::PIC_SLAVE_DATA => self.master_state.imr,
@@ -45,20 +46,29 @@ impl EmulatedDevice for Pic8259 {
                     "Read of PIC command port not yet supported".into(),
                 ))
             }
-        }
-        .to_be_bytes();
-        val.copy_from_slice(&data);
+        };
+        *val = data.into();
         Ok(())
     }
 
-    fn on_port_write(&mut self, port: Port, val: &[u8]) -> Result<()> {
+    fn on_port_write(&mut self, port: Port, val: PortIoValue) -> Result<()> {
         match port {
-            Self::PIC_MASTER_DATA => self.master_state.imr = val[0],
-            Self::PIC_SLAVE_DATA => self.master_state.imr = val[0],
-            _ => {
-                return Err(Error::NotImplemented(
-                    "Write to PIC command port not yet supported".into(),
-                ))
+            Self::PIC_MASTER_DATA => {
+                info!("Set master PIC data: {:?}", val);
+                self.master_state.imr = val.try_into()?;
+            }
+            Self::PIC_SLAVE_DATA => {
+                info!("Set slave PIC data: {:?}", val);
+                self.master_state.imr = val.try_into()?;
+            }
+            port => {
+                info!(
+                    "Write to PIC command port not yet supported (port 0x{:x} = {:?})",
+                    port, val
+                );
+                // return Err(Error::NotImplemented(
+                //     format!("Write to PIC command port not yet supported (port 0x{:x} = {:?})", port, val),
+                // ))
             }
         }
         Ok(())

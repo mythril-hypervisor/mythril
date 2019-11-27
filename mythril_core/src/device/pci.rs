@@ -1,4 +1,4 @@
-use crate::device::{DeviceRegion, EmulatedDevice, Port};
+use crate::device::{DeviceRegion, EmulatedDevice, Port, PortIoValue};
 use crate::error::{Error, Result};
 use alloc::boxed::Box;
 use alloc::collections::btree_map::BTreeMap;
@@ -136,12 +136,12 @@ impl EmulatedDevice for PciRootComplex {
             DeviceRegion::PortIo(Self::PCI_CONFIG_DATA..=Self::PCI_CONFIG_DATA_MAX),
         ]
     }
-    fn on_port_read(&mut self, port: Port, val: &mut [u8]) -> Result<()> {
+    fn on_port_read(&mut self, port: Port, val: &mut PortIoValue) -> Result<()> {
         match port {
             Self::PCI_CONFIG_ADDRESS => {
                 // For now, always set the enable bit
-                let addr = (0x80000000 | self.current_address).to_be_bytes();
-                val.copy_from_slice(&addr);
+                let addr = 0x80000000 | self.current_address;
+                *val = addr.into();
             }
             _ => {
                 // TODO: what is the expected behavior when val.len() != 2?
@@ -152,15 +152,16 @@ impl EmulatedDevice for PciRootComplex {
 
                 match self.devices.get(&bdf) {
                     Some(device) => {
-                        info!("Query for real device");
-                        let res = device.header.read_offset(offset).to_be_bytes();
-                        val.copy_from_slice(&res);
+                        info!("Query for real device: {}", bdf);
+                        let res = device.header.read_offset(offset);
+                        info!("  res = {:?}", res);
+                        *val = res.into();
                     }
                     None => {
                         info!("Query for missing device = {}", bdf);
                         // If no device is present, just return all 0xFFs
-                        let res = 0xffffffffu32.to_be_bytes();
-                        val.copy_from_slice(&res[..val.len()]);
+                        let res = 0xffffffffu32;
+                        *val = res.into();
                     }
                 }
             }
@@ -168,14 +169,9 @@ impl EmulatedDevice for PciRootComplex {
         Ok(())
     }
 
-    fn on_port_write(&mut self, port: Port, val: &[u8]) -> Result<()> {
-        let val: [u8; 4] = val.try_into().map_err(|_| {
-            Error::InvalidValue("Insufficient PCI root complex port write bytes".into())
-        })?;
-        let val = u32::from_be_bytes(val);
-
+    fn on_port_write(&mut self, port: Port, val: PortIoValue) -> Result<()> {
         match port {
-            Self::PCI_CONFIG_ADDRESS => self.current_address = val,
+            Self::PCI_CONFIG_ADDRESS => self.current_address = val.try_into()?,
             _ => (),
         }
         Ok(())

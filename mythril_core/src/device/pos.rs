@@ -1,4 +1,4 @@
-use crate::device::{DeviceRegion, EmulatedDevice, Port};
+use crate::device::{DeviceRegion, EmulatedDevice, Port, PortIoValue};
 use crate::error::{Error, Result};
 use alloc::boxed::Box;
 use alloc::vec::Vec;
@@ -29,13 +29,12 @@ impl EmulatedDevice for ProgrammableOptionSelect {
         )]
     }
 
-    fn on_port_read(&mut self, _port: Port, val: &mut [u8]) -> Result<()> {
-        let data = 0u32.to_be_bytes();
-        val.copy_from_slice(&data[..val.len()]);
+    fn on_port_read(&mut self, _port: Port, val: &mut PortIoValue) -> Result<()> {
+        val.copy_from_u32(0);
         Ok(())
     }
 
-    fn on_port_write(&mut self, _port: Port, _val: &[u8]) -> Result<()> {
+    fn on_port_write(&mut self, _port: Port, _val: PortIoValue) -> Result<()> {
         Ok(())
     }
 }
