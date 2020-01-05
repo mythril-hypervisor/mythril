@@ -3,13 +3,15 @@ use crate::device::{DeviceMap, EmulatedDevice, Port, PortIoValue};
 use crate::error::{self, Error, Result};
 use crate::memory::{self, GuestAddressSpace, GuestPhysAddr};
 use crate::registers::{GdtrBase, IdtrBase};
+use crate::vm::{VirtualMachine, VmServices};
 use crate::{vmcs, vmexit, vmx};
-use crate::vm::{VmServices, VirtualMachine};
 use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::convert::TryFrom;
 use core::marker::PhantomData;
+use core::mem;
+use core::pin::Pin;
 use x86::bits64::segmentation::{rdfsbase, rdgsbase};
 use x86::controlregs::{cr0, cr3, cr4};
 use x86::msr;
@@ -18,7 +20,8 @@ extern "C" {
     pub fn vmlaunch_wrapper() -> u64;
 }
 
-global_asm!("
+global_asm!(
+    "
 .global vmlaunch_wrapper
 vmlaunch_wrapper:
     pushq %rax
@@ -74,45 +77,59 @@ vmlaunch_wrapper:
     pushfq
     popq %rax
     ret
-");
+"
+);
 
 pub struct VCpu {
     vm: VirtualMachine,
-    vmcs: vmcs::ActiveVmcs,
-    stack: Vec<u8>
+    pub vmcs: vmcs::ActiveVmcs,
+    stack: Vec<u8>,
 }
 
 impl VCpu {
-    pub fn new(vm: VirtualMachine, services: &mut impl VmServices) -> Result<Self> {
+    pub fn new(vm: VirtualMachine, services: &mut impl VmServices) -> Result<Pin<Box<Self>>> {
         let mut vmx = vmx::Vmx::enable(services.allocator())?;
         let mut vmcs = {
             let alloc = services.allocator();
             vmcs::Vmcs::new(alloc)?
-        }.activate(vmx)?;
+        }
+        .activate(vmx)?;
 
         // Allocate 1MB for host stack space
-        let stack = vec![1u8; 1024 * 1024];
+        let stack = vec![0u8; 1024 * 1024];
 
-        vmcs.write_field(vmcs::VmcsField::EptPointer, vm.guest_space.eptp())?;
-        Self::initialize_host_vmcs(&mut vmcs, &stack)?;
-        Self::initialize_guest_vmcs(&mut vmcs)?;
-        Self::initialize_ctrl_vmcs(&mut vmcs, services)?;
-
-        Ok(Self {
+        let mut vcpu = Box::pin(Self {
             vm: vm,
             vmcs: vmcs,
-            stack: stack
-        })
+            stack: stack,
+        });
+
+        let eptp = vcpu.vm.guest_space.eptp();
+        vcpu.vmcs.write_field(vmcs::VmcsField::EptPointer, eptp)?;
+
+        let stack_base = vcpu.stack.as_ptr() as u64 + vcpu.stack.len() as u64
+            - mem::size_of::<*const Self>() as u64;
+
+        let raw_vcpu: *mut Self = (&mut *vcpu) as *mut Self;
+        unsafe {
+            *(stack_base as *mut *mut Self) = raw_vcpu;
+        }
+
+        Self::initialize_host_vmcs(&mut vcpu.vmcs, stack_base)?;
+        Self::initialize_guest_vmcs(&mut vcpu.vmcs)?;
+        Self::initialize_ctrl_vmcs(&mut vcpu.vmcs, services)?;
+
+        Ok(vcpu)
     }
 
-    pub fn launch(self) -> Result<!> {
+    pub fn launch(self: Pin<Box<Self>>) -> Result<!> {
         let rflags = unsafe { vmlaunch_wrapper() };
         error::check_vm_insruction(rflags, "Failed to launch vm".into())?;
 
         unreachable!()
     }
 
-    fn initialize_host_vmcs(vmcs: &mut vmcs::ActiveVmcs, stack: &[u8]) -> Result<()> {
+    fn initialize_host_vmcs(vmcs: &mut vmcs::ActiveVmcs, stack: u64) -> Result<()> {
         //TODO: Check with MSR_IA32_VMX_CR0_FIXED0/1 that these bits are valid
         vmcs.write_field(vmcs::VmcsField::HostCr0, unsafe { cr0() }.bits() as u64)?;
 
@@ -145,7 +162,7 @@ impl VCpu {
             msr::rdmsr(msr::IA32_GS_BASE)
         })?;
 
-        vmcs.write_field(vmcs::VmcsField::HostRsp, stack.as_ptr() as u64 + stack.len() as u64)?;
+        vmcs.write_field(vmcs::VmcsField::HostRsp, stack)?;
         vmcs.write_field(vmcs::VmcsField::HostIa32Efer, unsafe {
             msr::rdmsr(msr::IA32_EFER)
         })?;
@@ -154,7 +171,10 @@ impl VCpu {
             vmcs::VmcsField::HostRip,
             vmexit::vmexit_handler_wrapper as u64,
         )?;
-        info!("vmexit_handler_wrapper: 0x{:x}", vmexit::vmexit_handler_wrapper as u64);
+        info!(
+            "vmexit_handler_wrapper: 0x{:x}",
+            vmexit::vmexit_handler_wrapper as u64
+        );
         Ok(())
     }
 
@@ -234,7 +254,10 @@ impl VCpu {
         Ok(())
     }
 
-    fn initialize_ctrl_vmcs(vmcs: &mut vmcs::ActiveVmcs, services: &mut impl VmServices) -> Result<()> {
+    fn initialize_ctrl_vmcs(
+        vmcs: &mut vmcs::ActiveVmcs,
+        services: &mut impl VmServices,
+    ) -> Result<()> {
         let alloc = services.allocator();
         vmcs.write_with_fixed(
             vmcs::VmcsField::CpuBasedVmExecControl,
@@ -375,7 +398,8 @@ impl VCpu {
             chunk.copy_from_slice(val.as_slice());
         }
 
-        self.vm.guest_space
+        self.vm
+            .guest_space
             .write_bytes(&self.vmcs, guest_addr, &bytes, access)?;
 
         guest_cpu.rdi += bytes.len() as u64;

@@ -49,14 +49,13 @@ pub struct VirtualMachine {
     pub guest_space: GuestAddressSpace,
 }
 
-impl VirtualMachine
-{
+impl VirtualMachine {
     pub fn new(config: VirtualMachineConfig, services: &mut impl VmServices) -> Result<Self> {
         let guest_space = Self::setup_ept(&config, services)?;
         info!("first eptp: {}", guest_space.eptp());
         Ok(Self {
             config: config,
-            guest_space: guest_space
+            guest_space: guest_space,
         })
     }
 

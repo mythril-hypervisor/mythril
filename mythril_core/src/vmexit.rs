@@ -1,6 +1,6 @@
 use crate::error::{self, Error, Result};
 use crate::memory::GuestPhysAddr;
-use crate::{vm, vmcs};
+use crate::{vcpu, vm, vmcs};
 use alloc::fmt::Debug;
 use bitflags::bitflags;
 use derive_try_from_primitive::TryFromPrimitive;
@@ -9,7 +9,8 @@ extern "C" {
     pub fn vmexit_handler_wrapper();
 }
 
-global_asm!("
+global_asm!(
+    "
 .global vmexit_handler_wrapper
 vmexit_handler_wrapper:
     pushq %rax
@@ -54,7 +55,8 @@ vmexit_handler_wrapper:
     pushfq
     popq %rcx
     call vmresume_failure_handler
-");
+"
+);
 
 #[repr(C)]
 #[repr(packed)]
@@ -76,19 +78,20 @@ pub struct GuestCpuState {
     pub rcx: u64,
     pub rbx: u64,
     pub rax: u64,
+
+    // Pushed during VCpu construction
+    pub vcpu: *mut vcpu::VCpu,
 }
 
 #[no_mangle]
 pub extern "C" fn vmexit_handler(state: *mut GuestCpuState) {
-    // let state = unsafe { state.as_mut() }.expect("Guest cpu sate is NULL");
-    // let mut vm = unsafe { vm::VMS.get_mut().as_mut().expect("Failed to get VM") };
+    let state = unsafe { state.as_mut() }.expect("Guest cpu sate is NULL");
+    let vcpu = unsafe { state.vcpu.as_mut() }.expect("VCpu state is NULL");
 
-    // let reason = ExitReason::from_active_vmcs(&mut vm.vmcs).expect("Failed to get vm reason");
+    let reason = ExitReason::from_active_vmcs(&mut vcpu.vmcs).expect("Failed to get vm reason");
 
-    // vm.handle_vmexit(state, reason)
-    //     .expect("Failed to handle vmexit")
-    info!("here");
-    loop{}
+    vcpu.handle_vmexit(state, reason)
+        .expect("Failed to handle vmexit")
 }
 
 #[no_mangle]
