@@ -1,5 +1,6 @@
 #![cfg_attr(not(std), no_std)]
 #![feature(asm)]
+#![feature(global_asm)]
 #![feature(never_type)]
 #![feature(const_fn)]
 #![feature(get_mut_unchecked)]

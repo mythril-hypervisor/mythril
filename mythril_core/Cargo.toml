@@ -6,7 +6,6 @@ repository = "https://github.com/ALSchwalm/mythril"
 edition = "2018"
 license-file = "LICENSE"
 description = "A intel-focused hypervisor using VT-x/EPT"
-build = "build.rs"
 
 [features]
 std = []
