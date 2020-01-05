@@ -33,13 +33,15 @@ pub struct GuestCpuState {
 
 #[no_mangle]
 pub extern "C" fn vmexit_handler(state: *mut GuestCpuState) {
-    let state = unsafe { state.as_mut() }.expect("Guest cpu sate is NULL");
-    let mut vm = unsafe { vm::VMS.get_mut().as_mut().expect("Failed to get VM") };
+    // let state = unsafe { state.as_mut() }.expect("Guest cpu sate is NULL");
+    // let mut vm = unsafe { vm::VMS.get_mut().as_mut().expect("Failed to get VM") };
 
-    let reason = ExitReason::from_active_vmcs(&mut vm.vmcs).expect("Failed to get vm reason");
+    // let reason = ExitReason::from_active_vmcs(&mut vm.vmcs).expect("Failed to get vm reason");
 
-    vm.handle_vmexit(state, reason)
-        .expect("Failed to handle vmexit")
+    // vm.handle_vmexit(state, reason)
+    //     .expect("Failed to handle vmexit")
+    info!("here");
+    loop{}
 }
 
 #[no_mangle]

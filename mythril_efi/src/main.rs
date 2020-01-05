@@ -21,8 +21,6 @@ fn efi_main(_handle: Handle, system_table: SystemTable<Boot>) -> Status {
 
     let mut services = efiutils::EfiVmServices::new(system_table.boot_services());
 
-    let mut vmx = vmx::Vmx::enable(services.allocator()).expect("Failed to enable vmx");
-
     let mut config = vm::VirtualMachineConfig::new(1024);
 
     // FIXME: When `load_image` may return an error, log the error.
@@ -67,9 +65,10 @@ fn efi_main(_handle: Handle, system_table: SystemTable<Boot>) -> Status {
         .register_device(device::qemu_fw_cfg::QemuFwCfg::new())
         .unwrap();
 
-    let vm = vm::VirtualMachine::new(&mut vmx, config, &mut services).expect("Failed to create vm");
+    let vm = vm::VirtualMachine::new(config, &mut services).expect("Failed to create vm");
+    let vcpu = vcpu::VCpu::new(vm, &mut services).expect("Failed to create vcpu");
 
     info!("Constructed VM!");
 
-    vm.launch(vmx).expect("Failed to launch vm");
+    vcpu.launch().expect("Failed to launch vm");
 }

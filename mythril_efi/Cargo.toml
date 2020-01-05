@@ -13,3 +13,8 @@ uefi-services = "0.1.0"
 mythril_core = { version = "*", path = "../mythril_core" }
 log = { version = "0.4.8", default-features = false }
 x86 = "0.27.0"
+
+[dependencies.compiler_builtins]
+git = "https://github.com/rust-lang/compiler-builtins"
+tag = "0.1.21"
+features = ["mem"]

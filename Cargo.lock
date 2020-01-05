@@ -39,6 +39,11 @@ version = "0.1.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
+name = "compiler_builtins"
+version = "0.1.21"
+source = "git+https://github.com/rust-lang/compiler-builtins?tag=0.1.21#49ad9018a9888fbbc253c5311d6b196fbc82843e"
+
+[[package]]
 name = "derive-try-from-primitive"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -71,6 +76,7 @@ dependencies = [
 name = "mythril_efi"
 version = "0.1.0"
 dependencies = [
+ "compiler_builtins 0.1.21 (git+https://github.com/rust-lang/compiler-builtins?tag=0.1.21)",
  "log 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "mythril_core 0.1.0",
  "uefi 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -250,6 +256,7 @@ dependencies = [
 "checksum cast 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)" = "926013f2860c46252efceabb19f4a6b308197505082c609025aa6706c011d427"
 "checksum cc 1.0.46 (registry+https://github.com/rust-lang/crates.io-index)" = "0213d356d3c4ea2c18c40b037c3be23cd639825c18f25ee670ac7813beeef99c"
 "checksum cfg-if 0.1.10 (registry+https://github.com/rust-lang/crates.io-index)" = "4785bdd1c96b2a846b2bd7cc02e86b6b3dbf14e7e53446c4f54c92a361040822"
+"checksum compiler_builtins 0.1.21 (git+https://github.com/rust-lang/compiler-builtins?tag=0.1.21)" = "<none>"
 "checksum derive-try-from-primitive 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "81dbd65eb15734b6d50dc6ac86f14f928462be0a5df6bda17761e909071ede5d"
 "checksum log 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)" = "14b6052be84e6b71ab17edffc2eeabf5c2c3ae1fdb464aae35ac50c67a44e1f7"
 "checksum nodrop 0.1.14 (registry+https://github.com/rust-lang/crates.io-index)" = "72ef4a56884ca558e5ddb05a1d1e7e1bfd9a68d9ed024c21704cc98872dae1bb"
