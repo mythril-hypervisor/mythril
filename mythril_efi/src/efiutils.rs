@@ -1,5 +1,7 @@
+use alloc::boxed::Box;
 use alloc::vec::Vec;
-use core::mem::MaybeUninit;
+use core::ffi::c_void;
+use core::mem::{self, MaybeUninit};
 use mythril_core::allocator::FrameAllocator;
 use mythril_core::error::{Error, Result};
 use mythril_core::memory::{HostPhysAddr, HostPhysFrame};
@@ -8,7 +10,34 @@ use uefi::data_types::Handle;
 use uefi::prelude::ResultExt;
 use uefi::proto::media::file::{File, FileAttribute, FileMode, FileType};
 use uefi::proto::media::fs::SimpleFileSystem;
-use uefi::table::boot::{AllocateType, BootServices, MemoryType};
+use uefi::proto::pi::mp::MPServices;
+use uefi::table::boot::{AllocateType, BootServices, EventType, MemoryType, Tpl};
+
+extern "efiapi" fn ap_startup_callback(param: *mut c_void) {
+    let callback: &'static Box<dyn Fn()> = unsafe { mem::transmute(param) };
+    callback()
+}
+
+pub fn run_on_all_aps(bt: &BootServices, proc: Box<Box<dyn Fn()>>) -> Result<()> {
+    let proc: &'static Box<dyn Fn()> = Box::leak(proc);
+
+    //TODO: this should probably not be TIMER event type
+    let event = unsafe {
+        bt.create_event(EventType::TIMER, Tpl::APPLICATION, None)
+            .expect_success("Failed to create event")
+    };
+
+    let mp = bt
+        .locate_protocol::<MPServices>()
+        .expect_success("Failed to find MP service");
+    let mp = unsafe { &mut *mp.get() };
+
+    let param: *mut c_void = unsafe { mem::transmute(proc) };
+
+    mp.startup_all_aps(false, ap_startup_callback, param, None, Some(event))
+        .expect_success("Failed to start on all aps");
+    Ok(())
+}
 
 pub struct EfiVmServices<'a> {
     bt: &'a BootServices,
@@ -22,6 +51,9 @@ impl<'a> VmServices for EfiVmServices<'a> {
     }
     fn read_file(&self, path: &str) -> Result<Vec<u8>> {
         read_file(self.bt, path)
+    }
+    fn acpi_addr(&self) -> Result<HostPhysAddr> {
+        Ok(HostPhysAddr::new(0))
     }
 }
 

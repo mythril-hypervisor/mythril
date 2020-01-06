@@ -1,14 +1,16 @@
 use crate::allocator::FrameAllocator;
 use crate::device::{DeviceMap, EmulatedDevice, Port, PortIoValue};
 use crate::error::{self, Error, Result};
-use crate::memory::{self, GuestAddressSpace, GuestPhysAddr};
+use crate::memory::{self, GuestAddressSpace, GuestPhysAddr, HostPhysAddr};
 use crate::registers::{GdtrBase, IdtrBase};
 use crate::{vmcs, vmexit, vmx};
 use alloc::boxed::Box;
 use alloc::string::String;
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::convert::TryFrom;
 use core::marker::PhantomData;
+use spin::RwLock;
 use x86::bits64::segmentation::{rdfsbase, rdgsbase};
 use x86::controlregs::{cr0, cr3, cr4};
 use x86::msr;
@@ -17,17 +19,20 @@ pub trait VmServices {
     type Allocator: FrameAllocator;
     fn allocator(&mut self) -> &mut Self::Allocator;
     fn read_file(&self, path: &str) -> Result<Vec<u8>>;
+    fn acpi_addr(&self) -> Result<HostPhysAddr>;
 }
 
 pub struct VirtualMachineConfig {
+    cpus: Vec<u8>,
     images: Vec<(String, GuestPhysAddr)>,
     devices: DeviceMap,
     memory: u64, // number of 4k pages
 }
 
 impl VirtualMachineConfig {
-    pub fn new(memory: u64) -> VirtualMachineConfig {
+    pub fn new(cpus: Vec<u8>, memory: u64) -> VirtualMachineConfig {
         VirtualMachineConfig {
+            cpus: cpus,
             images: vec![],
             devices: DeviceMap::default(),
             memory: memory,
@@ -50,13 +55,16 @@ pub struct VirtualMachine {
 }
 
 impl VirtualMachine {
-    pub fn new(config: VirtualMachineConfig, services: &mut impl VmServices) -> Result<Self> {
+    pub fn new(
+        config: VirtualMachineConfig,
+        services: &mut impl VmServices,
+    ) -> Result<Arc<RwLock<Self>>> {
         let guest_space = Self::setup_ept(&config, services)?;
         info!("first eptp: {}", guest_space.eptp());
-        Ok(Self {
+        Ok(Arc::new(RwLock::new(Self {
             config: config,
             guest_space: guest_space,
-        })
+        })))
     }
 
     fn map_image(

@@ -6,12 +6,16 @@ use crate::registers::{GdtrBase, IdtrBase};
 use crate::vm::{VirtualMachine, VmServices};
 use crate::{vmcs, vmexit, vmx};
 use alloc::boxed::Box;
+use alloc::collections::BTreeMap;
 use alloc::string::String;
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::convert::TryFrom;
 use core::marker::PhantomData;
 use core::mem;
 use core::pin::Pin;
+use raw_cpuid::CpuId;
+use spin::RwLock;
 use x86::bits64::segmentation::{rdfsbase, rdgsbase};
 use x86::controlregs::{cr0, cr3, cr4};
 use x86::msr;
@@ -80,14 +84,31 @@ vmlaunch_wrapper:
 "
 );
 
+pub fn smp_entry_point(
+    vm_map: &'static BTreeMap<usize, Arc<RwLock<VirtualMachine>>>,
+    mut services: impl VmServices,
+) -> ! {
+    let cpuid = CpuId::new();
+    let apicid = match cpuid.get_feature_info() {
+        Some(finfo) => finfo.initial_local_apic_id() as usize,
+        _ => panic!("Unable to get cpuid"),
+    };
+    let vm = vm_map.get(&apicid).expect("Failed to locate VM for VCPU");
+    let vcpu = VCpu::new(vm.clone(), &mut services).expect("Failed to create vcpu");
+    vcpu.launch().expect("Failed to launch vm")
+}
+
 pub struct VCpu {
-    vm: VirtualMachine,
+    vm: Arc<RwLock<VirtualMachine>>,
     pub vmcs: vmcs::ActiveVmcs,
     stack: Vec<u8>,
 }
 
 impl VCpu {
-    pub fn new(vm: VirtualMachine, services: &mut impl VmServices) -> Result<Pin<Box<Self>>> {
+    pub fn new(
+        vm: Arc<RwLock<VirtualMachine>>,
+        services: &mut impl VmServices,
+    ) -> Result<Pin<Box<Self>>> {
         let mut vmx = vmx::Vmx::enable(services.allocator())?;
         let mut vmcs = {
             let alloc = services.allocator();
@@ -104,12 +125,13 @@ impl VCpu {
             stack: stack,
         });
 
-        let eptp = vcpu.vm.guest_space.eptp();
+        let eptp = vcpu.vm.read().guest_space.eptp();
         vcpu.vmcs.write_field(vmcs::VmcsField::EptPointer, eptp)?;
 
         let stack_base = vcpu.stack.as_ptr() as u64 + vcpu.stack.len() as u64
             - mem::size_of::<*const Self>() as u64;
 
+        // 'push' the address of this VCpu to the host stack for the vmexit
         let raw_vcpu: *mut Self = (&mut *vcpu) as *mut Self;
         unsafe {
             *(stack_base as *mut *mut Self) = raw_vcpu;
@@ -341,12 +363,7 @@ impl VCpu {
         guest_cpu: &mut vmexit::GuestCpuState,
         exit: vmexit::IoInstructionInformation,
     ) -> Result<()> {
-        let mut dev = self
-            .vm
-            .config
-            .device_map()
-            .device_for_mut(port)
-            .ok_or(Error::MissingDevice(format!("No device for port {}", port)))?;
+        let mut vm = self.vm.write();
 
         let linear_addr = self.vmcs.read_field(vmcs::VmcsField::GuestLinearAddress)?;
         let guest_addr = memory::GuestVirtAddr::new(linear_addr, &self.vmcs)?;
@@ -357,12 +374,18 @@ impl VCpu {
 
         // FIXME: The direction we read is determined by the DF flag (I think)
         // FIXME: We should probably only be using some of the lower order bits
-        let bytes = self.vm.guest_space.read_bytes(
+        let bytes = vm.guest_space.read_bytes(
             &self.vmcs,
             guest_addr,
             (guest_cpu.rcx * exit.size as u64) as usize,
             access,
         )?;
+
+        let mut dev = vm
+            .config
+            .device_map()
+            .device_for_mut(port)
+            .ok_or(Error::MissingDevice(format!("No device for port {}", port)))?;
 
         // FIXME: Actually test for REP
         for chunk in bytes.chunks_exact(exit.size as usize) {
@@ -380,8 +403,9 @@ impl VCpu {
         guest_cpu: &mut vmexit::GuestCpuState,
         exit: vmexit::IoInstructionInformation,
     ) -> Result<()> {
-        let mut dev = self
-            .vm
+        let mut vm = self.vm.write();
+
+        let mut dev = vm
             .config
             .device_map()
             .device_for_mut(port)
@@ -398,8 +422,7 @@ impl VCpu {
             chunk.copy_from_slice(val.as_slice());
         }
 
-        self.vm
-            .guest_space
+        vm.guest_space
             .write_bytes(&self.vmcs, guest_addr, &bytes, access)?;
 
         guest_cpu.rdi += bytes.len() as u64;
@@ -414,14 +437,15 @@ impl VCpu {
     ) -> Result<()> {
         let (port, input, size, string) = (exit.port, exit.input, exit.size, exit.string);
 
-        let mut dev = self
-            .vm
-            .config
-            .device_map()
-            .device_for_mut(port)
-            .ok_or(Error::MissingDevice(format!("No device for port {}", port)))?;
-
         if !string {
+            let mut vm = self.vm.write();
+
+            let mut dev = vm
+                .config
+                .device_map()
+                .device_for_mut(port)
+                .ok_or(Error::MissingDevice(format!("No device for port {}", port)))?;
+
             if !input {
                 let arr = (guest_cpu.rax as u32).to_be_bytes();
                 dev.on_port_write(port, PortIoValue::try_from(&arr[4 - size as usize..])?)?;

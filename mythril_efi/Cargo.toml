@@ -8,13 +8,20 @@ license-file = "LICENSE"
 description = "A intel-focused hypervisor using VT-x/EPT"
 
 [dependencies]
-uefi = "0.3.2"
-uefi-services = "0.1.0"
 mythril_core = { version = "*", path = "../mythril_core" }
 log = { version = "0.4.8", default-features = false }
+spin = "0.5"
 x86 = "0.27.0"
 
 [dependencies.compiler_builtins]
 git = "https://github.com/rust-lang/compiler-builtins"
 tag = "0.1.21"
 features = ["mem"]
+
+[dependencies.uefi]
+git = "https://github.com/ALSchwalm/uefi-rs.git"
+branch = "mp-wait-event"
+
+[dependencies.uefi-services]
+git = "https://github.com/ALSchwalm/uefi-rs.git"
+branch = "mp-wait-event"

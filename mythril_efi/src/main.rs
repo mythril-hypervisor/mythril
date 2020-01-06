@@ -3,6 +3,7 @@
 #![feature(asm)]
 #![feature(never_type)]
 #![feature(const_fn)]
+#![feature(abi_efiapi)]
 
 #[macro_use]
 extern crate alloc;
@@ -14,14 +15,13 @@ use mythril_core::vm::VmServices;
 use mythril_core::*;
 use uefi::prelude::*;
 mod efiutils;
+use alloc::boxed::Box;
+use alloc::collections::BTreeMap;
+use alloc::sync::Arc;
+use spin::RwLock;
 
-#[entry]
-fn efi_main(_handle: Handle, system_table: SystemTable<Boot>) -> Status {
-    uefi_services::init(&system_table).expect_success("Failed to initialize utilities");
-
-    let mut services = efiutils::EfiVmServices::new(system_table.boot_services());
-
-    let mut config = vm::VirtualMachineConfig::new(1024);
+fn default_vm(core: usize, services: &mut impl VmServices) -> Arc<RwLock<vm::VirtualMachine>> {
+    let mut config = vm::VirtualMachineConfig::new(vec![core as u8], 1024);
 
     // FIXME: When `load_image` may return an error, log the error.
     //
@@ -65,10 +65,33 @@ fn efi_main(_handle: Handle, system_table: SystemTable<Boot>) -> Status {
         .register_device(device::qemu_fw_cfg::QemuFwCfg::new())
         .unwrap();
 
-    let vm = vm::VirtualMachine::new(config, &mut services).expect("Failed to create vm");
-    let vcpu = vcpu::VCpu::new(vm, &mut services).expect("Failed to create vcpu");
+    vm::VirtualMachine::new(config, services).expect("Failed to create vm")
+}
 
-    info!("Constructed VM!");
+#[entry]
+fn efi_main(_handle: Handle, system_table: SystemTable<Boot>) -> Status {
+    uefi_services::init(&system_table).expect_success("Failed to initialize utilities");
 
-    vcpu.launch().expect("Failed to launch vm");
+    let system_table: &'static _ = Box::leak(Box::new(system_table));
+    let bsp_bt = system_table.boot_services();
+    let mut bsp_services = efiutils::EfiVmServices::new(bsp_bt);
+
+    let mut map = BTreeMap::new();
+    map.insert(0usize, default_vm(0, &mut bsp_services));
+    map.insert(1usize, default_vm(1, &mut bsp_services));
+    let map: &'static _ = Box::leak(Box::new(map));
+
+    // Double box because we need to pass a void* to the EFI AP startup
+    // but Box<dyn Fn> is a fat pointer.
+    efiutils::run_on_all_aps(
+        bsp_bt,
+        Box::new(Box::new(move || {
+            let ap_bt = system_table.boot_services();
+            let ap_services = efiutils::EfiVmServices::new(ap_bt);
+            vcpu::smp_entry_point(map, ap_services)
+        })),
+    )
+    .expect("Failed to start APs");
+
+    vcpu::smp_entry_point(map, bsp_services)
 }

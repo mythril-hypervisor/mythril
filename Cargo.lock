@@ -68,6 +68,7 @@ dependencies = [
  "derive-try-from-primitive 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "raw-cpuid 7.0.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "spin 0.5.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "ux 0.1.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "x86 0.27.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -79,8 +80,9 @@ dependencies = [
  "compiler_builtins 0.1.21 (git+https://github.com/rust-lang/compiler-builtins?tag=0.1.21)",
  "log 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "mythril_core 0.1.0",
- "uefi 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
- "uefi-services 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "spin 0.5.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "uefi 0.4.1 (git+https://github.com/ALSchwalm/uefi-rs.git?branch=mp-wait-event)",
+ "uefi-services 0.2.0 (git+https://github.com/ALSchwalm/uefi-rs.git?branch=mp-wait-event)",
  "x86 0.27.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -147,6 +149,11 @@ version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
+name = "spin"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+
+[[package]]
 name = "syn"
 version = "0.11.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -176,23 +183,23 @@ dependencies = [
 
 [[package]]
 name = "ucs2"
-version = "0.1.0"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "uefi"
-version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
+version = "0.4.1"
+source = "git+https://github.com/ALSchwalm/uefi-rs.git?branch=mp-wait-event#479b6f887e75fdeacad0a929bec9ecf8cfe1f985"
 dependencies = [
  "bitflags 1.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
- "ucs2 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "uefi-macros 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "ucs2 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "uefi-macros 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
 name = "uefi-macros"
-version = "0.2.1"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "proc-macro2 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -202,12 +209,12 @@ dependencies = [
 
 [[package]]
 name = "uefi-services"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
+version = "0.2.0"
+source = "git+https://github.com/ALSchwalm/uefi-rs.git?branch=mp-wait-event#479b6f887e75fdeacad0a929bec9ecf8cfe1f985"
 dependencies = [
  "log 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "rlibc 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "uefi 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "uefi 0.4.1 (git+https://github.com/ALSchwalm/uefi-rs.git?branch=mp-wait-event)",
  "x86_64 0.7.5 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -268,13 +275,14 @@ dependencies = [
 "checksum rustc_version 0.2.3 (registry+https://github.com/rust-lang/crates.io-index)" = "138e3e0acb6c9fb258b19b67cb8abd63c00679d2851805ea151465464fe9030a"
 "checksum semver 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)" = "1d7eb9ef2c18661902cc47e535f9bc51b78acd254da71d375c2f6720d9a40403"
 "checksum semver-parser 0.7.0 (registry+https://github.com/rust-lang/crates.io-index)" = "388a1df253eca08550bef6c72392cfe7c30914bf41df5269b68cbd6ff8f570a3"
+"checksum spin 0.5.2 (registry+https://github.com/rust-lang/crates.io-index)" = "6e63cff320ae2c57904679ba7cb63280a3dc4613885beafb148ee7bf9aa9042d"
 "checksum syn 0.11.11 (registry+https://github.com/rust-lang/crates.io-index)" = "d3b891b9015c88c576343b9b3e41c2c11a51c219ef067b264bd9c8aa9b441dad"
 "checksum syn 1.0.7 (registry+https://github.com/rust-lang/crates.io-index)" = "0e7bedb3320d0f3035594b0b723c8a28d7d336a3eda3881db79e61d676fb644c"
 "checksum synom 0.11.3 (registry+https://github.com/rust-lang/crates.io-index)" = "a393066ed9010ebaed60b9eafa373d4b1baac186dd7e008555b0f702b51945b6"
-"checksum ucs2 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "8e583483194b07714e09e7f72ae3ed447d17fe6855f66a2ccbf6751e52df82e0"
-"checksum uefi 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)" = "d78258f2ed80f151076ec6680e760f493bf02632c1f12600070cf636be467a18"
-"checksum uefi-macros 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)" = "3c026bf1debef09a440bcf0635b7fdbd4d33d109db1ca0826c3699bbbd2b6814"
-"checksum uefi-services 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "5a65bec9cce3959626e038daee1270da042950e92b511416328a25bcd658c0c3"
+"checksum ucs2 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)" = "517566d61c8a1c347e75ef90f70099e27de717f931cc31119ad31544641aca64"
+"checksum uefi 0.4.1 (git+https://github.com/ALSchwalm/uefi-rs.git?branch=mp-wait-event)" = "<none>"
+"checksum uefi-macros 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)" = "111ba394b5fe37b5d80ccc224dec2d5f0cba33f962f236f66a9c536c5dd5d878"
+"checksum uefi-services 0.2.0 (git+https://github.com/ALSchwalm/uefi-rs.git?branch=mp-wait-event)" = "<none>"
 "checksum unicode-xid 0.0.4 (registry+https://github.com/rust-lang/crates.io-index)" = "8c1f860d7d29cf02cb2f3f359fd35991af3d30bac52c57d265a3c461074cb4dc"
 "checksum unicode-xid 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)" = "826e7639553986605ec5979c7dd957c7895e93eabed50ab2ffa7f6128a75097c"
 "checksum ux 0.1.3 (registry+https://github.com/rust-lang/crates.io-index)" = "88dfeb711b61ce620c0cb6fd9f8e3e678622f0c971da2a63c4b3e25e88ed012f"

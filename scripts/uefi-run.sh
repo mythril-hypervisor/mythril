@@ -31,6 +31,7 @@ umount _mnt
 rm -rf _mnt
 
 qemu-system-x86_64 -bios ./scripts/OVMF.fd \
+                   -smp 2 \
                    -enable-kvm \
                    -cpu host \
                    -nographic \
