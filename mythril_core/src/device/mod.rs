@@ -302,7 +302,7 @@ mod test {
 
     #[test]
     fn test_memmap_write_to_portio_fails() {
-        let mut com = ComDevice::new(0);
+        let mut com = ComDevice::new(0, 0);
         let addr = GuestPhysAddr::new(0);
         assert_eq!(com.on_mem_write(addr, &[0, 0, 0, 0]).is_err(), true);
     }
@@ -310,7 +310,7 @@ mod test {
     #[test]
     fn test_device_map() {
         let mut map = DeviceMap::default();
-        let com = ComDevice::new(0);
+        let com = ComDevice::new(0, 0);
         map.register_device(com).unwrap();
         let dev = map.device_for(0u16).unwrap();
 
