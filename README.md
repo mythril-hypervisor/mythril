@@ -7,18 +7,18 @@ A rust-based hypervisor currently requiring EFI boot, and VT-x/EPT.
 ## Building and Testing
 
 `mythril` should be built and tested using the provided docker image
-`adamschwalm/hypervisor-build:docker-2`. For example, to build the
+`adamschwalm/hypervisor-build:docker-3`. For example, to build the
 EFI application, run:
 
 ```
-docker run -v $(pwd):/src adamschwalm/hypervisor-build:docker-2 make efi
+docker run -v $(pwd):/src adamschwalm/hypervisor-build:docker-3 make efi
 ```
 
 This will create the EFI application in `target/x86_64-unknown-uefi/debug/mythril_efi.efi`.
 Similarly, unittests can be executed like:
 
 ```
-docker run -v $(pwd):/src adamschwalm/hypervisor-build:docker-2 make test
+docker run -v $(pwd):/src adamschwalm/hypervisor-build:docker-3 make test
 ```
 
 ## Running the Hypervisor
