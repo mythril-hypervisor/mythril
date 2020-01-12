@@ -12,25 +12,43 @@ use uefi::proto::media::file::{File, FileAttribute, FileMode, FileType};
 use uefi::proto::media::fs::SimpleFileSystem;
 use uefi::proto::pi::mp::MPServices;
 use uefi::table::boot::{AllocateType, BootServices, EventType, MemoryType, Tpl};
+use uefi::Event;
 
-extern "efiapi" fn ap_startup_callback(param: *mut c_void) {
+extern "C" fn ap_startup_callback(param: *mut c_void) {
     let callback: &'static Box<dyn Fn()> = unsafe { mem::transmute(param) };
     callback()
 }
 
+fn notify_callback(_: Event) {
+    unreachable!()
+}
+
 pub fn run_on_all_aps(bt: &BootServices, proc: Box<Box<dyn Fn()>>) -> Result<()> {
-    let proc: &'static Box<dyn Fn()> = Box::leak(proc);
-
-    //TODO: this should probably not be TIMER event type
-    let event = unsafe {
-        bt.create_event(EventType::TIMER, Tpl::APPLICATION, None)
-            .expect_success("Failed to create event")
-    };
-
     let mp = bt
         .locate_protocol::<MPServices>()
         .expect_success("Failed to find MP service");
     let mp = unsafe { &mut *mp.get() };
+
+    if mp
+        .get_number_of_processors()
+        .expect_success("Failed to get number of processors")
+        .total
+        < 2
+    {
+        return Ok(());
+    }
+
+    let proc: &'static Box<dyn Fn()> = Box::leak(proc);
+
+    //TODO: this should probably not be TIMER event type
+    let event = unsafe {
+        bt.create_event(
+            EventType::SIGNAL_EXIT_BOOT_SERVICES,
+            Tpl::CALLBACK,
+            Some(notify_callback),
+        )
+        .expect_success("Failed to create event")
+    };
 
     let param: *mut c_void = unsafe { mem::transmute(proc) };
 

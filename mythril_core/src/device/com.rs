@@ -5,13 +5,18 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 pub struct ComDevice {
+    id: u64,
     port: Port,
     buff: Vec<u8>,
 }
 
 impl ComDevice {
-    pub fn new(port: Port) -> Box<dyn EmulatedDevice> {
-        Box::new(Self { port, buff: vec![] })
+    pub fn new(vmid: u64, port: Port) -> Box<dyn EmulatedDevice> {
+        Box::new(Self {
+            port,
+            buff: vec![],
+            id: vmid,
+        })
     }
 }
 
@@ -42,7 +47,7 @@ impl EmulatedDevice for ComDevice {
 
             // FIXME: for now print guest output with some newlines to make
             //        it a bit more visible
-            info!("GUEST: {}", s);
+            info!("GUEST{}: {}", self.id, s);
             self.buff.clear();
         }
 

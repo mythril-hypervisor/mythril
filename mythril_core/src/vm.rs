@@ -60,7 +60,6 @@ impl VirtualMachine {
         services: &mut impl VmServices,
     ) -> Result<Arc<RwLock<Self>>> {
         let guest_space = Self::setup_ept(&config, services)?;
-        info!("first eptp: {}", guest_space.eptp());
         Ok(Arc::new(RwLock::new(Self {
             config: config,
             guest_space: guest_space,

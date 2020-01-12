@@ -1,5 +1,5 @@
 CARGO?=cargo
-CARGO_TOOLCHAIN?=nightly
+CARGO_TOOLCHAIN?=nightly-2019-12-20-x86_64-unknown-linux-gnu
 UEFI_TARGET?=x86_64-unknown-uefi
 
 efi_binary = target/$(UEFI_TARGET)/debug/mythril_efi.efi

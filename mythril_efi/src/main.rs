@@ -34,11 +34,11 @@ fn default_vm(core: usize, services: &mut impl VmServices) -> Arc<RwLock<vm::Vir
         .unwrap_or(());
     config
         .device_map()
-        .register_device(device::com::ComDevice::new(0x3F8))
+        .register_device(device::com::ComDevice::new(core as u64, 0x3F8))
         .unwrap();
     config
         .device_map()
-        .register_device(device::com::ComDevice::new(0x402))
+        .register_device(device::com::ComDevice::new(core as u64, 0x402))
         .unwrap(); // The qemu debug port
     config
         .device_map()
@@ -78,7 +78,6 @@ fn efi_main(_handle: Handle, system_table: SystemTable<Boot>) -> Status {
 
     let mut map = BTreeMap::new();
     map.insert(0usize, default_vm(0, &mut bsp_services));
-    map.insert(1usize, default_vm(1, &mut bsp_services));
     let map: &'static _ = Box::leak(Box::new(map));
 
     // Double box because we need to pass a void* to the EFI AP startup
