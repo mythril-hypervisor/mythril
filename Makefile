@@ -7,7 +7,7 @@ rs_src = $(shell find . -type f -name '*.rs')
 
 .PHONY: fmt
 fmt:
-	$(CARGO) +$(CARGO_TOOLCHAIN) fmt -- --check
+	$(CARGO) +$(CARGO_TOOLCHAIN) fmt --manifest-path mythril_core/Cargo.toml -- --check
 
 efi: $(efi_binary)
 

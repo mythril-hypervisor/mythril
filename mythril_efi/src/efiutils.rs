@@ -14,7 +14,7 @@ use uefi::proto::pi::mp::MPServices;
 use uefi::table::boot::{AllocateType, BootServices, EventType, MemoryType, Tpl};
 use uefi::Event;
 
-extern "C" fn ap_startup_callback(param: *mut c_void) {
+extern "efiapi" fn ap_startup_callback(param: *mut c_void) {
     let callback: &'static Box<dyn Fn()> = unsafe { mem::transmute(param) };
     callback()
 }
@@ -40,7 +40,6 @@ pub fn run_on_all_aps(bt: &BootServices, proc: Box<Box<dyn Fn()>>) -> Result<()>
 
     let proc: &'static Box<dyn Fn()> = Box::leak(proc);
 
-    //TODO: this should probably not be TIMER event type
     let event = unsafe {
         bt.create_event(
             EventType::SIGNAL_EXIT_BOOT_SERVICES,
