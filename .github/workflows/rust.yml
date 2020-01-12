@@ -8,18 +8,18 @@ jobs:
     steps:
     - uses: actions/checkout@v1
     - name: Format
-      run: docker run -v $GITHUB_WORKSPACE:/src adamschwalm/hypervisor-build:docker-2 make fmt
+      run: docker run -v $GITHUB_WORKSPACE:/src adamschwalm/hypervisor-build:docker-3 make fmt
   test:
     runs-on: ubuntu-18.04
     needs: fmt
     steps:
     - uses: actions/checkout@v1
     - name: Unit Tests
-      run: docker run -v $GITHUB_WORKSPACE:/src adamschwalm/hypervisor-build:docker-2 make test
+      run: docker run -v $GITHUB_WORKSPACE:/src adamschwalm/hypervisor-build:docker-3 make test
   build:
     runs-on: ubuntu-18.04
     needs: fmt
     steps:
     - uses: actions/checkout@v1
     - name: EFI Image Build
-      run: docker run -v $GITHUB_WORKSPACE:/src adamschwalm/hypervisor-build:docker-2 make efi
+      run: docker run -v $GITHUB_WORKSPACE:/src adamschwalm/hypervisor-build:docker-3 make efi
