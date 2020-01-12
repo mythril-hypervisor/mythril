@@ -1,7 +1,5 @@
 # mythril
 
-[![Actions Status](https://github.com/ALSchwalm/mythril/workflows/Mythril/badge.svg?branch=master)](https://github.com/ALSchwalm/mythril/actions)
-
 A rust-based hypervisor currently requiring EFI boot, and VT-x/EPT.
 
 ## Building and Testing
