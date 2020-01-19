@@ -1,4 +1,3 @@
-use crate::allocator::FrameAllocator;
 use crate::error::{self, Error, Result};
 use crate::memory::HostPhysFrame;
 use raw_cpuid::CpuId;

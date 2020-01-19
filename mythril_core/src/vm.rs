@@ -1,4 +1,3 @@
-use crate::allocator::FrameAllocator;
 use crate::device::{DeviceMap, EmulatedDevice, Port, PortIoValue};
 use crate::error::{self, Error, Result};
 use crate::memory::{self, GuestAddressSpace, GuestPhysAddr, HostPhysAddr};
@@ -16,8 +15,6 @@ use x86::controlregs::{cr0, cr3, cr4};
 use x86::msr;
 
 pub trait VmServices {
-    type Allocator: FrameAllocator;
-    fn allocator(&mut self) -> &mut Self::Allocator;
     fn read_file(&self, path: &str) -> Result<Vec<u8>>;
     fn acpi_addr(&self) -> Result<HostPhysAddr>;
 }

@@ -81,3 +81,36 @@ pub enum Error {
 }
 
 pub type Result<T> = core::result::Result<T, Error>;
+
+#[lang = "eh_personality"]
+fn eh_personality() {}
+
+#[panic_handler]
+fn panic_handler(info: &core::panic::PanicInfo) -> ! {
+    if let Some(location) = info.location() {
+        error!(
+            "Panic in {} at ({}, {}):",
+            location.file(),
+            location.line(),
+            location.column()
+        );
+        if let Some(message) = info.message() {
+            error!("{}", message);
+        }
+    }
+
+    loop {
+        unsafe {
+            // Try to at least keep CPU from running at 100%
+            asm!("hlt" :::: "volatile");
+        }
+    }
+}
+
+#[alloc_error_handler]
+fn out_of_memory(layout: ::core::alloc::Layout) -> ! {
+    panic!(
+        "Ran out of free memory while trying to allocate {:#?}",
+        layout
+    );
+}

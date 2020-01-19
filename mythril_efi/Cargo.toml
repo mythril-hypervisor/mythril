@@ -10,6 +10,7 @@ description = "A intel-focused hypervisor using VT-x/EPT"
 [dependencies]
 mythril_core = { version = "*", path = "../mythril_core" }
 log = { version = "0.4.8", default-features = false }
+slab_allocator = "0.3.5"
 spin = "0.5"
 x86 = "0.27.0"
 
@@ -19,9 +20,5 @@ tag = "0.1.21"
 features = ["mem"]
 
 [dependencies.uefi]
-git = "https://github.com/ALSchwalm/uefi-rs.git"
-branch = "mp-wait-event"
-
-[dependencies.uefi-services]
 git = "https://github.com/ALSchwalm/uefi-rs.git"
 branch = "mp-wait-event"

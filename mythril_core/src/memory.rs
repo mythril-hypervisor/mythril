@@ -1,4 +1,3 @@
-use crate::allocator::FrameAllocator;
 use crate::error::{self, Error, Result};
 use crate::vmcs;
 use alloc::vec::Vec;

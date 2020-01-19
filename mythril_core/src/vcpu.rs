@@ -1,4 +1,3 @@
-use crate::allocator::FrameAllocator;
 use crate::device::{DeviceMap, EmulatedDevice, Port, PortIoValue};
 use crate::error::{self, Error, Result};
 use crate::memory::{self, GuestAddressSpace, GuestPhysAddr};
