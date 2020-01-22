@@ -1,5 +1,5 @@
 use crate::device::{DeviceRegion, EmulatedDevice, Port, PortIoValue};
-use crate::error::{Error, Result};
+use crate::error::Result;
 use alloc::boxed::Box;
 use alloc::collections::btree_map::BTreeMap;
 use alloc::vec::Vec;
@@ -51,8 +51,8 @@ struct PciToCardbusBridgeHeader {}
 
 enum PciHeader {
     Type0(PciNonBridgeHeader),
-    Type1(PciToPciBridgeHeader),
-    Type2(PciToCardbusBridgeHeader),
+    _Type1(PciToPciBridgeHeader),
+    _Type2(PciToCardbusBridgeHeader),
 }
 
 impl PciHeader {

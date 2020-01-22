@@ -1,24 +1,19 @@
-use alloc::boxed::Box;
 use alloc::vec::Vec;
-use core::ffi::c_void;
-use core::mem::{self, MaybeUninit};
+use core::mem::MaybeUninit;
 use mythril_core::error::{Error, Result};
-use mythril_core::memory::{HostPhysAddr, HostPhysFrame};
+use mythril_core::memory::HostPhysAddr;
 use mythril_core::vm::VmServices;
 use uefi::data_types::Handle;
 use uefi::prelude::ResultExt;
 use uefi::proto::media::file::{File, FileAttribute, FileMode, FileType};
 use uefi::proto::media::fs::SimpleFileSystem;
-use uefi::proto::pi::mp::MPServices;
-use uefi::table::boot::{AllocateType, BootServices, EventType, MemoryType, Tpl};
-use uefi::Event;
+use uefi::table::boot::BootServices;
 
 pub struct EfiVmServices<'a> {
-    bt: &'a BootServices
+    bt: &'a BootServices,
 }
 
 impl<'a> VmServices for EfiVmServices<'a> {
-    type Allocator = EfiAllocator<'a>;
     fn read_file(&self, path: &str) -> Result<Vec<u8>> {
         read_file(self.bt, path)
     }
@@ -29,12 +24,9 @@ impl<'a> VmServices for EfiVmServices<'a> {
 
 impl<'a> EfiVmServices<'a> {
     pub fn new(bt: &'a BootServices) -> Self {
-        Self {
-            bt: bt
-        }
+        Self { bt: bt }
     }
 }
-
 
 //FIXME this whole function is rough
 fn read_file(services: &BootServices, path: &str) -> Result<Vec<u8>> {

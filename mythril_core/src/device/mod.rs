@@ -7,7 +7,6 @@ use alloc::vec::Vec;
 use core::cmp::Ordering;
 use core::convert::{TryFrom, TryInto};
 use core::ops::RangeInclusive;
-use core::slice;
 
 pub mod com;
 pub mod pci;
@@ -312,7 +311,7 @@ mod test {
         let mut map = DeviceMap::default();
         let com = ComDevice::new(0, 0);
         map.register_device(com).unwrap();
-        let dev = map.device_for(0u16).unwrap();
+        let _dev = map.device_for(0u16).unwrap();
 
         assert_eq!(map.device_for(1u16).is_none(), true);
     }

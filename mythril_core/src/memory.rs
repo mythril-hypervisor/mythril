@@ -1,13 +1,22 @@
-use crate::error::{self, Error, Result};
+use crate::error::{Error, Result};
 use crate::vmcs;
+use alloc::boxed::Box;
 use alloc::vec::Vec;
 use bitflags::bitflags;
+use core::default::Default;
 use core::ops::{Add, Index, IndexMut};
-use core::ptr::NonNull;
 use derive_try_from_primitive::TryFromPrimitive;
 use ux;
 use x86::bits64::paging::*;
 use x86::controlregs::Cr0;
+
+#[repr(align(4096))]
+pub struct Raw4kPage([u8; 4096]);
+impl Default for Raw4kPage {
+    fn default() -> Self {
+        Raw4kPage([0u8; 4096])
+    }
+}
 
 #[inline]
 fn pml4_index(addr: u64) -> ux::u9 {
@@ -217,8 +226,7 @@ impl HostPhysFrame {
 }
 
 pub struct GuestAddressSpace {
-    frame: HostPhysFrame,
-    root: NonNull<EptPml4Table>,
+    root: Box<EptPml4Table>,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -232,40 +240,30 @@ pub enum GuestAccess {
 }
 
 impl GuestAddressSpace {
-    pub fn new(alloc: &mut impl FrameAllocator) -> Result<Self> {
-        let mut ept_pml4_frame = alloc
-            .allocate_frame()
-            .map_err(|_| Error::AllocError("Failed to allocate address space EPT root"))?;
-
-        let ept_pml4 =
-            unsafe { (ept_pml4_frame.start_address().as_u64() as *mut EptPml4Table).as_mut() }
-                .unwrap();
-
+    pub fn new() -> Result<Self> {
         Ok(GuestAddressSpace {
-            frame: ept_pml4_frame,
-            root: NonNull::from(ept_pml4),
+            root: Box::new(EptPml4Table::default()),
         })
     }
 
     pub fn map_frame(
         &mut self,
-        alloc: &mut impl FrameAllocator,
         guest_addr: GuestPhysAddr,
         host_frame: HostPhysFrame,
         readonly: bool,
     ) -> Result<()> {
-        map_guest_memory(
-            alloc,
-            unsafe { self.root.as_mut() },
-            guest_addr,
-            host_frame,
-            readonly,
-        )
+        map_guest_memory(&mut self.root, guest_addr, host_frame, readonly)
+    }
+
+    pub fn map_new_frame(&mut self, guest_addr: GuestPhysAddr, readonly: bool) -> Result<()> {
+        let page = Box::into_raw(Box::new(Raw4kPage::default()));
+        let page = HostPhysFrame::from_start_address(HostPhysAddr::new(page as u64))?;
+        self.map_frame(guest_addr, page, readonly)
     }
 
     pub fn eptp(&self) -> u64 {
         // //TODO: check available memory types
-        self.frame.start_address().as_u64() | (4 - 1) << 3 | 6
+        (&*self.root as *const _ as u64) | (4 - 1) << 3 | 6
     }
 
     pub fn translate_linear_address(
@@ -286,7 +284,7 @@ impl GuestAddressSpace {
         &self,
         addr: Guest4LevelPagingAddr,
         cr3: GuestPhysAddr,
-        access: GuestAccess,
+        _access: GuestAccess,
     ) -> Result<GuestPhysAddr> {
         let guest_pml4_root = self.find_host_frame(cr3)?;
 
@@ -302,7 +300,7 @@ impl GuestAddressSpace {
 
         let guest_pdt = guest_pdpte_host_frame.start_address().as_u64() as *const PD;
         let guest_pdte = unsafe { (*guest_pdt)[u16::from(addr.p2_index()) as usize] };
-        let guest_pdte_addr = GuestPhysAddr::new(guest_pdte.address().as_u64());
+        let _guest_pdte_addr = GuestPhysAddr::new(guest_pdte.address().as_u64());
 
         let translated_vaddr =
             guest_pdte.address().as_u64() + (u32::from(addr.large_page_offset()) as u64);
@@ -312,8 +310,7 @@ impl GuestAddressSpace {
 
     //FIXME this ignores read/write/exec permissions and 2MB/1GB pages (and lots of other stuff)
     pub fn find_host_frame(&self, addr: GuestPhysAddr) -> Result<HostPhysFrame> {
-        let ept_base = unsafe { self.root.as_ref() };
-        let ept_pml4e = &ept_base[addr.p4_index()];
+        let ept_pml4e = &self.root[addr.p4_index()];
         if ept_pml4e.is_unused() {
             return Err(Error::InvalidValue(
                 "No PML4 entry for GuestPhysAddr".into(),
@@ -357,12 +354,12 @@ impl GuestAddressSpace {
     pub fn read_bytes(
         &self,
         vmcs: &vmcs::ActiveVmcs,
-        mut addr: GuestVirtAddr,
+        addr: GuestVirtAddr,
         mut length: usize,
         access: GuestAccess,
     ) -> Result<Vec<u8>> {
         let mut out = vec![];
-        let mut iter = self.frame_iter(vmcs, addr, access)?;
+        let iter = self.frame_iter(vmcs, addr, access)?;
 
         // How many frames this region spans
         let count = (length + HostPhysFrame::SIZE - 1) / HostPhysFrame::SIZE;
@@ -390,11 +387,11 @@ impl GuestAddressSpace {
     pub fn write_bytes(
         &mut self,
         vmcs: &vmcs::ActiveVmcs,
-        mut addr: GuestVirtAddr,
+        addr: GuestVirtAddr,
         mut bytes: &[u8],
         access: GuestAccess,
     ) -> Result<()> {
-        let mut iter = self.frame_iter(vmcs, addr, access)?;
+        let iter = self.frame_iter(vmcs, addr, access)?;
 
         // How many frames this region spans
         let count = (bytes.len() + HostPhysFrame::SIZE - 1) / HostPhysFrame::SIZE;
@@ -403,7 +400,7 @@ impl GuestAddressSpace {
         for frame in iter.take(count) {
             let frame = frame?;
             let array = unsafe { frame.as_mut_array() };
-            let slice = if start_offset + bytes.len() <= HostPhysFrame::SIZE {
+            let _slice = if start_offset + bytes.len() <= HostPhysFrame::SIZE {
                 array[start_offset..start_offset + bytes.len()].copy_from_slice(&bytes);
                 break;
             } else {
@@ -453,11 +450,14 @@ impl<'a> Iterator for FrameIter<'a> {
 pub struct EptTable<T> {
     entries: [T; 512],
 }
-
-impl<T> EptTable<T> {
-    pub fn new(frame: &mut HostPhysFrame) -> Result<&mut Self> {
-        unsafe { (frame.start_address().as_u64() as *mut Self).as_mut() }
-            .ok_or(Error::AllocError("EptTable given invalid frame"))
+impl<T> Default for EptTable<T>
+where
+    T: Copy + Default,
+{
+    fn default() -> Self {
+        Self {
+            entries: [T::default(); 512],
+        }
     }
 }
 
@@ -475,7 +475,7 @@ impl<T> IndexMut<ux::u9> for EptTable<T> {
     }
 }
 
-#[derive(Clone)]
+#[derive(Copy, Clone, Default)]
 #[repr(transparent)]
 pub struct EptTableEntry {
     entry: u64,
@@ -521,7 +521,7 @@ pub enum EptMemoryType {
     WriteBack = 6,
 }
 
-#[derive(Clone)]
+#[derive(Copy, Clone, Default)]
 #[repr(transparent)]
 pub struct EptPageTableEntry {
     entry: u64,
@@ -592,7 +592,6 @@ pub type EptPageDirectory = EptTable<EptPageDirectoryEntry>;
 pub type EptPageTable = EptTable<EptPageTableEntry>;
 
 fn map_guest_memory(
-    alloc: &mut impl FrameAllocator,
     guest_ept_base: &mut EptPml4Table,
     guest_addr: GuestPhysAddr,
     host_frame: HostPhysFrame,
@@ -605,28 +604,25 @@ fn map_guest_memory(
 
     let ept_pml4e = &mut guest_ept_base[guest_addr.p4_index()];
     if ept_pml4e.is_unused() {
-        let ept_pdpt_frame = alloc
-            .allocate_frame()
-            .map_err(|_| Error::AllocError("Failed to allocate pdpt"))?;
-        ept_pml4e.set_addr(ept_pdpt_frame.start_address(), default_flags);
+        let ept_pdpt_frame = Box::into_raw(Box::new(EptPageDirectoryPointerTable::default()));
+        let ept_pdpt_addr = HostPhysAddr::new(ept_pdpt_frame as u64);
+        ept_pml4e.set_addr(ept_pdpt_addr, default_flags);
     }
 
     let ept_pdpt = ept_pml4e.addr().as_u64() as *mut EptPageDirectoryPointerTable;
     let ept_pdpe = unsafe { &mut (*ept_pdpt)[guest_addr.p3_index()] };
     if ept_pdpe.is_unused() {
-        let ept_pdt_frame = alloc
-            .allocate_frame()
-            .map_err(|_| Error::AllocError("Failed to allocate pdt"))?;
-        ept_pdpe.set_addr(ept_pdt_frame.start_address(), default_flags);
+        let ept_pdt_frame = Box::into_raw(Box::new(EptPageDirectory::default()));
+        let ept_pdt_addr = HostPhysAddr::new(ept_pdt_frame as u64);
+        ept_pdpe.set_addr(ept_pdt_addr, default_flags);
     }
 
     let ept_pdt = ept_pdpe.addr().as_u64() as *mut EptPageDirectory;
     let ept_pde = unsafe { &mut (*ept_pdt)[guest_addr.p2_index()] };
     if ept_pde.is_unused() {
-        let ept_pt_frame = alloc
-            .allocate_frame()
-            .map_err(|_| Error::AllocError("Failed to allocate pt"))?;
-        ept_pde.set_addr(ept_pt_frame.start_address(), default_flags);
+        let ept_pt_frame = Box::into_raw(Box::new(EptPageTable::default()));
+        let ept_pt_addr = HostPhysAddr::new(ept_pt_frame as u64);
+        ept_pde.set_addr(ept_pt_addr, default_flags);
     }
 
     let ept_pt = ept_pde.addr().as_u64() as *mut EptPageTable;

@@ -1,21 +1,18 @@
-use crate::device::{DeviceMap, EmulatedDevice, Port, PortIoValue};
+use crate::device::{Port, PortIoValue};
 use crate::error::{self, Error, Result};
-use crate::memory::{self, GuestAddressSpace, GuestPhysAddr};
+use crate::memory::{self, Raw4kPage};
 use crate::registers::{GdtrBase, IdtrBase};
-use crate::vm::{VirtualMachine, VmServices};
+use crate::vm::VirtualMachine;
 use crate::{vmcs, vmexit, vmx};
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
-use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::convert::TryFrom;
-use core::marker::PhantomData;
 use core::mem;
 use core::pin::Pin;
 use raw_cpuid::CpuId;
 use spin::RwLock;
-use x86::bits64::segmentation::{rdfsbase, rdgsbase};
 use x86::controlregs::{cr0, cr3, cr4};
 use x86::msr;
 
@@ -83,17 +80,14 @@ vmlaunch_wrapper:
 "
 );
 
-pub fn smp_entry_point(
-    vm_map: &'static BTreeMap<usize, Arc<RwLock<VirtualMachine>>>,
-    mut services: impl VmServices,
-) -> ! {
+pub fn smp_entry_point(vm_map: &'static BTreeMap<usize, Arc<RwLock<VirtualMachine>>>) -> ! {
     let cpuid = CpuId::new();
     let apicid = match cpuid.get_feature_info() {
         Some(finfo) => finfo.initial_local_apic_id() as usize,
         _ => panic!("Unable to get cpuid"),
     };
     let vm = vm_map.get(&apicid).expect("Failed to locate VM for VCPU");
-    let vcpu = VCpu::new(vm.clone(), &mut services).expect("Failed to create vcpu");
+    let vcpu = VCpu::new(vm.clone()).expect("Failed to create vcpu");
     vcpu.launch().expect("Failed to launch vm")
 }
 
@@ -104,16 +98,9 @@ pub struct VCpu {
 }
 
 impl VCpu {
-    pub fn new(
-        vm: Arc<RwLock<VirtualMachine>>,
-        services: &mut impl VmServices,
-    ) -> Result<Pin<Box<Self>>> {
-        let mut vmx = vmx::Vmx::enable(services.allocator())?;
-        let mut vmcs = {
-            let alloc = services.allocator();
-            vmcs::Vmcs::new(alloc)?
-        }
-        .activate(vmx)?;
+    pub fn new(vm: Arc<RwLock<VirtualMachine>>) -> Result<Pin<Box<Self>>> {
+        let vmx = vmx::Vmx::enable()?;
+        let vmcs = vmcs::Vmcs::new()?.activate(vmx)?;
 
         // Allocate 1MB for host stack space
         let stack = vec![0u8; 1024 * 1024];
@@ -138,7 +125,7 @@ impl VCpu {
 
         Self::initialize_host_vmcs(&mut vcpu.vmcs, stack_base)?;
         Self::initialize_guest_vmcs(&mut vcpu.vmcs)?;
-        Self::initialize_ctrl_vmcs(&mut vcpu.vmcs, services)?;
+        Self::initialize_ctrl_vmcs(&mut vcpu.vmcs)?;
 
         Ok(vcpu)
     }
@@ -254,7 +241,7 @@ impl VCpu {
             let mut cr0_fixed0 = unsafe { msr::rdmsr(msr::IA32_VMX_CR0_FIXED0) };
             cr0_fixed0 &= !(1 << 0); // disable PE
             cr0_fixed0 &= !(1 << 31); // disable PG
-            let mut cr4_fixed0 = unsafe { msr::rdmsr(msr::IA32_VMX_CR4_FIXED0) };
+            let cr4_fixed0 = unsafe { msr::rdmsr(msr::IA32_VMX_CR4_FIXED0) };
 
             vmcs.write_field(
                 vmcs::VmcsField::Cr4GuestHostMask,
@@ -275,11 +262,7 @@ impl VCpu {
         Ok(())
     }
 
-    fn initialize_ctrl_vmcs(
-        vmcs: &mut vmcs::ActiveVmcs,
-        services: &mut impl VmServices,
-    ) -> Result<()> {
-        let alloc = services.allocator();
+    fn initialize_ctrl_vmcs(vmcs: &mut vmcs::ActiveVmcs) -> Result<()> {
         vmcs.write_with_fixed(
             vmcs::VmcsField::CpuBasedVmExecControl,
             (vmcs::CpuBasedCtrlFlags::UNCOND_IO_EXITING
@@ -321,11 +304,8 @@ impl VCpu {
             msr::IA32_VMX_ENTRY_CTLS,
         )?;
 
-        let msr_bitmap = alloc.allocate_frame()?;
-        vmcs.write_field(
-            vmcs::VmcsField::MsrBitmap,
-            msr_bitmap.start_address().as_u64(),
-        )?;
+        let msr_bitmap = Box::into_raw(Box::new(Raw4kPage::default()));
+        vmcs.write_field(vmcs::VmcsField::MsrBitmap, msr_bitmap as u64)?;
 
         vmcs.write_field(vmcs::VmcsField::ExceptionBitmap, 0xffffffff)?;
 
@@ -380,7 +360,7 @@ impl VCpu {
             access,
         )?;
 
-        let mut dev = vm
+        let dev = vm
             .config
             .device_map()
             .device_for_mut(port)
@@ -404,7 +384,7 @@ impl VCpu {
     ) -> Result<()> {
         let mut vm = self.vm.write();
 
-        let mut dev = vm
+        let dev = vm
             .config
             .device_map()
             .device_for_mut(port)
@@ -439,7 +419,7 @@ impl VCpu {
         if !string {
             let mut vm = self.vm.write();
 
-            let mut dev = vm
+            let dev = vm
                 .config
                 .device_map()
                 .device_for_mut(port)
@@ -471,8 +451,8 @@ impl VCpu {
 
     fn handle_ept_violation(
         &mut self,
-        guest_cpu: &mut vmexit::GuestCpuState,
-        exit: vmexit::EptInformation,
+        _guest_cpu: &mut vmexit::GuestCpuState,
+        _exit: vmexit::EptInformation,
     ) -> Result<()> {
         let addr = self
             .vmcs

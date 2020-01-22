@@ -1,5 +1,5 @@
 use crate::device::{DeviceRegion, EmulatedDevice, Port, PortIoValue};
-use crate::error::{Error, Result};
+use crate::error::Result;
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 
@@ -8,11 +8,11 @@ pub struct ProgrammableOptionSelect;
 
 impl ProgrammableOptionSelect {
     const POS_ARBITRATION_CLOCK: Port = 0x90;
-    const POS_CARD_SELECT_FEEDBACK: Port = 0x91;
-    const POS_CONTROL_AND_STATUS: Port = 0x92;
-    const POS_RESERVED_1: Port = 0x93;
-    const POS_BOARD_ENABLE_SETUP: Port = 0x94;
-    const POS_RESERVED_2: Port = 0x95;
+    const _POS_CARD_SELECT_FEEDBACK: Port = 0x91;
+    const _POS_CONTROL_AND_STATUS: Port = 0x92;
+    const _POS_RESERVED_1: Port = 0x93;
+    const _POS_BOARD_ENABLE_SETUP: Port = 0x94;
+    const _POS_RESERVED_2: Port = 0x95;
     const POS_ADAPTER_ENABLE_SETUP: Port = 0x96;
 
     pub fn new() -> Box<Self> {

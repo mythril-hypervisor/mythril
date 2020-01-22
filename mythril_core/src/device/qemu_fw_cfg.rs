@@ -2,7 +2,6 @@ use crate::device::{DeviceRegion, EmulatedDevice, Port, PortIoValue};
 use crate::error::{Error, Result};
 use alloc::boxed::Box;
 use alloc::vec::Vec;
-use core::array::FixedSizeArray;
 use core::convert::TryInto;
 use derive_try_from_primitive::TryFromPrimitive;
 
@@ -54,7 +53,7 @@ pub struct QemuFwCfg {
 impl QemuFwCfg {
     const FW_CFG_PORT_SEL: Port = 0x510;
     const FW_CFG_PORT_DATA: Port = 0x511;
-    const FW_CFG_PORT_DMA: Port = 0x514;
+    const _FW_CFG_PORT_DMA: Port = 0x514;
 
     pub fn new() -> Box<Self> {
         Box::new(Self {

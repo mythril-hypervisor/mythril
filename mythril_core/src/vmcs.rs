@@ -1,6 +1,7 @@
 use crate::error::{self, Error, Result};
-use crate::memory::HostPhysFrame;
+use crate::memory::Raw4kPage;
 use crate::vmx;
+use alloc::boxed::Box;
 use bitflags::bitflags;
 use core::fmt;
 use x86::msr::rdmsr;
@@ -329,9 +330,9 @@ fn vmcs_read(field: VmcsField) -> Result<u64> {
     Ok(value)
 }
 
-fn vmcs_activate(vmcs: &mut Vmcs, vmx: &vmx::Vmx) -> Result<()> {
+fn vmcs_activate(vmcs: &mut Vmcs, _vmx: &vmx::Vmx) -> Result<()> {
     let revision_id = vmx::Vmx::revision();
-    let vmcs_region_addr = vmcs.frame.start_address().as_u64();
+    let vmcs_region_addr = &mut *vmcs.frame as *mut Raw4kPage;
     let region_revision = vmcs_region_addr as *mut u32;
     unsafe {
         *region_revision = revision_id;
@@ -348,12 +349,12 @@ fn vmcs_activate(vmcs: &mut Vmcs, vmx: &vmx::Vmx) -> Result<()> {
     error::check_vm_insruction(rflags, "Failed to activate VMCS".into())
 }
 
-fn vmcs_clear(vmcs: &mut HostPhysFrame) -> Result<()> {
+fn vmcs_clear(vmcs_page: &mut Raw4kPage) -> Result<()> {
     let rflags = unsafe {
         let rflags: u64;
         asm!("vmclear $1; pushfq; popq $0"
              : "=r"(rflags)
-             : "m"(vmcs.start_address().as_u64())
+             : "m"(vmcs_page as *const _ as u64)
              : "rflags"
              : "volatile");
         rflags
@@ -362,13 +363,14 @@ fn vmcs_clear(vmcs: &mut HostPhysFrame) -> Result<()> {
 }
 
 pub struct Vmcs {
-    frame: HostPhysFrame,
+    frame: Box<Raw4kPage>,
 }
 
 impl Vmcs {
-    pub fn new(alloc: &mut impl FrameAllocator) -> Result<Self> {
-        let vmcs_region = alloc.allocate_frame()?;
-        Ok(Vmcs { frame: vmcs_region })
+    pub fn new() -> Result<Self> {
+        Ok(Vmcs {
+            frame: Box::new(Raw4kPage::default()),
+        })
     }
 
     pub fn activate(self, vmx: vmx::Vmx) -> Result<ActiveVmcs> {
@@ -527,13 +529,13 @@ impl fmt::Display for ActiveVmcs {
 
 pub struct TemporaryActiveVmcs<'a> {
     vmcs: &'a mut Vmcs,
-    vmx: &'a mut vmx::Vmx,
+    _vmx: &'a mut vmx::Vmx,
 }
 
 impl<'a> TemporaryActiveVmcs<'a> {
     fn new(vmcs: &'a mut Vmcs, vmx: &'a mut vmx::Vmx) -> Result<Self> {
         vmcs_activate(vmcs, vmx)?;
-        Ok(Self { vmcs, vmx })
+        Ok(Self { vmcs, _vmx: vmx })
     }
 
     pub fn read_field(&mut self, field: VmcsField) -> Result<u64> {

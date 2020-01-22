@@ -1,5 +1,5 @@
 use crate::device::{DeviceRegion, EmulatedDevice, Port, PortIoValue};
-use crate::error::{Error, Result};
+use crate::error::Result;
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 
@@ -8,8 +8,8 @@ pub struct Pit8254;
 
 impl Pit8254 {
     const PIT_COUNTER_0: Port = 0x0040;
-    const PIT_COUNTER_1: Port = 0x0041;
-    const PIT_COUNTER_2: Port = 0x0042;
+    const _PIT_COUNTER_1: Port = 0x0041;
+    const _PIT_COUNTER_2: Port = 0x0042;
     const PIT_MODE_CONTROL: Port = 0x0043;
 
     pub fn new() -> Box<Self> {
@@ -24,11 +24,11 @@ impl EmulatedDevice for Pit8254 {
         )]
     }
 
-    fn on_port_read(&mut self, port: Port, val: &mut PortIoValue) -> Result<()> {
+    fn on_port_read(&mut self, _port: Port, _val: &mut PortIoValue) -> Result<()> {
         Ok(())
     }
 
-    fn on_port_write(&mut self, port: Port, val: PortIoValue) -> Result<()> {
+    fn on_port_write(&mut self, _port: Port, _val: PortIoValue) -> Result<()> {
         Ok(())
     }
 }

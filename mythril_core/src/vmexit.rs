@@ -1,6 +1,6 @@
 use crate::error::{self, Error, Result};
 use crate::memory::GuestPhysAddr;
-use crate::{vcpu, vm, vmcs};
+use crate::{vcpu, vmcs};
 use alloc::fmt::Debug;
 use bitflags::bitflags;
 use derive_try_from_primitive::TryFromPrimitive;

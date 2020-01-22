@@ -1,14 +1,15 @@
 use crate::error::{self, Error, Result};
-use crate::memory::HostPhysFrame;
+use crate::memory::Raw4kPage;
+use alloc::boxed::Box;
 use raw_cpuid::CpuId;
 use x86::msr;
 
 pub struct Vmx {
-    vmxon_region: HostPhysFrame,
+    _vmxon_region: *mut Raw4kPage,
 }
 
 impl Vmx {
-    pub fn enable(alloc: &mut impl FrameAllocator) -> Result<Self> {
+    pub fn enable() -> Result<Self> {
         const VMX_ENABLE_FLAG: u32 = 1 << 13;
 
         let cpuid = CpuId::new();
@@ -33,8 +34,8 @@ impl Vmx {
 
         let revision_id = Self::revision();
 
-        let vmxon_region = alloc.allocate_frame()?;
-        let vmxon_region_addr = vmxon_region.start_address().as_u64();
+        let vmxon_region = Box::into_raw(Box::new(Raw4kPage::default()));
+        let vmxon_region_addr = vmxon_region as u64;
 
         // Set the revision in the vmx page
         let region_revision = vmxon_region_addr as *mut u32;
@@ -51,20 +52,13 @@ impl Vmx {
             rflags
         };
 
-        match error::check_vm_insruction(rflags, "Failed to enable vmx".into()) {
-            Ok(_) => Ok(Vmx {
-                vmxon_region: vmxon_region,
-            }),
-            Err(e) => {
-                alloc.deallocate_frame(vmxon_region).unwrap_or_else(|_| {
-                    info!("Failed to deallocate vmxon region");
-                });
-                Err(e)
-            }
-        }
+        error::check_vm_insruction(rflags, "Failed to enable vmx".into())?;
+        Ok(Vmx {
+            _vmxon_region: vmxon_region,
+        })
     }
 
-    pub fn disable(self, alloc: &mut impl FrameAllocator) -> Result<()> {
+    pub fn disable(self) -> Result<()> {
         //TODO: this should panic when done from a different core than it
         //      was originally activated from
         let rflags = unsafe {
@@ -76,8 +70,7 @@ impl Vmx {
             rflags
         };
 
-        error::check_vm_insruction(rflags, "Failed to disable vmx".into())?;
-        alloc.deallocate_frame(self.vmxon_region)
+        error::check_vm_insruction(rflags, "Failed to disable vmx".into())
     }
 
     pub fn revision() -> u32 {

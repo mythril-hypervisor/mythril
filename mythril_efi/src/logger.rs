@@ -1,4 +1,3 @@
-use core::fmt::{self, Write};
 use core::convert::AsRef;
 
 fn write_console(s: impl AsRef<str>) {
@@ -23,9 +22,7 @@ impl log::Log for EfiLogger {
     }
 
     fn log(&self, record: &log::Record) {
-        write_console(format!("{}: {}\n",
-                              record.level(),
-                              record.args()));
+        write_console(format!("{}: {}\n", record.level(), record.args()));
     }
 
     fn flush(&self) {

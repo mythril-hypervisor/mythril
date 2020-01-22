@@ -1,5 +1,5 @@
 use crate::device::{DeviceRegion, EmulatedDevice, Port, PortIoValue};
-use crate::error::{Error, Result};
+use crate::error::Result;
 use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;

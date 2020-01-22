@@ -1,13 +1,11 @@
-use core::ptr::{self, NonNull};
-use slab_allocator::{self, LockedHeap};
-use spin::Mutex;
 use core::alloc::{GlobalAlloc, Layout};
-use core::mem;
+use core::ptr::{self};
+use slab_allocator::{self, LockedHeap};
 use uefi::prelude::*;
-use uefi::table::boot::{BootServices, MemoryType, MemoryMapIter};
+use uefi::table::boot::{AllocateType, BootServices, MemoryMapIter, MemoryType};
 
 pub struct EarlyAllocator {
-    boot_services: &'static BootServices
+    boot_services: &'static BootServices,
 }
 impl EarlyAllocator {
     pub fn new(boot_services: &BootServices) -> EarlyAllocator {
@@ -15,9 +13,7 @@ impl EarlyAllocator {
             // Safe because we will not use the efi boot services after
             // we exit boot services. Necessary because the global allocator
             // must have static lifetime
-            boot_services: unsafe {
-                core::mem::transmute(boot_services)
-            }
+            boot_services: unsafe { core::mem::transmute(boot_services) },
         }
     }
 }
@@ -27,25 +23,24 @@ pub type LateAllocator = LockedHeap;
 pub enum Allocator {
     Unavailable,
     Early(EarlyAllocator),
-    Late(LateAllocator)
+    Late(LateAllocator),
 }
 
 impl Allocator {
     pub unsafe fn init(boot_services: &BootServices) {
         match ALLOCATOR {
             Allocator::Unavailable => {
-                ALLOCATOR = Allocator::Early(
-                    EarlyAllocator::new(boot_services));
-            },
-            _ => panic!("Allocator has already been initialized")
+                ALLOCATOR = Allocator::Early(EarlyAllocator::new(boot_services));
+            }
+            _ => panic!("Allocator has already been initialized"),
         }
     }
 
     //TODO: should this take a specific descriptor?
     pub unsafe fn allocate_from<'a>(iter: MemoryMapIter<'a>) {
-        let descriptor = iter.max_by(|left, right|{
-            left.page_count.cmp(&right.page_count)
-        }).unwrap();
+        let descriptor = iter
+            .max_by(|left, right| left.page_count.cmp(&right.page_count))
+            .unwrap();
 
         //TODO: check that this is within the descriptor range
         let addr = (descriptor.phys_start + 4096 - 1) & !(4096 - 1);
@@ -53,9 +48,7 @@ impl Allocator {
         // slab_allocator requires that the size be a multiple of the min heap size (8 pages)
         let size = (descriptor.page_count * 4096) & !(slab_allocator::MIN_HEAP_SIZE as u64 - 1);
 
-        ALLOCATOR = Allocator::Late(
-            LateAllocator::new(addr as usize, size as usize)
-        );
+        ALLOCATOR = Allocator::Late(LateAllocator::new(addr as usize, size as usize));
     }
 }
 
@@ -66,10 +59,15 @@ unsafe impl GlobalAlloc for EarlyAllocator {
         let size = layout.size();
         let align = layout.align();
 
-        // TODO: add support for other alignments.
-        if align > 8 {
-            // Unsupported alignment for allocation, UEFI can only allocate 8-byte aligned addresses
+        if align > 4096 {
             ptr::null_mut()
+        } else if align > 8 {
+            // UEFI pool allocation only supports <8, so allocate a page otherwise
+            let ty = AllocateType::AnyPages;
+            self.boot_services
+                .allocate_pages(ty, mem_ty, 1)
+                .warning_as_error()
+                .unwrap_or(0) as *mut u8
         } else {
             self.boot_services
                 .allocate_pool(mem_ty, size)
@@ -91,7 +89,7 @@ unsafe impl GlobalAlloc for Allocator {
         match self {
             Allocator::Unavailable => ptr::null_mut(),
             Allocator::Early(alloc) => alloc.alloc(layout),
-            Allocator::Late(alloc) => alloc.alloc(layout)
+            Allocator::Late(alloc) => alloc.alloc(layout),
         }
     }
 
@@ -99,7 +97,7 @@ unsafe impl GlobalAlloc for Allocator {
         match self {
             Allocator::Unavailable => (),
             Allocator::Early(alloc) => alloc.dealloc(ptr, layout),
-            Allocator::Late(alloc) => alloc.dealloc(ptr, layout)
+            Allocator::Late(alloc) => alloc.dealloc(ptr, layout),
         }
     }
 }
