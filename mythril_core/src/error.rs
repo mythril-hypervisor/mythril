@@ -83,9 +83,11 @@ pub enum Error {
 pub type Result<T> = core::result::Result<T, Error>;
 
 #[lang = "eh_personality"]
+#[cfg(not(test))]
 fn eh_personality() {}
 
 #[panic_handler]
+#[cfg(not(test))]
 fn panic_handler(info: &core::panic::PanicInfo) -> ! {
     if let Some(location) = info.location() {
         error!(
@@ -108,6 +110,7 @@ fn panic_handler(info: &core::panic::PanicInfo) -> ! {
 }
 
 #[alloc_error_handler]
+#[cfg(not(test))]
 fn out_of_memory(layout: ::core::alloc::Layout) -> ! {
     panic!(
         "Ran out of free memory while trying to allocate {:#?}",
