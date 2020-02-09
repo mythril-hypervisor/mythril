@@ -3,3 +3,5 @@
 _boot.img
 **/*.rs.bk
 debug.log
+os.iso
+_isofiles

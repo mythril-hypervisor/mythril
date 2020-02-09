@@ -1,7 +1,7 @@
 [workspace]
 members = [
     "mythril_core",
-    "mythril_efi",
+    "mythril_multiboot2",
 ]
 
 [profile.dev]

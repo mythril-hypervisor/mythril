@@ -17,6 +17,8 @@ extern crate log;
 
 pub mod device;
 pub mod error;
+pub mod interrupt;
+pub mod logger;
 pub mod memory;
 mod registers;
 pub mod vcpu;

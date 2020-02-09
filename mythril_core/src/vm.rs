@@ -10,7 +10,7 @@ use alloc::vec::Vec;
 use spin::RwLock;
 
 pub trait VmServices {
-    fn read_file(&self, path: &str) -> Result<Vec<u8>>;
+    fn read_file<'a>(&'a self, path: &str) -> Result<&'a [u8]>;
     fn acpi_addr(&self) -> Result<HostPhysAddr>;
 }
 

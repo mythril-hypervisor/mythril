@@ -120,7 +120,7 @@ impl VCpu {
         // 'push' the address of this VCpu to the host stack for the vmexit
         let raw_vcpu: *mut Self = (&mut *vcpu) as *mut Self;
         unsafe {
-            *(stack_base as *mut *mut Self) = raw_vcpu;
+            core::ptr::write(stack_base as *mut *mut Self, raw_vcpu);
         }
 
         Self::initialize_host_vmcs(&mut vcpu.vmcs, stack_base)?;
@@ -179,10 +179,6 @@ impl VCpu {
             vmcs::VmcsField::HostRip,
             vmexit::vmexit_handler_wrapper as u64,
         )?;
-        info!(
-            "vmexit_handler_wrapper: 0x{:x}",
-            vmexit::vmexit_handler_wrapper as u64
-        );
         Ok(())
     }
 

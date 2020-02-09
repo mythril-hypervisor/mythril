@@ -1,22 +1,25 @@
 CARGO?=cargo
-CARGO_TOOLCHAIN?=nightly-2019-12-20-x86_64-unknown-linux-gnu
-UEFI_TARGET?=x86_64-unknown-uefi
+CARGO_TOOLCHAIN?=nightly-2020-02-14-x86_64-unknown-linux-gnu
+MULTIBOOT2_TARGET?=multiboot2_target
 
-efi_binary = target/$(UEFI_TARGET)/debug/mythril_efi.efi
-rs_src = $(shell find . -type f -name '*.rs')
+mkfile_dir := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
+
+multiboot2_binary = target/$(MULTIBOOT2_TARGET)/debug/mythril_multiboot2
+mythril_src = $(shell find . -type f -name '*.rs' -or -name '*.S')
 
 .PHONY: fmt
 fmt:
-	$(CARGO) +$(CARGO_TOOLCHAIN) fmt --manifest-path mythril_core/Cargo.toml -- --check
+	$(CARGO) +$(CARGO_TOOLCHAIN) fmt --all -- --check
 
-efi: $(efi_binary)
+multiboot2: $(multiboot2_binary)
 
-qemu: $(efi_binary)
-	sudo ./scripts/uefi-run.sh $(efi_binary) scripts/OVMF.fd
+qemu: $(multiboot2_binary)
+	./scripts/mythril-run.sh $(multiboot2_binary)
 
-$(efi_binary): $(rs_src)
+$(multiboot2_binary): $(mythril_src)
 	$(CARGO) +$(CARGO_TOOLCHAIN) xbuild \
-		--target $(UEFI_TARGET) --manifest-path mythril_efi/Cargo.toml
+		--target mythril_multiboot2/$(MULTIBOOT2_TARGET).json \
+	        --manifest-path mythril_multiboot2/Cargo.toml
 
 .PHONY: test_core
 test_core:

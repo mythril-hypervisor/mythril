@@ -30,7 +30,7 @@ vmexit_handler_wrapper:
     pushq %r15
     movq %cr2, %rax
     pushq %rax
-    movq %rsp, %rcx
+    movq %rsp, %rdi
 
     call vmexit_handler
     popq %rax
