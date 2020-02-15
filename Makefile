@@ -13,8 +13,13 @@ fmt:
 
 multiboot2: $(multiboot2_binary)
 
+.PHONY: qemu
 qemu: $(multiboot2_binary)
 	./scripts/mythril-run.sh $(multiboot2_binary)
+
+.PHONY: qemu-debug
+qemu-debug: $(multiboot2_binary)
+	./scripts/mythril-run.sh $(multiboot2_binary) -S
 
 $(multiboot2_binary): $(mythril_src)
 	$(CARGO) +$(CARGO_TOOLCHAIN) xbuild \
