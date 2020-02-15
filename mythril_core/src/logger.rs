@@ -1,12 +1,11 @@
 use core::fmt;
 use core::fmt::Write;
 
-pub fn write_console(s: &str) {
+pub fn write_console(s: impl AsRef<str>) {
     //FIXME: what about addresses above 4GB?
     //FIXME: should we lock to prevent partial strings on the console?
-    // let bytes = s.as_ref().as_bytes();
-    let len = s.len();
-    let ptr = s.as_ptr();
+    let len = s.as_ref().len();
+    let ptr = s.as_ref().as_ptr();
     unsafe {
         asm!("cld; rep outsb"
              :
@@ -15,8 +14,6 @@ pub fn write_console(s: &str) {
     }
 }
 
-// FIXME: We should probably keep a buffer in the logger struct to avoid
-//        needing to allocate a bunch here.
 pub struct DirectLogger;
 impl log::Log for DirectLogger {
     fn enabled(&self, _metadata: &log::Metadata) -> bool {
@@ -24,7 +21,13 @@ impl log::Log for DirectLogger {
     }
 
     fn log(&self, record: &log::Record) {
-        writeln!(DirectWriter {}, "{}", *record.args()).unwrap();
+        writeln!(
+            DirectWriter {},
+            "MYTHRIL-{}: {}",
+            record.level(),
+            *record.args()
+        )
+        .unwrap();
     }
 
     fn flush(&self) {

@@ -1,5 +1,6 @@
 use crate::device::{DeviceRegion, EmulatedDevice, Port, PortIoValue};
 use crate::error::Result;
+use crate::logger;
 use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -37,17 +38,9 @@ impl EmulatedDevice for ComDevice {
 
         // Flush on newlines
         if val.as_slice().iter().filter(|b| **b == 10).next().is_some() {
-            // TODO: I'm not sure what the correct behavior is here for a Com device.
-            //       For now, just print each byte (except NUL because that crashes)
-            let s: String = String::from_utf8_lossy(&self.buff)
-                .into_owned()
-                .chars()
-                .filter(|c| *c != (0 as char))
-                .collect();
+            let s = String::from_utf8_lossy(&self.buff);
 
-            // FIXME: for now print guest output with some newlines to make
-            //        it a bit more visible
-            info!("GUEST{}: {}", self.id, s);
+            logger::write_console(&format!("GUEST{}: {}", self.id, s));
             self.buff.clear();
         }
 
