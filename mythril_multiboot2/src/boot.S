@@ -25,7 +25,6 @@ BSP_STACK_BOTTOM:
    times BSP_STACK_SIZE db 0
 BSP_STACK_TOP:
 
-;; Macro to avoid call while in protected mode
 %macro map_page_directory 2
     push edi
     mov eax, %2
@@ -34,7 +33,7 @@ BSP_STACK_TOP:
 %%loop:
     mov ebx, eax
     or ebx, PAGE_PRESENT | PAGE_WRITE | PAGE_BIG
-    mov [edi], ebx         ; Store to value of EAX as the first PDE.
+    mov [edi], ebx
     add eax, HUGE_PAGE_SIZE
     add edi, 8
 
@@ -64,33 +63,33 @@ _start:
 
     ; Build the Page Map Level 4.
     ; es:di points to the Page Map Level 4 table.
-    lea eax, [edi + PAGE_SIZE]         ; Put the address of the Page Directory Pointer Table in to EAX.
-    or eax, PAGE_PRESENT | PAGE_WRITE ; Or EAX with the flags - present flag, writable flag.
-    mov [edi], eax                  ; Store the value of EAX as the first PML4E.
+    lea eax, [edi + PAGE_SIZE]          ; Put the address of the Page Directory Pointer Table in to EAX.
+    or eax, PAGE_PRESENT | PAGE_WRITE   ; Or EAX with the flags - present flag, writable flag.
+    mov [edi], eax                      ; Store the value of EAX as the first PML4E.
 
     ; Build the Page Directory Pointer Table.
     lea eax, [edi + PAGE_SIZE*2]         ; Put the address of the Page Directory in to EAX.
-    or eax, PAGE_PRESENT | PAGE_WRITE ; Or EAX with the flags - present flag, writable flag.
-    mov [edi + PAGE_SIZE], eax         ; Store the value of EAX as the first PDPTE.
+    or eax, PAGE_PRESENT | PAGE_WRITE    ; Or EAX with the flags - present flag, writable flag.
+    mov [edi + PAGE_SIZE], eax           ; Store the value of EAX as the first PDPTE.
 
     ; The following blocks fill out the other PDPTEs for the 4GB mapping
-    lea eax, [es:di + PAGE_SIZE*3]
+    lea eax, [edi + PAGE_SIZE*3]
     or eax, PAGE_PRESENT | PAGE_WRITE
-    mov [es:di + PAGE_SIZE + 8], eax
+    mov [edi + PAGE_SIZE + 8], eax
 
-    lea eax, [es:di + PAGE_SIZE*4]
+    lea eax, [edi + PAGE_SIZE*4]
     or eax, PAGE_PRESENT | PAGE_WRITE
-    mov [es:di + PAGE_SIZE + 8*2], eax
+    mov [edi + PAGE_SIZE + 8*2], eax
 
-    lea eax, [es:di + PAGE_SIZE*5]
+    lea eax, [edi + PAGE_SIZE*5]
     or eax, PAGE_PRESENT | PAGE_WRITE
-    mov [es:di + PAGE_SIZE + 8*3], eax
+    mov [edi + PAGE_SIZE + 8*3], eax
 
     ; Build the Page Directory.
     map_page_directory edi+PAGE_SIZE*2, 0
-    map_page_directory es:di+PAGE_SIZE*3, (HUGE_PAGE_SIZE*512)
-    map_page_directory es:di+PAGE_SIZE*4, (HUGE_PAGE_SIZE*512)*2
-    map_page_directory es:di+PAGE_SIZE*5, (HUGE_PAGE_SIZE*512)*3
+    map_page_directory edi+PAGE_SIZE*3, (HUGE_PAGE_SIZE*512)
+    map_page_directory edi+PAGE_SIZE*4, (HUGE_PAGE_SIZE*512)*2
+    map_page_directory edi+PAGE_SIZE*5, (HUGE_PAGE_SIZE*512)*3
 
     ; Disable IRQs (probably not necessary)
     mov al, 0xFF                      ; Out 0xFF to 0xA1 and 0x21 to disable all IRQs.
@@ -114,13 +113,13 @@ _start:
     or ebx,0x80000001                 ; - by enabling paging and protection simultaneously.
     mov cr0, ebx
 
-    lgdt [GDT64.pointer]                ; Load GDT.Pointer defined below.
+    lgdt [GDT64.pointer]              ; Load GDT.Pointer defined below.
 
     pop edi                           ; Pop the multiboot2 addr to pass to kmain
 
-    jmp GDT64.code:kmain                ; Load CS with 64 bit segment and flush the instruction cache
+    jmp GDT64.code:kmain              ; Load CS with 64 bit segment and flush the instruction cache
 
-    ; Global Descriptor Table
+; Global Descriptor Table
 GDT64:                           ; Global Descriptor Table (64-bit).
 .null: equ $ - GDT64         ; The null descriptor.
     dw 0xFFFF                    ; Limit (low).
