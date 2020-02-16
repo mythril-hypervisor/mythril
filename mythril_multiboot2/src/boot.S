@@ -25,24 +25,23 @@ BSP_STACK_BOTTOM:
    times BSP_STACK_SIZE db 0
 BSP_STACK_TOP:
 
-%macro map_page_directory 2
-    push edi
-    mov eax, %2
-    lea edi, [%1]
-
-%%loop:
+section .text.map_page_directory
+map_page_directory:
+    push ecx
+    mov ecx, 0
+.loop:
     mov ebx, eax
     or ebx, PAGE_PRESENT | PAGE_WRITE | PAGE_BIG
     mov [edi], ebx
     add eax, HUGE_PAGE_SIZE
     add edi, 8
+    inc ecx
 
-    cmp eax, %2+(HUGE_PAGE_SIZE*512)
-    jb %%loop
+    cmp ecx, 512
+    jb .loop
 
-    pop edi
-
-%endmacro
+    pop ecx
+    ret
 
 global _start
 section .text._start
@@ -86,10 +85,23 @@ _start:
     mov [edi + PAGE_SIZE + 8*3], eax
 
     ; Build the Page Directory.
-    map_page_directory edi+PAGE_SIZE*2, 0
-    map_page_directory edi+PAGE_SIZE*3, (HUGE_PAGE_SIZE*512)
-    map_page_directory edi+PAGE_SIZE*4, (HUGE_PAGE_SIZE*512)*2
-    map_page_directory edi+PAGE_SIZE*5, (HUGE_PAGE_SIZE*512)*3
+    push edi
+    mov eax, 0
+    lea edi, [edi+PAGE_SIZE*2]
+    call map_page_directory
+
+    mov eax, (HUGE_PAGE_SIZE*512)
+    lea edi, [edi+PAGE_SIZE*3]
+    call map_page_directory
+
+    mov eax, (HUGE_PAGE_SIZE*512)*2
+    lea edi, [edi+PAGE_SIZE*4]
+    call map_page_directory
+
+     mov eax, (HUGE_PAGE_SIZE*512)*3
+    lea edi, [edi+PAGE_SIZE*5]
+    call map_page_directory
+    pop edi
 
     ; Disable IRQs (probably not necessary)
     mov al, 0xFF                      ; Out 0xFF to 0xA1 and 0x21 to disable all IRQs.
