@@ -24,9 +24,12 @@ SECTIONS {
         *(.data .data.*)
     }
 
-    __bss_start = .;
-    .bss :
+    /* Section contents can only be aligned as strictly as the section, and
+       we store the page table hierarchy in bss, so align the section to page
+       size */
+    .bss ALIGN(4K) : ALIGN(4K)
     {
+        __bss_start = .;
         *(.bss .bss.*)
         *(COMMON)
     }

@@ -1,29 +1,20 @@
+%include "paging.mac"
+
 [BITS 32]
 DEFAULT REL
 
 extern kmain
+extern GDT64.pointer
+extern GDT64.code
+extern BSP_STACK_TOP
 
-%define PAGE_SIZE 4096
-%define HUGE_PAGE_SIZE (4096*512)
-
-%define BSP_STACK_SIZE (PAGE_SIZE*10)
 %define PAGE_HIERARCHY_SIZE (PAGE_SIZE*7)
-
-%define PAGE_PRESENT    (1 << 0)
-%define PAGE_WRITE      (1 << 1)
-%define PAGE_BIG        (1 << 7)
 
 global PAGE_HIERARCHY
 section .bss
-align PAGE_SIZE
 PAGE_HIERARCHY:
+   align PAGE_SIZE
    times PAGE_HIERARCHY_SIZE db 0
-
-align PAGE_SIZE
-section .bss
-BSP_STACK_BOTTOM:
-   times BSP_STACK_SIZE db 0
-BSP_STACK_TOP:
 
 section .text.map_page_directory
 map_page_directory:
@@ -130,30 +121,3 @@ _start:
     pop edi                           ; Pop the multiboot2 addr to pass to kmain
 
     jmp GDT64.code:kmain              ; Load CS with 64 bit segment and flush the instruction cache
-
-; Global Descriptor Table
-GDT64:                           ; Global Descriptor Table (64-bit).
-.null: equ $ - GDT64         ; The null descriptor.
-    dw 0xFFFF                    ; Limit (low).
-    dw 0                         ; Base (low).
-    db 0                         ; Base (middle)
-    db 0                         ; Access.
-    db 1                         ; Granularity.
-    db 0                         ; Base (high).
-.code: equ $ - GDT64         ; The code descriptor.
-    dw 0                         ; Limit (low).
-    dw 0                         ; Base (low).
-    db 0                         ; Base (middle)
-    db 10011010b                 ; Access (exec/read).
-    db 10101111b                 ; Granularity, 64 bits flag, limit19:16.
-    db 0                         ; Base (high).
-.data: equ $ - GDT64         ; The data descriptor.
-    dw 0                         ; Limit (low).
-    dw 0                         ; Base (low).
-    db 0                         ; Base (middle)
-    db 10010010b                 ; Access (read/write).
-    db 00000000b                 ; Granularity.
-    db 0                         ; Base (high).
-.pointer:                    ; The GDT-pointer.
-    dw $ - GDT64 - 1             ; Limit.
-    dq GDT64                     ; Base.
