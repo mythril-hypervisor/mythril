@@ -18,6 +18,8 @@ use x86::msr;
 
 extern "C" {
     pub fn vmlaunch_wrapper() -> u64;
+    static GDT64_CODE: u64;
+    static GDT64_DATA: u64;
 }
 
 pub fn smp_entry_point(vm_map: &'static BTreeMap<usize, Arc<RwLock<VirtualMachine>>>) -> ! {
@@ -85,16 +87,16 @@ impl VCpu {
         vmcs.write_field(vmcs::VmcsField::HostCr3, current_cr3)?;
         vmcs.write_field(vmcs::VmcsField::HostCr4, unsafe { cr4() }.bits() as u64)?;
 
-        vmcs.write_field(vmcs::VmcsField::HostEsSelector, 0x00)?;
-
-        //FIXME: The segment selector values are valid for OVMF specifically
-        vmcs.write_field(vmcs::VmcsField::HostCsSelector, 0x38)?;
-        vmcs.write_field(vmcs::VmcsField::HostSsSelector, 0x30)?;
-        vmcs.write_field(vmcs::VmcsField::HostDsSelector, 0x30)?;
-        vmcs.write_field(vmcs::VmcsField::HostEsSelector, 0x30)?;
-        vmcs.write_field(vmcs::VmcsField::HostFsSelector, 0x30)?;
-        vmcs.write_field(vmcs::VmcsField::HostGsSelector, 0x30)?;
-        vmcs.write_field(vmcs::VmcsField::HostTrSelector, 0x30)?;
+        // Unsafe is required here due to reading an extern static
+        unsafe {
+            vmcs.write_field(vmcs::VmcsField::HostCsSelector, GDT64_CODE)?;
+            vmcs.write_field(vmcs::VmcsField::HostSsSelector, GDT64_DATA)?;
+            vmcs.write_field(vmcs::VmcsField::HostDsSelector, GDT64_DATA)?;
+            vmcs.write_field(vmcs::VmcsField::HostEsSelector, GDT64_DATA)?;
+            vmcs.write_field(vmcs::VmcsField::HostFsSelector, GDT64_DATA)?;
+            vmcs.write_field(vmcs::VmcsField::HostGsSelector, GDT64_DATA)?;
+            vmcs.write_field(vmcs::VmcsField::HostTrSelector, GDT64_DATA)?;
+        }
 
         vmcs.write_field(vmcs::VmcsField::HostIa32SysenterCs, 0x00)?;
         vmcs.write_field(vmcs::VmcsField::HostIa32SysenterEsp, 0x00)?;

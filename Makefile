@@ -5,7 +5,7 @@ MULTIBOOT2_TARGET?=multiboot2_target
 mkfile_dir := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 
 multiboot2_binary = target/$(MULTIBOOT2_TARGET)/debug/mythril_multiboot2
-mythril_src = $(shell find . -type f -name '*.rs' -or -name '*.S')
+mythril_src = $(shell find . -type f -name '*.rs' -or -name '*.S' -or -name '*.ld')
 
 .PHONY: fmt
 fmt:

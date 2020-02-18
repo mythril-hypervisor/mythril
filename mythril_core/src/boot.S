@@ -16,7 +16,7 @@ global GDT64
 global GDT64.code
 global GDT64.data
 global GDT64.pointer
-section .data
+section .rodata
 GDT64:                           ; Global Descriptor Table (64-bit).
 .null: equ $ - GDT64         ; The null descriptor.
     dw 0xFFFF                    ; Limit (low).
@@ -42,3 +42,17 @@ GDT64:                           ; Global Descriptor Table (64-bit).
 .pointer:                    ; The GDT-pointer.
     dw $ - GDT64 - 1             ; Limit.
     dq GDT64                     ; Base.
+
+; For external usage, create a symbol that is the _address_ of the GDT and the
+; value of each segment offset
+global GDT64_ADDR
+GDT64_ADDR:
+     dq GDT64
+
+global GDT64_CODE
+GDT64_CODE:
+     dq GDT64.code
+
+global GDT64_DATA
+GDT64_DATA:
+     dq GDT64.data
