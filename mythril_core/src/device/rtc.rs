@@ -63,9 +63,9 @@ enum CmosRegister {
     Unknown = 0xff,
 }
 
-#[derive(Debug)]
 pub struct CmosRtc {
     addr: CmosRegister,
+    data: [u8; 256],
 }
 
 impl CmosRtc {
@@ -75,7 +75,21 @@ impl CmosRtc {
     pub fn new() -> Box<Self> {
         Box::new(Self {
             addr: CmosRegister::Seconds, // For now, just set the default reg as seconds
+            data: Self::default_register_values(),
         })
+    }
+
+    fn default_register_values() -> [u8; 256] {
+        let mut data = [0u8; 256];
+
+        let defaults = [
+            // The MSB of register D indicates the CMOS battery is working
+            (CmosRegister::StatusRegisterD, 0b10000000),
+        ];
+        for &(reg, val) in &defaults {
+            data[reg as usize] = val
+        }
+        data
     }
 }
 
@@ -92,15 +106,13 @@ impl EmulatedDevice for CmosRtc {
             }
             Self::RTC_DATA => {
                 match self.addr {
-                    CmosRegister::ShutdownStatus => {
-                        val.copy_from_u32(0u32); // For now, always report soft reset
-                    }
                     CmosRegister::QemuMemAbove16MbMsb => {
                         //FIXME: for now just report 80MB available
                         val.copy_from_u32(0x5);
                     }
-                    _ => {
-                        val.copy_from_u32(0x00);
+                    addr => {
+                        // For anything else, read the value from our store
+                        val.copy_from_u32(self.data[addr as usize] as u32);
                     }
                 }
             }
@@ -124,11 +136,13 @@ impl EmulatedDevice for CmosRtc {
                         // It's not clear what's supposed to happen here, just ignore
                         // it for now
                     }
+                    CmosRegister::StatusRegisterD | CmosRegister::StatusRegisterC => {
+                        // Status register C and D are read-only (but OVMF will attempt
+                        // to write to them, so we must explicitly ignore the writes)
+                    }
                     addr => {
-                        return Err(Error::NotImplemented(format!(
-                            "Write to RTC address ({:?}) not yet supported: {:?}",
-                            addr, val
-                        )))
+                        // For now, any other register write is just directly performed
+                        self.data[addr as usize] = val.try_into()?;
                     }
                 }
             }
