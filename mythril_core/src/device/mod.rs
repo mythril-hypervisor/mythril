@@ -98,6 +98,7 @@ impl DeviceInteraction for GuestPhysAddr {
     }
 }
 
+/// A structure for looking up `EmulatedDevice`s by port or address
 #[derive(Default)]
 pub struct DeviceMap {
     portio_map: BTreeMap<PortIoRegion, Rc<Box<dyn EmulatedDevice>>>,
@@ -105,6 +106,7 @@ pub struct DeviceMap {
 }
 
 impl DeviceMap {
+    /// Find the device that is responsible for handling an interaction
     pub fn device_for(&self, op: impl DeviceInteraction) -> Option<&Box<dyn EmulatedDevice>> {
         op.find_device(self)
     }

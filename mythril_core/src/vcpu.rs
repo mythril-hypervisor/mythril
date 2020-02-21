@@ -22,6 +22,9 @@ extern "C" {
     static GDT64_DATA: u64;
 }
 
+/// The post-startup point where a core begins executing its statically
+/// assigned VCPU. The `vm_map` maps APIC core id's to the virtual machine
+/// associated with that core.
 pub fn smp_entry_point(vm_map: &'static BTreeMap<usize, Arc<RwLock<VirtualMachine>>>) -> ! {
     let cpuid = CpuId::new();
     let apicid = match cpuid.get_feature_info() {
@@ -33,6 +36,13 @@ pub fn smp_entry_point(vm_map: &'static BTreeMap<usize, Arc<RwLock<VirtualMachin
     vcpu.launch().expect("Failed to launch vm")
 }
 
+/// A virtual CPU.
+///
+/// Each `VCpu` will be executed on a particular physical core, and is
+/// associated with a particular `VirtualMachine`. The `VCpu` is responsible
+/// for at least the initial handling of any VMEXIT (though in may cases the
+/// ultimate handling will occur within an emulated device in the `VirtualMachine`'s
+/// `DeviceMap`)
 pub struct VCpu {
     vm: Arc<RwLock<VirtualMachine>>,
     pub vmcs: vmcs::ActiveVmcs,
@@ -40,6 +50,11 @@ pub struct VCpu {
 }
 
 impl VCpu {
+    /// Create a new `VCpu` assocaited with the given `VirtualMachine`
+    ///
+    /// Note that the result must be `Pin`, as the `VCpu` pushes its own
+    /// address on to the per-core host stack so it can be retrieved on
+    /// VMEXIT.
     pub fn new(vm: Arc<RwLock<VirtualMachine>>) -> Result<Pin<Box<Self>>> {
         let vmx = vmx::Vmx::enable()?;
         let vmcs = vmcs::Vmcs::new()?.activate(vmx)?;
@@ -53,6 +68,8 @@ impl VCpu {
             stack: stack,
         });
 
+        // All VCpus in a VM must share the same address space (except for the
+        // local apic)
         let eptp = vcpu.vm.read().guest_space.eptp();
         vcpu.vmcs.write_field(vmcs::VmcsField::EptPointer, eptp)?;
 
@@ -72,6 +89,7 @@ impl VCpu {
         Ok(vcpu)
     }
 
+    /// Begin execution in the guest context for this core
     pub fn launch(self: Pin<Box<Self>>) -> Result<!> {
         let rflags = unsafe { vmlaunch_wrapper() };
         error::check_vm_insruction(rflags, "Failed to launch vm".into())?;
@@ -399,6 +417,14 @@ impl VCpu {
         Ok(())
     }
 
+    /// Handle an arbitrary guest VMEXIT.
+    ///
+    /// This is the rust 'entry' point when a guest exists.
+    ///
+    /// # Arguments
+    ///
+    /// * `guest_cpu` - A structure containing the current register values of the guest
+    /// * `exit` - A representation of the VMEXIT reason
     pub fn handle_vmexit(
         &mut self,
         guest_cpu: &mut vmexit::GuestCpuState,

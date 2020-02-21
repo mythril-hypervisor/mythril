@@ -9,11 +9,17 @@ use alloc::sync::Arc;
 use alloc::vec::Vec;
 use spin::RwLock;
 
+/// The abstract 'services' required for a given platform to support Mythril
+///
+/// For example, if implementing BIOS boot support for Mythril, `read_path`,
+/// might use a filesystem driver in conjunction with INT 13. A UEFI-based
+/// implementation might use the EFI boot-services to support file reading.
 pub trait VmServices {
     fn read_file<'a>(&'a self, path: &str) -> Result<&'a [u8]>;
     fn acpi_addr(&self) -> Result<HostPhysAddr>;
 }
 
+/// A configuration for a `VirtualMachine`
 pub struct VirtualMachineConfig {
     _cpus: Vec<u8>,
     images: Vec<(String, GuestPhysAddr)>,
@@ -22,6 +28,12 @@ pub struct VirtualMachineConfig {
 }
 
 impl VirtualMachineConfig {
+    /// Creates a new configuration for a `VirtualMachine`
+    ///
+    /// # Arguments
+    ///
+    /// * `cpus` - A list of the cores used by the VM (by APIC id)
+    /// * `memory` - The amount of VM memory (in MB)
     pub fn new(cpus: Vec<u8>, memory: u64) -> VirtualMachineConfig {
         VirtualMachineConfig {
             _cpus: cpus,
@@ -31,22 +43,37 @@ impl VirtualMachineConfig {
         }
     }
 
+    /// Specify that the given image 'path' should be mapped to the given address
+    ///
+    /// The precise meaning of `image` will vary by platform. This will be a
+    /// value suitable to be passed to `VmServices::read_file`.
     pub fn load_image(&mut self, image: String, addr: GuestPhysAddr) -> Result<()> {
         self.images.push((image, addr));
         Ok(())
     }
 
+    /// Access the configurations `DeviceMap`
     pub fn device_map(&mut self) -> &mut DeviceMap {
         &mut self.devices
     }
 }
 
+/// A virtual machine
 pub struct VirtualMachine {
+    /// The configuration for this virtual machine (including the `DeviceMap`)
     pub config: VirtualMachineConfig,
+
+    /// The guest virtual address space
+    ///
+    /// This will be shared by all `VCpu`s associated with this VM.
     pub guest_space: GuestAddressSpace,
 }
 
 impl VirtualMachine {
+    /// Construct a new `VirtualMachine` using the given config
+    ///
+    /// This creates the guest address space (allocating the needed memory),
+    /// and maps in the requested images.
     pub fn new(
         config: VirtualMachineConfig,
         services: &mut impl VmServices,

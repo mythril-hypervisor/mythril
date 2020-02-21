@@ -22,6 +22,7 @@ use mythril_core::vm::VmServices;
 use mythril_core::*;
 use spin::RwLock;
 
+// Temporary helper function to create a vm for a single core
 fn default_vm(core: usize, services: &mut impl VmServices) -> Arc<RwLock<vm::VirtualMachine>> {
     let mut config = vm::VirtualMachineConfig::new(vec![core as u8], 1024);
 
