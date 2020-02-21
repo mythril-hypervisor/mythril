@@ -125,24 +125,13 @@ fn global_alloc_region(info: &multiboot2::BootInformation) -> (u64, u64) {
         .max_by(|left, right| (left.1 - left.0).cmp(&(right.1 - right.0)))
         .expect("No largest region");
 
-    let alloc_region = if largest_region.0 > max_excluded.1 {
+    if largest_region.0 > max_excluded.1 {
         largest_region
     } else if max_excluded.1 > largest_region.0 && max_excluded.1 < largest_region.1 {
         (max_excluded.1, largest_region.1)
     } else {
         panic!("Unable to find suitable global alloc region")
-    };
-
-    // The current allocator requires that the region be alligned to an 8 page
-    // boundary.
-    const SLAB_ALLOC_ALIGN: u64 = 0x1000 * 8;
-    if alloc_region.1 - alloc_region.0 < SLAB_ALLOC_ALIGN * 2 {
-        panic!("Global alloc region too small");
     }
-    (
-        (alloc_region.0 + SLAB_ALLOC_ALIGN) & !(SLAB_ALLOC_ALIGN - 1),
-        alloc_region.1,
-    )
 }
 
 #[no_mangle]
