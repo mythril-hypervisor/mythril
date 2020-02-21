@@ -24,7 +24,6 @@ qemu-system-x86_64 -enable-kvm \
                    -nographic \
                    -cdrom os.iso \
                    -net none \
-                   -gdb tcp::1234 \
                    -debugcon file:debug.log \
                    -no-reboot \
                    -global isa-debugcon.iobase=0x402 \
