@@ -7,7 +7,7 @@ multiboot2_binary = target/$(MULTIBOOT2_TARGET)/debug/mythril_multiboot2
 mythril_src = $(shell find . -type f -name '*.rs' -or -name '*.S' -or -name '*.ld')
 
 ifneq (,$(filter qemu%, $(firstword $(MAKECMDGOALS))))
-    QEMU_EXTRA := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
+    QEMU_EXTRA := $(subst :,\:, $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS)))
     $(eval $(QEMU_EXTRA):;@:)
 endif
 
