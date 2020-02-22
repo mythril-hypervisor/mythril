@@ -77,6 +77,7 @@ pub enum Error {
     NotSupported,
     Uefi(String),
     InvalidValue(String),
+    InvalidDevice(String),
     NotImplemented(String),
 }
 

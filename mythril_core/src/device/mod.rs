@@ -118,7 +118,6 @@ impl DeviceMap {
         op.find_device_mut(self)
     }
 
-    //TODO: detect conflicts
     pub fn register_device(&mut self, dev: Box<dyn EmulatedDevice>) -> Result<()> {
         let services = dev.services();
         let dev = Rc::new(dev);
@@ -126,10 +125,33 @@ impl DeviceMap {
             match region {
                 DeviceRegion::PortIo(val) => {
                     let key = PortIoRegion(val);
+                    if self.portio_map.contains_key(&key) {
+                        let conflict = self
+                            .portio_map
+                            .get_key_value(&key)
+                            .expect("Could not get conflicting device")
+                            .0;
+
+                        return Err(Error::InvalidDevice(format!(
+                            "I/O Port already registered: 0x{:x}-0x{:x} conflicts with existing map of 0x{:x}-0x{:x}",
+                            key.0.start(), key.0.end(), conflict.0.start(), conflict.0.end()
+                        )));
+                    }
                     self.portio_map.insert(key, Rc::clone(&dev));
                 }
                 DeviceRegion::MemIo(val) => {
                     let key = MemIoRegion(val);
+                    if self.memio_map.contains_key(&key) {
+                        let conflict = self
+                            .memio_map
+                            .get_key_value(&key)
+                            .expect("Could not get conflicting device")
+                            .0;
+                        return Err(Error::InvalidDevice(format!(
+                            "Memory region already registered: 0x{:x}-0x{:x} conflicts with existing map of 0x{:x}-0x{:x}",
+                            key.0.start().as_u64(), key.0.end().as_u64(), conflict.0.start().as_u64(), conflict.0.end().as_u64()
+                        )));
+                    }
                     self.memio_map.insert(key, Rc::clone(&dev));
                 }
             }
@@ -301,6 +323,27 @@ mod test {
     use crate::device::com::*;
     use core::convert::TryInto;
 
+    // This is just a dummy device so we can have arbitrary port ranges
+    // for testing.
+    struct DummyDevice {
+        services: Vec<RangeInclusive<Port>>,
+    }
+
+    impl DummyDevice {
+        fn new(services: Vec<RangeInclusive<Port>>) -> Box<dyn EmulatedDevice> {
+            Box::new(Self { services })
+        }
+    }
+
+    impl EmulatedDevice for DummyDevice {
+        fn services(&self) -> Vec<DeviceRegion> {
+            self.services
+                .iter()
+                .map(|x| DeviceRegion::PortIo(x.clone()))
+                .collect()
+        }
+    }
+
     #[test]
     fn test_memmap_write_to_portio_fails() {
         let mut com = ComDevice::new(0, 0);
@@ -339,5 +382,67 @@ mod test {
         val.copy_from_u32(0x1234u32);
         assert_eq!([0x12, 0x34], val.as_slice());
         assert_eq!(0x1234, val.as_u32());
+    }
+
+    #[test]
+    fn test_conflicting_portio_device() {
+        let mut map = DeviceMap::default();
+        let com = ComDevice::new(0, 0);
+        map.register_device(com).unwrap();
+        let com = ComDevice::new(0, 0);
+
+        assert!(map.register_device(com).is_err());
+    }
+
+    #[test]
+    fn test_fully_overlapping_portio_device() {
+        // region 2 fully inside region 1
+        let services = vec![0..=10, 2..=8];
+        let dummy = DummyDevice::new(services);
+        let mut map = DeviceMap::default();
+
+        assert!(map.register_device(dummy).is_err());
+    }
+
+    #[test]
+    fn test_fully_encompassing_portio_device() {
+        // region 1 fully inside region 2
+        let services = vec![2..=8, 0..=10];
+        let dummy = DummyDevice::new(services);
+        let mut map = DeviceMap::default();
+
+        assert!(map.register_device(dummy).is_err());
+    }
+
+    #[test]
+    fn test_partially_overlapping_tail_portio_device() {
+        // region 1 and region 2 partially overlap at the tail of region 1 and
+        // the start of region 2
+        let services = vec![0..=4, 3..=8];
+        let dummy = DummyDevice::new(services);
+        let mut map = DeviceMap::default();
+
+        assert!(map.register_device(dummy).is_err());
+    }
+
+    #[test]
+    fn test_partially_overlapping_head_portio_device() {
+        // region 1 and region 2 partially overlap at the start of region 1 and
+        // the tail of region 2
+        let services = vec![3..=8, 0..=4];
+        let dummy = DummyDevice::new(services);
+        let mut map = DeviceMap::default();
+
+        assert!(map.register_device(dummy).is_err());
+    }
+
+    #[test]
+    fn test_non_overlapping_portio_device() {
+        // region 1 and region 2 don't overlap
+        let services = vec![0..=3, 4..=8];
+        let dummy = DummyDevice::new(services);
+        let mut map = DeviceMap::default();
+
+        assert!(map.register_device(dummy).is_ok());
     }
 }
