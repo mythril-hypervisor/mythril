@@ -629,7 +629,8 @@ fn map_guest_memory(
     let ept_pte = unsafe { &mut (*ept_pt)[guest_addr.p1_index()] };
 
     if !ept_pte.is_unused() {
-        return Err(Error::AllocError("Duplicate mapping"));
+        return Err(Error::DuplicateMapping(
+            format!("Duplicate mapping for address 0x{:x}", guest_addr.as_u64())));
     }
 
     let mut page_flags = EptTableFlags::READ_ACCESS

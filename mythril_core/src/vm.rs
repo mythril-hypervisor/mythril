@@ -1,5 +1,5 @@
 use crate::device::DeviceMap;
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::memory::{
     self, GuestAddressSpace, GuestPhysAddr, HostPhysAddr, HostPhysFrame, Raw4kPage,
 };
@@ -23,6 +23,7 @@ pub trait VmServices {
 pub struct VirtualMachineConfig {
     _cpus: Vec<u8>,
     images: Vec<(String, GuestPhysAddr)>,
+    bios: Option<String>,
     devices: DeviceMap,
     _memory: u64, // number of 4k pages
 }
@@ -39,6 +40,7 @@ impl VirtualMachineConfig {
             _cpus: cpus,
             images: vec![],
             devices: DeviceMap::default(),
+            bios: None,
             _memory: memory,
         }
     }
@@ -47,8 +49,20 @@ impl VirtualMachineConfig {
     ///
     /// The precise meaning of `image` will vary by platform. This will be a
     /// value suitable to be passed to `VmServices::read_file`.
-    pub fn load_image(&mut self, image: String, addr: GuestPhysAddr) -> Result<()> {
+    pub fn map_image(&mut self, image: String, addr: GuestPhysAddr) -> Result<()> {
         self.images.push((image, addr));
+        Ok(())
+    }
+
+    /// Specify that the given image 'path' should be mapped as the BIOS
+    ///
+    /// The precise meaning of `image` will vary by platform. This will be a
+    /// value suitable to be passed to `VmServices::read_file`.
+    ///
+    /// The BIOS image will be mapped such that the end of the image is at
+    /// 0xffffffff and 0xfffff (i.e., it will be mapped in two places)
+    pub fn map_bios(&mut self, bios: String) -> Result<()> {
+        self.bios = Some(bios);
         Ok(())
     }
 
@@ -85,13 +99,7 @@ impl VirtualMachine {
         })))
     }
 
-    fn map_image(
-        image: &str,
-        addr: &GuestPhysAddr,
-        space: &mut GuestAddressSpace,
-        services: &mut impl VmServices,
-    ) -> Result<()> {
-        let image = services.read_file(image)?;
+    fn map_data(image: &[u8], addr: &GuestPhysAddr, space: &mut GuestAddressSpace) -> Result<()> {
         for (i, chunk) in image.chunks(4096 as usize).enumerate() {
             let frame_ptr = Box::into_raw(Box::new(Raw4kPage::default())) as *mut u8;
             let frame = HostPhysFrame::from_start_address(HostPhysAddr::new(frame_ptr as u64))?;
@@ -109,20 +117,58 @@ impl VirtualMachine {
         Ok(())
     }
 
+    fn map_image(
+        image: &str,
+        addr: &GuestPhysAddr,
+        space: &mut GuestAddressSpace,
+        services: &mut impl VmServices,
+    ) -> Result<()> {
+        let data = services.read_file(image)?;
+        Self::map_data(data, addr, space)
+    }
+
+    fn map_bios(
+        bios: &str,
+        space: &mut GuestAddressSpace,
+        services: &mut impl VmServices,
+    ) -> Result<()> {
+        let data = services.read_file(bios)?;
+        let bios_size = data.len() as u64;
+        Self::map_data(
+            data,
+            &memory::GuestPhysAddr::new(0x100000 - bios_size),
+            space,
+        )?;
+        Self::map_data(
+            data,
+            &memory::GuestPhysAddr::new((4 * 1024 * 1024 * 1024) - bios_size),
+            space,
+        )
+    }
+
     fn setup_ept(
         config: &VirtualMachineConfig,
         services: &mut impl VmServices,
     ) -> Result<GuestAddressSpace> {
         let mut guest_space = GuestAddressSpace::new()?;
 
-        // FIXME: For now, just map 320MB of RAM
-        for i in 0..81920 {
-            guest_space
-                .map_new_frame(memory::GuestPhysAddr::new((i as u64 * 4096) as u64), false)?;
+        // First map the bios
+        if let Some(ref bios) = config.bios {
+            Self::map_bios(&bios, &mut guest_space, services)?;
         }
 
+        // Now map any guest iamges
         for image in config.images.iter() {
             Self::map_image(&image.0, &image.1, &mut guest_space, services)?;
+        }
+
+        // FIXME: For now, just map 320MB of RAM
+        for i in 0..81920 {
+            match guest_space
+                .map_new_frame(memory::GuestPhysAddr::new((i as u64 * 4096) as u64), false) {
+                    Ok(_) | Err(Error::DuplicateMapping(_)) => continue,
+                    Err(e) => return Err(e)
+                }
         }
 
         Ok(guest_space)
