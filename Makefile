@@ -1,10 +1,9 @@
 CARGO?=cargo
 MULTIBOOT2_TARGET?=multiboot2_target
 
-mkfile_dir := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
-
 multiboot2_binary = target/$(MULTIBOOT2_TARGET)/debug/mythril_multiboot2
 mythril_src = $(shell find . -type f -name '*.rs' -or -name '*.S' -or -name '*.ld')
+seabios = seabios/out/bios.bin
 
 ifneq (,$(filter qemu%, $(firstword $(MAKECMDGOALS))))
     QEMU_EXTRA := $(subst :,\:, $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS)))
@@ -17,12 +16,16 @@ fmt:
 
 multiboot2: $(multiboot2_binary)
 
+$(seabios):
+	cp scripts/seabios.config seabios/.config
+	make -C seabios
+
 .PHONY: qemu
-qemu: $(multiboot2_binary)
+qemu: $(multiboot2_binary) $(seabios)
 	./scripts/mythril-run.sh $(multiboot2_binary) $(QEMU_EXTRA)
 
 .PHONY: qemu-debug
-qemu-debug: $(multiboot2_binary)
+qemu-debug: $(multiboot2_binary) $(seabios)
 	./scripts/mythril-run.sh $(multiboot2_binary) \
 	    -gdb tcp::1234 -S $(QEMU_EXTRA)
 
@@ -43,6 +46,7 @@ test: test_core
 .PHONY: clean
 clean:
 	$(CARGO) clean
+	make -C seabios clean
 
 .PHONY: help
 help:

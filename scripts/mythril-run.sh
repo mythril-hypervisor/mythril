@@ -13,7 +13,7 @@ rm -rf _isofiles
 mkdir -p _isofiles/boot/grub
 
 cp scripts/grub.cfg _isofiles/boot/grub/
-cp scripts/OVMF.fd _isofiles/boot/OVMF.fd
+cp seabios/out/bios.bin _isofiles/boot/seabios.bin
 cp "$1" _isofiles/boot/mythril.bin
 
 # Explicitly avoid using grub efi for now
