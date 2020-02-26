@@ -21,6 +21,7 @@ pub mod interrupt;
 pub mod logger;
 pub mod memory;
 mod registers;
+pub mod tsc;
 pub mod vcpu;
 pub mod vm;
 pub mod vmcs;
