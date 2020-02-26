@@ -17,7 +17,6 @@ mod services;
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
-use multiboot2::MemoryArea;
 use mythril_core::vm::VmServices;
 use mythril_core::*;
 use spin::RwLock;
@@ -26,45 +25,43 @@ use spin::RwLock;
 fn default_vm(core: usize, services: &mut impl VmServices) -> Arc<RwLock<vm::VirtualMachine>> {
     let mut config = vm::VirtualMachineConfig::new(vec![core as u8], 1024);
 
-    // FIXME: When `load_image` may return an error, log the error.
-    //
-    // Map OVMF directly below the 4GB boundary
+    // FIXME: When `map_bios` may return an error, log the error.
     config
-        .load_image(
-            "OVMF.fd".into(),
-            memory::GuestPhysAddr::new((4 * 1024 * 1024 * 1024) - (2 * 1024 * 1024)),
-        )
+        .map_bios("seabios.bin".into())
         .unwrap_or(());
-    config
-        .device_map()
+
+    let device_map = config.device_map();
+    device_map
+        .register_device(device::acpi::AcpiRuntime::new(0xb000).unwrap())
+        .unwrap();
+    device_map
         .register_device(device::com::ComDevice::new(core as u64, 0x3F8))
         .unwrap();
-    config
-        .device_map()
+    device_map
         .register_device(device::com::ComDevice::new(core as u64, 0x402))
         .unwrap(); // The qemu debug port
-    config
-        .device_map()
+    device_map
+        .register_device(device::dma::Dma8237::new())
+        .unwrap();
+    device_map
         .register_device(device::pci::PciRootComplex::new())
         .unwrap();
-    config
-        .device_map()
+    device_map
         .register_device(device::pic::Pic8259::new())
         .unwrap();
-    config
-        .device_map()
+    device_map
+        .register_device(device::keyboard::Keyboard8042::new())
+        .unwrap();
+    device_map
         .register_device(device::pit::Pit8254::new())
         .unwrap();
-    config
-        .device_map()
+    device_map
         .register_device(device::pos::ProgrammableOptionSelect::new())
         .unwrap();
-    config
-        .device_map()
+    device_map
         .register_device(device::rtc::CmosRtc::new())
         .unwrap();
-    config
-        .device_map()
+    device_map
         .register_device(device::qemu_fw_cfg::QemuFwCfg::new())
         .unwrap();
 
@@ -144,6 +141,9 @@ pub extern "C" fn kmain(multiboot_info_addr: usize) -> ! {
     log::set_logger(&logger::DirectLogger {})
         .map(|()| log::set_max_level(log::LevelFilter::Info))
         .expect("Failed to set logger");
+
+    // Calibrate the timers
+    unsafe { tsc::calibrate().expect("Failed to calibrate TSC") };
 
     let multiboot_info = unsafe { multiboot2::load(multiboot_info_addr) };
 

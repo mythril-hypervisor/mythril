@@ -8,7 +8,10 @@ use core::cmp::Ordering;
 use core::convert::{TryFrom, TryInto};
 use core::ops::RangeInclusive;
 
+pub mod acpi;
 pub mod com;
+pub mod dma;
+pub mod keyboard;
 pub mod pci;
 pub mod pic;
 pub mod pit;
