@@ -165,10 +165,11 @@ impl VirtualMachine {
         // FIXME: For now, just map 320MB of RAM
         for i in 0..81920 {
             match guest_space
-                .map_new_frame(memory::GuestPhysAddr::new((i as u64 * 4096) as u64), false) {
-                    Ok(_) | Err(Error::DuplicateMapping(_)) => continue,
-                    Err(e) => return Err(e)
-                }
+                .map_new_frame(memory::GuestPhysAddr::new((i as u64 * 4096) as u64), false)
+            {
+                Ok(_) | Err(Error::DuplicateMapping(_)) => continue,
+                Err(e) => return Err(e),
+            }
         }
 
         Ok(guest_space)

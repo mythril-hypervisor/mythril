@@ -26,9 +26,7 @@ fn default_vm(core: usize, services: &mut impl VmServices) -> Arc<RwLock<vm::Vir
     let mut config = vm::VirtualMachineConfig::new(vec![core as u8], 1024);
 
     // FIXME: When `map_bios` may return an error, log the error.
-    config
-        .map_bios("seabios.bin".into())
-        .unwrap_or(());
+    config.map_bios("seabios.bin".into()).unwrap_or(());
 
     let device_map = config.device_map();
     device_map
