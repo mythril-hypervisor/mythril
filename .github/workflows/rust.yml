@@ -22,4 +22,4 @@ jobs:
     steps:
     - uses: actions/checkout@v1
     - name: Multiboot2 Image Build
-      run: docker run -v $GITHUB_WORKSPACE:/src adamschwalm/hypervisor-build:docker-4 make multiboot2
+      run: docker run -v $GITHUB_WORKSPACE:/src -e RUSTFLAGS="-D warnings" adamschwalm/hypervisor-build:docker-4 make multiboot2
