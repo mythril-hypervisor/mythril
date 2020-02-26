@@ -18,7 +18,7 @@ impl Allocator {
     }
 }
 
-struct MultibootAllocator(LockedHeap);
+pub struct MultibootAllocator(LockedHeap);
 impl MultibootAllocator {
     fn new(start: u64, end: u64) -> Self {
         Self(unsafe { LockedHeap::new(start as usize, end as usize) })
