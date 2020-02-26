@@ -1,0 +1,3 @@
+[submodule "seabios"]
+	path = seabios
+	url = https://github.com/mythril-hypervisor/seabios.git
