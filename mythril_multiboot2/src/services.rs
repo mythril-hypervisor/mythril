@@ -1,4 +1,3 @@
-use alloc::vec::Vec;
 use multiboot2::BootInformation;
 use mythril_core::error::{Error, Result};
 use mythril_core::memory::HostPhysAddr;
