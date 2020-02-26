@@ -23,13 +23,13 @@ impl EmulatedDevice for Keyboard8042 {
         ]
     }
 
-    fn on_port_read(&mut self, port: Port, val: &mut PortIoValue) -> Result<()> {
+    fn on_port_read(&mut self, _port: Port, val: &mut PortIoValue) -> Result<()> {
         //FIXME: For now just return 0xff for everything
         val.copy_from_u32(0xff);
         Ok(())
     }
 
-    fn on_port_write(&mut self, port: Port, val: PortIoValue) -> Result<()> {
+    fn on_port_write(&mut self, _port: Port, _val: PortIoValue) -> Result<()> {
         Ok(())
     }
 }
