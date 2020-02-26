@@ -1,11 +1,27 @@
 use crate::device::{DeviceRegion, EmulatedDevice, Port, PortIoValue};
-use crate::error::Result;
+use crate::error::{Error, Result};
 use alloc::boxed::Box;
 use alloc::collections::btree_map::BTreeMap;
 use alloc::vec::Vec;
 use core::convert::TryInto;
-use core::mem::{size_of, transmute};
+use derive_try_from_primitive::TryFromPrimitive;
 use ux;
+
+#[derive(Clone, Copy, Debug, TryFromPrimitive)]
+#[repr(u16)]
+enum VendorId {
+    Intel = 0x8086,
+}
+
+#[derive(Clone, Copy, Debug, TryFromPrimitive)]
+#[repr(u16)]
+enum DeviceId {
+    // NOTE: this device ID is referred to as Q35 by QEMU, but this is
+    // not correct. The Q35 chipset has integrated graphics (among other
+    // differences). We use the correct name P35.
+    P35Mch = 0x29c0,
+    Ich9 = 0x2918,
+}
 
 #[repr(C)]
 #[repr(packed)]
@@ -43,31 +59,50 @@ struct PciNonBridgeHeader {
 
 #[repr(C)]
 #[repr(packed)]
-struct PciToPciBridgeHeader {}
+struct PciNonBridgeSpace {
+    header: PciNonBridgeHeader,
+    _data: [u32; 48],
+}
+
+impl PciNonBridgeSpace {
+    fn new(header: PciNonBridgeHeader) -> Self {
+        Self {
+            header,
+            _data: [0u32; 48],
+        }
+    }
+}
 
 #[repr(C)]
 #[repr(packed)]
-struct PciToCardbusBridgeHeader {}
-
-enum PciHeader {
-    Type0(PciNonBridgeHeader),
-    _Type1(PciToPciBridgeHeader),
-    _Type2(PciToCardbusBridgeHeader),
+struct PciToPciBridgeSpace {
+    _data: [u32; 64],
 }
 
-impl PciHeader {
-    fn read_offset(&self, offset: u8) -> u16 {
-        // Only 16 ranges can be addressed
-        assert!(offset & 1 == 0);
+#[repr(C)]
+#[repr(packed)]
+struct PciToCardbusBridgeSpace {
+    _data: [u32; 64],
+}
 
+#[allow(dead_code)]
+enum PciConfigSpace {
+    Type0(PciNonBridgeSpace),
+    Type1(PciToPciBridgeSpace),
+    Type2(PciToCardbusBridgeSpace),
+}
+
+impl PciConfigSpace {
+    fn as_registers(&self) -> &[u32; 64] {
         match self {
-            PciHeader::Type0(header) => {
-                let data: &[u16; size_of::<PciNonBridgeHeader>() / 2] =
-                    unsafe { transmute(header) };
-                data[(offset / 2) as usize]
-            }
-            _ => panic!("Not implemented yet"),
+            PciConfigSpace::Type0(space) => unsafe { core::mem::transmute(space) },
+            PciConfigSpace::Type1(space) => unsafe { core::mem::transmute(space) },
+            PciConfigSpace::Type2(space) => unsafe { core::mem::transmute(space) },
         }
+    }
+
+    fn read_register(&self, register: u8) -> u32 {
+        self.as_registers()[register as usize]
     }
 }
 
@@ -95,7 +130,7 @@ impl Into<u16> for PciBdf {
 }
 
 pub struct PciDevice {
-    header: PciHeader,
+    config_space: PciConfigSpace,
     bdf: PciBdf,
 }
 
@@ -107,20 +142,30 @@ pub struct PciRootComplex {
 impl PciRootComplex {
     const PCI_CONFIG_ADDRESS: Port = 0xcf8;
     const PCI_CONFIG_DATA: Port = 0xcfc;
-    const PCI_CONFIG_DATA_MAX: Port = Self::PCI_CONFIG_DATA + 256;
+    const PCI_CONFIG_DATA_MAX: Port = Self::PCI_CONFIG_DATA + 3;
 
     pub fn new() -> Box<Self> {
         let mut devices = BTreeMap::new();
 
         let host_bridge = PciDevice {
             bdf: PciBdf::from(0x0000),
-            header: PciHeader::Type0(PciNonBridgeHeader {
-                device_id: 0x29c0,
+            config_space: PciConfigSpace::Type0(PciNonBridgeSpace::new(PciNonBridgeHeader {
+                vendor_id: VendorId::Intel as u16,
+                device_id: DeviceId::P35Mch as u16,
                 ..PciNonBridgeHeader::default()
-            }),
+            })),
         };
-
         devices.insert(host_bridge.bdf.into(), host_bridge);
+
+        let ich9 = PciDevice {
+            bdf: PciBdf::from(0b1000),
+            config_space: PciConfigSpace::Type0(PciNonBridgeSpace::new(PciNonBridgeHeader {
+                vendor_id: VendorId::Intel as u16,
+                device_id: DeviceId::Ich9 as u16,
+                ..PciNonBridgeHeader::default()
+            })),
+        };
+        devices.insert(ich9.bdf.into(), ich9);
 
         Box::new(Self {
             current_address: 0,
@@ -143,27 +188,32 @@ impl EmulatedDevice for PciRootComplex {
                 let addr = 0x80000000 | self.current_address;
                 *val = addr.into();
             }
-            _ => {
-                // TODO: what is the expected behavior when val.len() != 2?
-
+            Self::PCI_CONFIG_DATA..=Self::PCI_CONFIG_DATA_MAX => {
                 let bdf = ((self.current_address & 0xffff00) >> 8) as u16;
-                let offset =
-                    (self.current_address & 0xff) as u8 | (port - Self::PCI_CONFIG_DATA) as u8;
+                let register = (self.current_address & 0xff >> 2) as u8;
+                let offset = (port - Self::PCI_CONFIG_DATA) as u8;
 
                 match self.devices.get(&bdf) {
                     Some(device) => {
-                        info!("Query for real device: {}", bdf);
-                        let res = device.header.read_offset(offset);
-                        info!("  res = {:?}", res);
-                        *val = res.into();
+                        let res = device.config_space.read_register(register) >> (offset * 8);
+                        val.copy_from_u32(res);
+                        info!(
+                            "port=0x{:x}, register=0x{:x}, offset=0x{:x}, val={:?}",
+                            port, register, offset, val
+                        );
                     }
                     None => {
-                        info!("Query for missing device = {}", bdf);
                         // If no device is present, just return all 0xFFs
                         let res = 0xffffffffu32;
-                        *val = res.into();
+                        val.copy_from_u32(res);
                     }
                 }
+            }
+            _ => {
+                return Err(Error::InvalidValue(format!(
+                    "Invalid PCI port read 0x{:x}",
+                    port
+                )))
             }
         }
         Ok(())
@@ -171,9 +221,91 @@ impl EmulatedDevice for PciRootComplex {
 
     fn on_port_write(&mut self, port: Port, val: PortIoValue) -> Result<()> {
         match port {
-            Self::PCI_CONFIG_ADDRESS => self.current_address = val.try_into()?,
-            _ => (),
+            Self::PCI_CONFIG_ADDRESS => {
+                let addr: u32 = val.try_into()?;
+                self.current_address = addr & 0x7fffffffu32;
+            }
+            _ => {
+                info!(
+                    "Attempt to write to port=0x{:x} (addr=0x{:x}). Ignoring.",
+                    port, self.current_address
+                );
+            }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    fn complex_ready_for_reg_read(reg: u8) -> Box<PciRootComplex> {
+        let mut complex = PciRootComplex::new();
+        let addr = (reg << 2) as u32;
+        complex
+            .on_port_write(PciRootComplex::PCI_CONFIG_ADDRESS, addr.into())
+            .unwrap();
+        complex
+    }
+
+    #[test]
+    fn test_full_register_read() {
+        let mut complex = complex_ready_for_reg_read(0);
+        let mut val = PortIoValue::from(0u32);
+        complex
+            .on_port_read(PciRootComplex::PCI_CONFIG_DATA, &mut val)
+            .unwrap();
+
+        let read_val: u32 = val.try_into().unwrap();
+        assert_eq!(read_val, 0x29c08086);
+    }
+
+    #[test]
+    fn test_half_register_read() {
+        let mut complex = complex_ready_for_reg_read(0);
+        let mut val = PortIoValue::from(0u16);
+
+        complex
+            .on_port_read(PciRootComplex::PCI_CONFIG_DATA, &mut val)
+            .unwrap();
+        let read_val: u16 = val.try_into().unwrap();
+        assert_eq!(read_val, 0x8086);
+
+        complex
+            .on_port_read(PciRootComplex::PCI_CONFIG_DATA + 2, &mut val)
+            .unwrap();
+        let read_val: u16 = val.try_into().unwrap();
+        assert_eq!(read_val, 0x29c0);
+    }
+
+    #[test]
+    fn test_register_byte_read() {
+        let mut complex = complex_ready_for_reg_read(0);
+        let mut val = PortIoValue::from(0u8);
+
+        complex
+            .on_port_read(PciRootComplex::PCI_CONFIG_DATA, &mut val)
+            .unwrap();
+        let read_val: u8 = val.try_into().unwrap();
+        assert_eq!(read_val, 0x86);
+
+        complex
+            .on_port_read(PciRootComplex::PCI_CONFIG_DATA + 1, &mut val)
+            .unwrap();
+        let read_val: u8 = val.try_into().unwrap();
+        assert_eq!(read_val, 0x80);
+
+        complex
+            .on_port_read(PciRootComplex::PCI_CONFIG_DATA + 2, &mut val)
+            .unwrap();
+        let read_val: u8 = val.try_into().unwrap();
+        assert_eq!(read_val, 0xc0);
+
+        complex
+            .on_port_read(PciRootComplex::PCI_CONFIG_DATA + 3, &mut val)
+            .unwrap();
+        let read_val: u8 = val.try_into().unwrap();
+        assert_eq!(read_val, 0x29);
     }
 }
