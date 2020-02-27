@@ -10,10 +10,10 @@ ifneq (,$(filter qemu%, $(firstword $(MAKECMDGOALS))))
     $(eval $(QEMU_EXTRA):;@:)
 endif
 
-.PHONY: fmt
-fmt:
-	$(CARGO) fmt --all -- --check
+.PHONY: all
+all: multiboot2 $(seabios)
 
+.PHONY: multiboot2
 multiboot2: $(multiboot2_binary)
 
 $(seabios):
@@ -21,11 +21,11 @@ $(seabios):
 	make -C seabios
 
 .PHONY: qemu
-qemu: $(multiboot2_binary) $(seabios)
+qemu: all
 	./scripts/mythril-run.sh $(multiboot2_binary) $(QEMU_EXTRA)
 
 .PHONY: qemu-debug
-qemu-debug: $(multiboot2_binary) $(seabios)
+qemu-debug: all
 	./scripts/mythril-run.sh $(multiboot2_binary) \
 	    -gdb tcp::1234 -S $(QEMU_EXTRA)
 
@@ -33,6 +33,10 @@ $(multiboot2_binary): $(mythril_src)
 	$(CARGO) xbuild \
 	    --target mythril_multiboot2/$(MULTIBOOT2_TARGET).json \
 	    --manifest-path mythril_multiboot2/Cargo.toml
+
+.PHONY: fmt
+fmt:
+	$(CARGO) fmt --all -- --check
 
 .PHONY: test_core
 test_core:
@@ -51,6 +55,7 @@ clean:
 .PHONY: help
 help:
 	@echo " Make Targets:"
+	@echo "   all            build everything to run mythril, but do not start qemu"
 	@echo "   fmt            run rustfmt"
 	@echo "   qemu           run mythril in a VM"
 	@echo "   qemu-debug     run mythril in a VM, but halt for a debugger connection"
