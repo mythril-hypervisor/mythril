@@ -136,7 +136,7 @@ impl VirtualMachine {
         let bios_size = data.len() as u64;
         Self::map_data(
             data,
-            &memory::GuestPhysAddr::new(0x100000 - bios_size),
+            &memory::GuestPhysAddr::new((1024 * 1024) - bios_size),
             space,
         )?;
         Self::map_data(
