@@ -15,6 +15,8 @@ extern crate alloc;
 #[macro_use]
 extern crate log;
 
+/// Support for the local APIC.
+pub mod apic;
 pub mod device;
 pub mod emulate;
 pub mod error;
