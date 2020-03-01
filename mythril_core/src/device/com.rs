@@ -1,49 +1,30 @@
 use crate::device::{DeviceRegion, EmulatedDevice, Port, PortIoValue};
 use crate::error::Result;
-use crate::logger;
 use alloc::boxed::Box;
-use alloc::string::String;
 use alloc::vec::Vec;
 
 pub struct ComDevice {
-    id: u64,
     port: Port,
-    buff: Vec<u8>,
 }
 
 impl ComDevice {
-    pub fn new(vmid: u64, port: Port) -> Box<dyn EmulatedDevice> {
+    pub fn new(port: Port) -> Box<dyn EmulatedDevice> {
         Box::new(Self {
             port,
-            buff: vec![],
-            id: vmid,
         })
     }
 }
 
 impl EmulatedDevice for ComDevice {
     fn services(&self) -> Vec<DeviceRegion> {
-        vec![DeviceRegion::PortIo(self.port..=self.port)]
+        vec![DeviceRegion::PortIo(self.port..=self.port+7)]
     }
 
-    fn on_port_read(&mut self, _port: Port, val: &mut PortIoValue) -> Result<()> {
-        // This is a magical value (called BOCHS_DEBUG_PORT_MAGIC by edk2)
-        // FIXME: this should only be returned for a special 'debug' com device
-        *val = 0xe9u8.into();
+    fn on_port_read(&mut self, _port: Port, _val: &mut PortIoValue) -> Result<()> {
         Ok(())
     }
 
-    fn on_port_write(&mut self, _port: Port, val: PortIoValue) -> Result<()> {
-        self.buff.extend_from_slice(val.as_slice());
-
-        // Flush on newlines
-        if val.as_slice().iter().filter(|b| **b == 10).next().is_some() {
-            let s = String::from_utf8_lossy(&self.buff);
-
-            logger::write_console(&format!("GUEST{}: {}", self.id, s));
-            self.buff.clear();
-        }
-
+    fn on_port_write(&mut self, _port: Port, _val: PortIoValue) -> Result<()> {
         Ok(())
     }
 }

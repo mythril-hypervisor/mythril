@@ -10,6 +10,7 @@ use core::ops::RangeInclusive;
 
 pub mod acpi;
 pub mod com;
+pub mod debug;
 pub mod dma;
 pub mod keyboard;
 pub mod pci;
