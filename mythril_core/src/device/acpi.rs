@@ -11,6 +11,19 @@ pub struct AcpiRuntime {
 }
 
 impl AcpiRuntime {
+    // Seabios expects us to pass PCI hotplug info via ACPI like QEMU.
+    // See https://github.com/qemu/qemu/blob/master/docs/specs/acpi_pci_hotplug.txt
+    const GPE_BLOCK_START: Port = 0xafe0;
+    const GPE_BLOCK_END: Port = 0xafe3;
+    const PCI_SLOT_INJECTION_START: Port = 0xae00;
+    const PCI_SLOT_INJECTION_END: Port = 0xae03;
+    const PCI_SLOT_REMOVAL_NOTIFY_START: Port = 0xae04;
+    const PCI_SLOT_REMOVAL_NOTIFY_END: Port = 0xae07;
+    const PCI_DEVICE_EJECT_START: Port = 0xae08;
+    const PCI_DEVICE_EJECT_END: Port = 0xae0b;
+    const PCI_REMOVABILITY_STATUS_START: Port = 0xae0c;
+    const PCI_REMOVABILITY_STATUS_END: Port = 0xae0f;
+
     pub fn new(pm_base: Port) -> Result<Box<Self>> {
         Ok(Box::new(AcpiRuntime { pm_base }))
     }
@@ -29,6 +42,11 @@ impl EmulatedDevice for AcpiRuntime {
         vec![
             DeviceRegion::PortIo(self.pm1a_cnt()..=self.pm1a_cnt()),
             DeviceRegion::PortIo(self.pmtimer()..=self.pmtimer()),
+            DeviceRegion::PortIo(Self::GPE_BLOCK_START..=Self::GPE_BLOCK_END),
+            DeviceRegion::PortIo(Self::PCI_SLOT_INJECTION_START..=Self::PCI_SLOT_INJECTION_END),
+            DeviceRegion::PortIo(Self::PCI_SLOT_REMOVAL_NOTIFY_START..=Self::PCI_SLOT_REMOVAL_NOTIFY_END),
+            DeviceRegion::PortIo(Self::PCI_DEVICE_EJECT_START..=Self::PCI_DEVICE_EJECT_END),
+            DeviceRegion::PortIo(Self::PCI_REMOVABILITY_STATUS_START..=Self::PCI_REMOVABILITY_STATUS_END),
         ]
     }
 
