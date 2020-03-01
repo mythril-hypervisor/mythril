@@ -123,14 +123,18 @@ impl EmulatedDevice for CmosRtc {
     }
 
     fn on_port_write(&mut self, port: Port, val: PortIoValue) -> Result<()> {
+        // For now, just ignore the NMI masking
+        let val: u8 = val.try_into()?;
+        let val = val & 0x7f;
+
         match port {
             Self::RTC_ADDRESS => {
                 // OVMF expects to be able to read pretty much any address
                 // (and just get zeros for meaningless ones)
                 self.addr =
-                    CmosRegister::try_from(val.try_into()?).unwrap_or(CmosRegister::Unknown);
+                    CmosRegister::try_from(val).unwrap_or(CmosRegister::Unknown);
             }
-            _ => {
+            Self::RTC_DATA => {
                 match self.addr {
                     CmosRegister::ShutdownStatus => {
                         // It's not clear what's supposed to happen here, just ignore
@@ -142,10 +146,11 @@ impl EmulatedDevice for CmosRtc {
                     }
                     addr => {
                         // For now, any other register write is just directly performed
-                        self.data[addr as usize] = val.try_into()?;
+                        self.data[addr as usize] = val;
                     }
                 }
-            }
+            },
+            _ => unreachable!()
         }
         Ok(())
     }
