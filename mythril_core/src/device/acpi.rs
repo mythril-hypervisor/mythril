@@ -44,9 +44,13 @@ impl EmulatedDevice for AcpiRuntime {
             DeviceRegion::PortIo(self.pmtimer()..=self.pmtimer()),
             DeviceRegion::PortIo(Self::GPE_BLOCK_START..=Self::GPE_BLOCK_END),
             DeviceRegion::PortIo(Self::PCI_SLOT_INJECTION_START..=Self::PCI_SLOT_INJECTION_END),
-            DeviceRegion::PortIo(Self::PCI_SLOT_REMOVAL_NOTIFY_START..=Self::PCI_SLOT_REMOVAL_NOTIFY_END),
+            DeviceRegion::PortIo(
+                Self::PCI_SLOT_REMOVAL_NOTIFY_START..=Self::PCI_SLOT_REMOVAL_NOTIFY_END,
+            ),
             DeviceRegion::PortIo(Self::PCI_DEVICE_EJECT_START..=Self::PCI_DEVICE_EJECT_END),
-            DeviceRegion::PortIo(Self::PCI_REMOVABILITY_STATUS_START..=Self::PCI_REMOVABILITY_STATUS_END),
+            DeviceRegion::PortIo(
+                Self::PCI_REMOVABILITY_STATUS_START..=Self::PCI_REMOVABILITY_STATUS_END,
+            ),
         ]
     }
 

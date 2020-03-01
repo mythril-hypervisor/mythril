@@ -77,10 +77,7 @@ fn default_vm(core: usize, services: &mut impl VmServices) -> Arc<RwLock<vm::Vir
         )
         .unwrap();
     fw_cfg_builder
-        .add_file(
-            "bootorder",
-            "/rom@genroms/linuxboot.bin\nHALT".as_bytes(),
-        )
+        .add_file("bootorder", "/rom@genroms/linuxboot.bin\nHALT".as_bytes())
         .unwrap();
     device_map.register_device(fw_cfg_builder.build()).unwrap();
 

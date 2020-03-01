@@ -131,8 +131,7 @@ impl EmulatedDevice for CmosRtc {
             Self::RTC_ADDRESS => {
                 // OVMF expects to be able to read pretty much any address
                 // (and just get zeros for meaningless ones)
-                self.addr =
-                    CmosRegister::try_from(val).unwrap_or(CmosRegister::Unknown);
+                self.addr = CmosRegister::try_from(val).unwrap_or(CmosRegister::Unknown);
             }
             Self::RTC_DATA => {
                 match self.addr {
@@ -149,8 +148,8 @@ impl EmulatedDevice for CmosRtc {
                         self.data[addr as usize] = val;
                     }
                 }
-            },
-            _ => unreachable!()
+            }
+            _ => unreachable!(),
         }
         Ok(())
     }
