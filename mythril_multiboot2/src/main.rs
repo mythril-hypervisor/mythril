@@ -33,11 +33,20 @@ fn default_vm(core: usize, services: &mut impl VmServices) -> Arc<RwLock<vm::Vir
         .register_device(device::acpi::AcpiRuntime::new(0xb000).unwrap())
         .unwrap();
     device_map
-        .register_device(device::com::ComDevice::new(core as u64, 0x3F8))
+        .register_device(device::com::ComDevice::new(0x3F8))
         .unwrap();
     device_map
-        .register_device(device::com::ComDevice::new(core as u64, 0x402))
-        .unwrap(); // The qemu debug port
+        .register_device(device::com::ComDevice::new(0x2F8))
+        .unwrap();
+    device_map
+        .register_device(device::com::ComDevice::new(0x3E8))
+        .unwrap();
+    device_map
+        .register_device(device::com::ComDevice::new(0x2E8))
+        .unwrap();
+    device_map
+        .register_device(device::debug::DebugPort::new(core as u64, 0x402))
+        .unwrap();
     device_map
         .register_device(device::dma::Dma8237::new())
         .unwrap();
@@ -59,9 +68,21 @@ fn default_vm(core: usize, services: &mut impl VmServices) -> Arc<RwLock<vm::Vir
     device_map
         .register_device(device::rtc::CmosRtc::new())
         .unwrap();
-    device_map
-        .register_device(device::qemu_fw_cfg::QemuFwCfg::new())
+
+    let mut fw_cfg_builder = device::qemu_fw_cfg::QemuFwCfgBuilder::new();
+    fw_cfg_builder
+        .add_file(
+            "genroms/linuxboot.bin",
+            services.read_file("linuxboot.bin").unwrap(),
+        )
         .unwrap();
+    fw_cfg_builder
+        .add_file(
+            "bootorder",
+            "/rom@genroms/linuxboot.bin\nHALT".as_bytes(),
+        )
+        .unwrap();
+    device_map.register_device(fw_cfg_builder.build()).unwrap();
 
     vm::VirtualMachine::new(config, services).expect("Failed to create vm")
 }
