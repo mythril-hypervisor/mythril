@@ -58,18 +58,23 @@ struct FWCfgFile {
 
 pub struct QemuFwCfgBuilder {
     file_info: Vec<FWCfgFile>,
-    file_data: BTreeMap<u16, Vec<u8>>,
+    data: BTreeMap<u16, Vec<u8>>,
 }
 
 impl QemuFwCfgBuilder {
     pub fn new() -> Self {
-        Self {
-            file_info: vec![],
-            file_data: BTreeMap::new(),
-        }
+        let mut s = Self {
+            data: BTreeMap::new(),
+            file_info: vec![]
+        };
+
+        s.add_i32(FwCfgSelector::SIGNATURE, 0x554d4551); // QEMU
+        s.add_i32(FwCfgSelector::ID, 0x01);
+
+        s
     }
 
-    pub fn build(self) -> Box<QemuFwCfg> {
+    pub fn build(mut self) -> Box<QemuFwCfg> {
         // Now that we are done building the fwcfg device, we need to make the
         // FileDir buffer, which has the following structure:
         //
@@ -94,20 +99,18 @@ impl QemuFwCfgBuilder {
             );
         }
 
+        self.data.insert(FwCfgSelector::FILE_DIR, buffer);
+
         Box::new(QemuFwCfg {
             selector: FwCfgSelector::SIGNATURE,
-            signature: [0x51, 0x45, 0x4d, 0x55], // QEMU
-            rev: [0x01, 0x00, 0x00, 0x00],
-            smp_cpu: [0x01, 0x00, 0x00, 0x00],
-            file_info: buffer.into_boxed_slice(),
-            file_data: self.file_data,
-            file_data_idx: 0,
-            file_info_idx: 0,
+            data: self.data,
+            data_idx: 0,
         })
     }
 
     fn next_file_selector(&self) -> u16 {
-        self.file_data
+        //TODO: this should only consider keys below 0x8000
+        self.data
             .keys()
             .copied()
             .max()
@@ -138,21 +141,23 @@ impl QemuFwCfgBuilder {
         info.name[..name.len()].copy_from_slice(name);
 
         self.file_info.push(info);
-        self.file_data.insert(selector, data.to_vec());
+        self.data.insert(selector, data.to_vec());
         Ok(())
+    }
+
+    pub fn add_i32(&mut self, selector: u16, data: i32) {
+        self.data.insert(selector, data.to_le_bytes().to_vec());
+    }
+
+    pub fn add_bytes(&mut self, selector: u16, data: &[u8]) {
+        self.data.insert(selector, data.to_vec());
     }
 }
 
 pub struct QemuFwCfg {
     selector: u16,
-    signature: [u8; 4],
-    rev: [u8; 4],
-    smp_cpu: [u8; 4],
-    file_info: Box<[u8]>,
-    file_data: BTreeMap<u16, Vec<u8>>,
-
-    file_data_idx: usize,
-    file_info_idx: usize,
+    data: BTreeMap<u16, Vec<u8>>,
+    data_idx: usize,
 }
 
 impl QemuFwCfg {
@@ -176,32 +181,12 @@ impl EmulatedDevice for QemuFwCfg {
             }
             Self::FW_CFG_PORT_DATA => {
                 match self.selector {
-                    FwCfgSelector::SIGNATURE => {
-                        val.as_mut_slice().copy_from_slice(&self.signature[..len]);
-                        self.signature.rotate_left(len);
-                    }
-                    FwCfgSelector::ID => {
-                        val.as_mut_slice().copy_from_slice(&self.rev[..len]);
-                        self.rev.rotate_left(len);
-                    }
-                    FwCfgSelector::NB_CPUS => {
-                        val.as_mut_slice().copy_from_slice(&self.smp_cpu[..len]);
-                        self.smp_cpu.rotate_left(len);
-                    }
-                    FwCfgSelector::FILE_DIR => {
-                        val.as_mut_slice().copy_from_slice(
-                            &self.file_info[self.file_info_idx..self.file_info_idx + len],
-                        );
-                        self.file_info_idx += len;
-                    }
-                    selector
-                        if selector >= FwCfgSelector::FILE_FIRST
-                            && selector <= FwCfgSelector::FILE_LAST =>
+                    selector if self.data.contains_key(&self.selector) =>
                     {
-                        let data = &self.file_data[&(self.selector)];
+                        let data = &self.data[&(self.selector)];
                         val.as_mut_slice()
-                            .copy_from_slice(&data[self.file_data_idx..self.file_data_idx + len]);
-                        self.file_data_idx += len;
+                            .copy_from_slice(&data[self.data_idx..self.data_idx + len]);
+                        self.data_idx += len;
                     }
                     selector => {
                         info!("Attempt to read from selector: 0x{:x}", selector);
@@ -220,8 +205,7 @@ impl EmulatedDevice for QemuFwCfg {
         match port {
             Self::FW_CFG_PORT_SEL => {
                 self.selector = val.try_into()?;
-                self.file_data_idx = 0;
-                self.file_info_idx = 0;
+                self.data_idx = 0;
             }
             _ => {
                 return Err(Error::NotImplemented(
