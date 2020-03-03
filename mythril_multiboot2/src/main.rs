@@ -79,6 +79,7 @@ fn default_vm(core: usize, services: &mut impl VmServices) -> Arc<RwLock<vm::Vir
     fw_cfg_builder
         .add_file("bootorder", "/rom@genroms/linuxboot.bin\nHALT".as_bytes())
         .unwrap();
+    linux::load_linux(&mut fw_cfg_builder, services, "foo=bar".as_bytes()).unwrap();
     device_map.register_device(fw_cfg_builder.build()).unwrap();
 
     vm::VirtualMachine::new(config, services).expect("Failed to create vm")

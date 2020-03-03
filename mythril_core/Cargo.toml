@@ -11,6 +11,7 @@ description = "A intel-focused hypervisor using VT-x/EPT"
 std = []
 
 [dependencies]
+byteorder = { version = "1", default-features = false }
 derive-try-from-primitive = "0.1.0"
 x86 = "0.27.0"
 log = { version = "0.4.8", default-features = false }

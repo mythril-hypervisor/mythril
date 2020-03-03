@@ -18,6 +18,7 @@ extern crate log;
 pub mod device;
 pub mod error;
 pub mod interrupt;
+pub mod linux;
 pub mod logger;
 pub mod memory;
 mod registers;

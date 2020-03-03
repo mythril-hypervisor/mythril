@@ -15,6 +15,9 @@ mkdir -p _isofiles/boot/grub
 cp scripts/grub.cfg _isofiles/boot/grub/
 cp seabios/out/bios.bin _isofiles/boot/seabios.bin
 cp scripts/linuxboot.bin _isofiles/boot/linuxboot.bin
+cp scripts/vmlinuz _isofiles/boot/vmlinuz
+cp scripts/initramfs _isofiles/boot/initramfs
+cp scripts/cmdline _isofiles/boot/cmdline
 cp "$1" _isofiles/boot/mythril.bin
 
 # Explicitly avoid using grub efi for now

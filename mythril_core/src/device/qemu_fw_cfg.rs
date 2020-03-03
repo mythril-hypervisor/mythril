@@ -9,8 +9,7 @@ use core::convert::TryInto;
 // between 0x20 and 0x7fff that make it impractical to actually
 // enumerate the selectors.
 #[allow(non_snake_case)]
-#[allow(dead_code)]
-mod FwCfgSelector {
+pub mod FwCfgSelector {
     pub const SIGNATURE: u16 = 0x00;
     pub const ID: u16 = 0x01;
     pub const UUID: u16 = 0x02;
