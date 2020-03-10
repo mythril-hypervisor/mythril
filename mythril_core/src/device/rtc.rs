@@ -72,19 +72,28 @@ impl CmosRtc {
     const RTC_ADDRESS: Port = 0x0070;
     const RTC_DATA: Port = 0x0071;
 
-    pub fn new() -> Box<Self> {
+    pub fn new(mem: u64) -> Box<Self> {
         Box::new(Self {
             addr: CmosRegister::Seconds, // For now, just set the default reg as seconds
-            data: Self::default_register_values(),
+            data: Self::default_register_values(mem),
         })
     }
 
-    fn default_register_values() -> [u8; 256] {
+    fn default_register_values(mem: u64) -> [u8; 256] {
+        //TODO: support memory above 4GB
+
         let mut data = [0u8; 256];
+
+        let megs_under_4gb = mem & 0xfff;
+        // Subtrack 16 because it's really 'blocks_under_4gb_over_16mb'
+        // Shift by 4 because each 'block' is 64KiB
+        let blocks_under_4gb: u16 = ((megs_under_4gb - 16) << 4) as u16;
 
         let defaults = [
             // The MSB of register D indicates the CMOS battery is working
             (CmosRegister::StatusRegisterD, 0b10000000),
+            (CmosRegister::QemuMemAbove16MbLsb, blocks_under_4gb as u8),
+            (CmosRegister::QemuMemAbove16MbMsb, (blocks_under_4gb >> 8) as u8)
         ];
         for &(reg, val) in &defaults {
             data[reg as usize] = val
@@ -106,12 +115,7 @@ impl EmulatedDevice for CmosRtc {
             }
             Self::RTC_DATA => {
                 match self.addr {
-                    CmosRegister::QemuMemAbove16MbMsb => {
-                        //FIXME: for now just report 80MB available
-                        val.copy_from_u32(0x5);
-                    }
                     addr => {
-                        // For anything else, read the value from our store
                         val.copy_from_u32(self.data[addr as usize] as u32);
                     }
                 }

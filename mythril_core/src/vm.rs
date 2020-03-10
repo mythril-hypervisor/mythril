@@ -25,7 +25,7 @@ pub struct VirtualMachineConfig {
     images: Vec<(String, GuestPhysAddr)>,
     bios: Option<String>,
     devices: DeviceMap,
-    _memory: u64, // number of 4k pages
+    memory: u64, // in MB
 }
 
 impl VirtualMachineConfig {
@@ -41,7 +41,7 @@ impl VirtualMachineConfig {
             images: vec![],
             devices: DeviceMap::default(),
             bios: None,
-            _memory: memory,
+            memory: memory,
         }
     }
 
@@ -162,8 +162,8 @@ impl VirtualMachine {
             Self::map_image(&image.0, &image.1, &mut guest_space, services)?;
         }
 
-        // FIXME: For now, just map 320MB of RAM
-        for i in 0..81920 {
+        // Iterate over each page
+        for i in 0..(config.memory << 8) {
             match guest_space
                 .map_new_frame(memory::GuestPhysAddr::new((i as u64 * 4096) as u64), false)
             {
