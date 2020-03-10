@@ -64,7 +64,7 @@ impl QemuFwCfgBuilder {
     pub fn new() -> Self {
         let mut s = Self {
             data: BTreeMap::new(),
-            file_info: vec![]
+            file_info: vec![],
         };
 
         s.add_i32(FwCfgSelector::SIGNATURE, 0x554d4551); // QEMU
@@ -180,9 +180,8 @@ impl EmulatedDevice for QemuFwCfg {
             }
             Self::FW_CFG_PORT_DATA => {
                 match self.selector {
-                    selector if self.data.contains_key(&self.selector) =>
-                    {
-                        let data = &self.data[&(self.selector)];
+                    selector if self.data.contains_key(&self.selector) => {
+                        let data = &self.data[&(selector)];
                         val.as_mut_slice()
                             .copy_from_slice(&data[self.data_idx..self.data_idx + len]);
                         self.data_idx += len;

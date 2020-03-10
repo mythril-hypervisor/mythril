@@ -93,7 +93,10 @@ impl CmosRtc {
             // The MSB of register D indicates the CMOS battery is working
             (CmosRegister::StatusRegisterD, 0b10000000),
             (CmosRegister::QemuMemAbove16MbLsb, blocks_under_4gb as u8),
-            (CmosRegister::QemuMemAbove16MbMsb, (blocks_under_4gb >> 8) as u8)
+            (
+                CmosRegister::QemuMemAbove16MbMsb,
+                (blocks_under_4gb >> 8) as u8,
+            ),
         ];
         for &(reg, val) in &defaults {
             data[reg as usize] = val
@@ -113,13 +116,11 @@ impl EmulatedDevice for CmosRtc {
             Self::RTC_ADDRESS => {
                 *val = (self.addr as u8).into();
             }
-            Self::RTC_DATA => {
-                match self.addr {
-                    addr => {
-                        val.copy_from_u32(self.data[addr as usize] as u32);
-                    }
+            Self::RTC_DATA => match self.addr {
+                addr => {
+                    val.copy_from_u32(self.data[addr as usize] as u32);
                 }
-            }
+            },
             _ => unreachable!(),
         }
 

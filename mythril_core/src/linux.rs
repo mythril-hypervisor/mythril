@@ -1,15 +1,20 @@
 use crate::device::qemu_fw_cfg::{FwCfgSelector, QemuFwCfgBuilder};
 use crate::error::{Error, Result};
 use crate::vm::VmServices;
+use bitflags::bitflags;
 use byteorder::{ByteOrder, LittleEndian};
 
-const XLF_KERNEL_64: u32 = 1 << 0;
-const XLF_CAN_BE_LOADED_ABOVE_4G: u32 = 1 << 1;
-const XLF_EFI_HANDOVER_32: u32 = 1 << 2;
-const XLF_EFI_HANDOVER_64: u32 = 1 << 3;
-const XLF_EFI_KEXEC: u32 = 1 << 4;
-const XLF_5LEVEL: u32 = 1 << 5;
-const XLF_5LEVEL_ENABLED: u32 = 1 << 6;
+bitflags! {
+    pub struct XLoadFlags: u32 {
+        const KERNEL_64 = 1 << 0;
+        const CAN_BE_LOADED_ABOVE_4G = 1 << 1;
+        const EFI_HANDOVER_32 = 1 << 2;
+        const EFI_HANDOVER_64 = 1 << 3;
+        const EFI_KEXEC = 1 << 4;
+        const FIVE_LEVEL = 1 << 5;
+        const FIVE_LEVEL_ENABLED = 1 << 6;
+    }
+}
 
 pub fn load_linux(
     kernel_name: impl AsRef<str>,
@@ -51,7 +56,9 @@ pub fn load_linux(
     info!("Protocol = 0x{:x}", protocol);
 
     let mut initrd_max = if protocol >= 0x20c
-        && (LittleEndian::read_u32(&kernel[0x236..0x236 + 4]) & XLF_CAN_BE_LOADED_ABOVE_4G) != 0
+        && (LittleEndian::read_u32(&kernel[0x236..0x236 + 4])
+            & XLoadFlags::CAN_BE_LOADED_ABOVE_4G.bits())
+            != 0
     {
         0xffffffff
     } else if protocol >= 0x203 {
@@ -121,8 +128,9 @@ pub fn load_linux(
     let setup_size = match kernel[0x1f1] {
         // For legacy compat, setup size 0 is really 4 sectors
         0 => 4 + 1,
-        size => size + 1
-    } as i32 * 512;
+        size => size + 1,
+    } as i32
+        * 512;
 
     if setup_size as usize > kernel.len() {
         return Err(Error::InvalidValue(
