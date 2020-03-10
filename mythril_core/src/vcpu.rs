@@ -200,6 +200,11 @@ impl VCpu {
             let cr4_fixed0 = unsafe { msr::rdmsr(msr::IA32_VMX_CR4_FIXED0) };
 
             vmcs.write_field(
+                vmcs::VmcsField::Cr0GuestHostMask,
+                cr0_fixed0 & 0x00000000ffffffff,
+            )?;
+
+            vmcs.write_field(
                 vmcs::VmcsField::Cr4GuestHostMask,
                 cr4_fixed0 & 0x00000000ffffffff,
             )?;
