@@ -22,8 +22,12 @@ use mythril_core::*;
 use spin::RwLock;
 
 // Temporary helper function to create a vm for a single core
-fn default_vm(core: usize, services: &mut impl VmServices) -> Arc<RwLock<vm::VirtualMachine>> {
-    let mut config = vm::VirtualMachineConfig::new(vec![core as u8], 1024);
+fn default_vm(
+    core: usize,
+    mem: u64,
+    services: &mut impl VmServices,
+) -> Arc<RwLock<vm::VirtualMachine>> {
+    let mut config = vm::VirtualMachineConfig::new(vec![core as u8], mem);
 
     // FIXME: When `map_bios` may return an error, log the error.
     config.map_bios("seabios.bin".into()).unwrap_or(());
@@ -66,20 +70,35 @@ fn default_vm(core: usize, services: &mut impl VmServices) -> Arc<RwLock<vm::Vir
         .register_device(device::pos::ProgrammableOptionSelect::new())
         .unwrap();
     device_map
-        .register_device(device::rtc::CmosRtc::new())
+        .register_device(device::rtc::CmosRtc::new(mem))
         .unwrap();
 
     let mut fw_cfg_builder = device::qemu_fw_cfg::QemuFwCfgBuilder::new();
+
+    // The 'linuxboot' file is an option rom that loads the linux kernel
+    // via qemu_fw_cfg
     fw_cfg_builder
         .add_file(
             "genroms/linuxboot.bin",
             services.read_file("linuxboot.bin").unwrap(),
         )
         .unwrap();
+
+    // Passing the bootorder file automatically selects the option rom
+    // as the default boot device
     fw_cfg_builder
         .add_file("bootorder", "/rom@genroms/linuxboot.bin\nHALT".as_bytes())
         .unwrap();
-    linux::load_linux(&mut fw_cfg_builder, services, "foo=bar".as_bytes()).unwrap();
+
+    linux::load_linux(
+        "kernel",
+        "initramfs",
+        "earlyprintk=serial,0x3f8,115200 debug\0".as_bytes(),
+        mem,
+        &mut fw_cfg_builder,
+        services,
+    )
+    .unwrap();
     device_map.register_device(fw_cfg_builder.build()).unwrap();
 
     vm::VirtualMachine::new(config, services).expect("Failed to create vm")
@@ -175,7 +194,7 @@ pub extern "C" fn kmain(multiboot_info_addr: usize) -> ! {
 
     let mut multiboot_services = services::Multiboot2Services::new(multiboot_info);
     let mut map = BTreeMap::new();
-    map.insert(0usize, default_vm(0, &mut multiboot_services));
+    map.insert(0usize, default_vm(0, 80, &mut multiboot_services));
     let map: &'static _ = Box::leak(Box::new(map));
 
     vcpu::smp_entry_point(map)
