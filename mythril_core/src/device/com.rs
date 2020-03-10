@@ -63,6 +63,10 @@ impl EmulatedDevice for ComDevice {
             val.copy_from_u32(self.interrupt_enable_register as u32);
         }
 
+        if port - self.base_port == SEROFF_LSR {
+            val.copy_from_u32(0x20);
+        }
+
         Ok(())
     }
 
@@ -80,6 +84,9 @@ impl EmulatedDevice for ComDevice {
         } else if port - self.base_port == SEROFF_IER {
             self.interrupt_enable_register = val.try_into()?;
         }
+
+        let c: u8 = val.try_into()?;
+        info!("com on_port_write: 0x{:x}, {}", port - self.base_port, c as char);
 
         Ok(())
     }
