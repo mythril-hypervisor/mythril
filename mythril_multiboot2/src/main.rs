@@ -37,16 +37,16 @@ fn default_vm(
         .register_device(device::acpi::AcpiRuntime::new(0xb000).unwrap())
         .unwrap();
     device_map
-        .register_device(device::com::ComDevice::new(0x3F8))
+        .register_device(device::com::ComDevice::new(core as u64, 0x3F8))
         .unwrap();
     device_map
-        .register_device(device::com::ComDevice::new(0x2F8))
+        .register_device(device::com::ComDevice::new(core as u64, 0x2F8))
         .unwrap();
     device_map
-        .register_device(device::com::ComDevice::new(0x3E8))
+        .register_device(device::com::ComDevice::new(core as u64, 0x3E8))
         .unwrap();
     device_map
-        .register_device(device::com::ComDevice::new(0x2E8))
+        .register_device(device::com::ComDevice::new(core as u64, 0x2E8))
         .unwrap();
     device_map
         .register_device(device::debug::DebugPort::new(core as u64, 0x402))
@@ -93,7 +93,7 @@ fn default_vm(
     linux::load_linux(
         "kernel",
         "initramfs",
-        "earlyprintk=serial,0x3f8,115200 debug\0".as_bytes(),
+        "earlyprintk=serial,0x3f8,115200 debug nokaslr\0".as_bytes(),
         mem,
         &mut fw_cfg_builder,
         services,
@@ -194,7 +194,7 @@ pub extern "C" fn kmain(multiboot_info_addr: usize) -> ! {
 
     let mut multiboot_services = services::Multiboot2Services::new(multiboot_info);
     let mut map = BTreeMap::new();
-    map.insert(0usize, default_vm(0, 80, &mut multiboot_services));
+    map.insert(0usize, default_vm(0, 512, &mut multiboot_services));
     let map: &'static _ = Box::leak(Box::new(map));
 
     vcpu::smp_entry_point(map)
