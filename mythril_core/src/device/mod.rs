@@ -364,7 +364,7 @@ mod test {
         map.register_device(com).unwrap();
         let _dev = map.device_for(0u16).unwrap();
 
-        assert_eq!(map.device_for(1u16).is_none(), true);
+        assert_eq!(map.device_for(10u16).is_none(), true);
     }
 
     #[test]
