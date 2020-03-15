@@ -214,6 +214,7 @@ impl VCpu {
 
         vmcs.write_field(vmcs::VmcsField::GuestCr0, guest_cr0)?;
         vmcs.write_field(vmcs::VmcsField::GuestCr4, guest_cr4)?;
+        vmcs.write_field(vmcs::VmcsField::Cr0ReadShadow, 0x00)?;
         vmcs.write_field(vmcs::VmcsField::Cr4ReadShadow, 0x00)?;
 
         vmcs.write_field(vmcs::VmcsField::GuestCr3, 0x00)?;
@@ -238,10 +239,13 @@ impl VCpu {
             (vmcs::SecondaryExecFlags::VIRTUALIZE_APIC_ACCESSES
                 | vmcs::SecondaryExecFlags::ENABLE_EPT
                 | vmcs::SecondaryExecFlags::ENABLE_VPID
+                | vmcs::SecondaryExecFlags::ENABLE_INVPCID
                 | vmcs::SecondaryExecFlags::UNRESTRICTED_GUEST)
                 .bits(),
             msr::IA32_VMX_PROCBASED_CTLS2,
         )?;
+
+        //TODO: set unique processor id
         vmcs.write_field(vmcs::VmcsField::VirtualProcessorId, 1)?;
 
         vmcs.write_with_fixed(
@@ -268,7 +272,8 @@ impl VCpu {
         let msr_bitmap = Box::into_raw(Box::new(Raw4kPage::default()));
         vmcs.write_field(vmcs::VmcsField::MsrBitmap, msr_bitmap as u64)?;
 
-        vmcs.write_field(vmcs::VmcsField::ExceptionBitmap, 0xffffffff)?;
+        // Do not VMEXIT on any exceptions
+        vmcs.write_field(vmcs::VmcsField::ExceptionBitmap, 0x00000000)?;
 
         let field = vmcs.read_field(vmcs::VmcsField::CpuBasedVmExecControl)?;
         info!("Flags: 0x{:x}", field);
@@ -444,7 +449,12 @@ impl VCpu {
                             self.vmcs
                                 .write_field(vmcs::VmcsField::GuestCr0, cr0 & !0b1000)?;
                         }
-                        _ => unreachable!(),
+                        vmexit::CrAccessType::MovToCr => {
+                            let reg = info.register.unwrap();
+                            let val = reg.read(&self.vmcs, guest_cpu)?;
+                            self.vmcs.write_field(vmcs::VmcsField::GuestCr0, val)?;
+                        }
+                        op => panic!("Unsupported MovToCr cr0 operation: {:?}", op),
                     },
                     3 => match info.access_type {
                         vmexit::CrAccessType::MovToCr => {
@@ -457,7 +467,7 @@ impl VCpu {
                             let val = self.vmcs.read_field(vmcs::VmcsField::GuestCr3)?;
                             reg.write(val, &mut self.vmcs, guest_cpu)?;
                         }
-                        _ => unreachable!(),
+                        op => panic!("Unsupported MovFromCr cr0 operation: {:?}", op),
                     },
                     _ => return Err(Error::InvalidValue(format!("Unsupported CR number access"))),
                 }
@@ -472,9 +482,15 @@ impl VCpu {
                     guest_cpu.rcx as u32,
                 );
 
-                // Disable MTRR support in the features info leaf (for now)
                 if guest_cpu.rax as u32 == 1 {
+                    // Disable MTRR
                     res.edx &= !(1 << 12);
+
+                    // Disable XSAVE
+                    res.ecx &= !(1 << 26);
+
+                    // Hide hypervisor feature
+                    res.ecx &= !(1 << 31);
                 }
 
                 guest_cpu.rax = res.eax as u64 | (guest_cpu.rax & 0xffffffff00000000);
@@ -491,7 +507,16 @@ impl VCpu {
                 self.handle_ept_violation(guest_cpu, info)?;
                 self.skip_emulated_instruction()?;
             }
-            _ => info!("No handler for exit reason: {:?}", exit),
+            vmexit::ExitInformation::WrMsr => {
+                info!(
+                    "wrmsr: {:x}:{:x} to register 0x{:x}",
+                    guest_cpu.rdx as u32, guest_cpu.rax as u32, guest_cpu.rcx as u32
+                );
+            }
+            _ => {
+                info!("{}", self.vmcs);
+                panic!("No handler for exit reason: {:?}", exit);
+            }
         }
 
         Ok(())
