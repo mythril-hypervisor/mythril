@@ -1,13 +1,16 @@
 use crate::device::{DeviceRegion, EmulatedDevice, Port, PortIoValue};
 use crate::error::Result;
+use crate::logger;
 use alloc::boxed::Box;
+use alloc::string::String;
 use alloc::vec::Vec;
 use core::convert::TryInto;
 
 #[derive(Default)]
 pub struct ComDevice {
+    id: u64,
     base_port: Port,
-    _buff: Vec<u8>,
+    buff: Vec<u8>,
     divisor: u16,
     interrupt_enable_register: u8,
     interrupt_identification_register: u8,
@@ -32,10 +35,11 @@ mod SerialOffset {
 }
 
 impl ComDevice {
-    pub fn new(base_port: Port) -> Box<dyn EmulatedDevice> {
+    pub fn new(vmid: u64, base_port: Port) -> Box<dyn EmulatedDevice> {
         Box::new(Self {
+            id: vmid,
             base_port,
-            _buff: vec![],
+            buff: vec![],
 
             // For now, transmitter holding register is always empty
             interrupt_identification_register: 0x02,
@@ -75,9 +79,18 @@ impl EmulatedDevice for ComDevice {
     }
 
     fn on_port_write(&mut self, port: Port, val: PortIoValue) -> Result<()> {
-        if port - self.base_port == SerialOffset::DATA && self.divisor_latch_bit_set() {
+        if port - self.base_port == SerialOffset::DATA {
             let val: u8 = val.try_into()?;
-            self.divisor &= 0xff00 | val as u16;
+            if self.divisor_latch_bit_set() {
+                self.divisor &= 0xff00 | val as u16;
+            } else {
+                self.buff.push(val);
+                if val == 10 {
+                    let s = String::from_utf8_lossy(&self.buff);
+                    logger::write_console(&format!("GUEST{}: {}", self.id, s));
+                    self.buff.clear();
+                }
+            }
         } else if port - self.base_port == SerialOffset::DLL && self.divisor_latch_bit_set() {
             let val: u8 = val.try_into()?;
             self.divisor = (self.divisor & 0xff) | (val as u16) << 8;
@@ -88,13 +101,6 @@ impl EmulatedDevice for ComDevice {
         } else if port - self.base_port == SerialOffset::IER {
             self.interrupt_enable_register = val.try_into()?;
         }
-
-        let c: u8 = val.try_into()?;
-        info!(
-            "com on_port_write: 0x{:x}, {}",
-            port - self.base_port,
-            c as char
-        );
 
         Ok(())
     }
