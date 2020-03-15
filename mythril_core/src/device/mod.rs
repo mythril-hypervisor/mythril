@@ -19,6 +19,7 @@ pub mod pit;
 pub mod pos;
 pub mod qemu_fw_cfg;
 pub mod rtc;
+pub mod vga;
 
 pub type Port = u16;
 

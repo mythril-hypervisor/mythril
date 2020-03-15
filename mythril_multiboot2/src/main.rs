@@ -52,6 +52,9 @@ fn default_vm(
         .register_device(device::debug::DebugPort::new(core as u64, 0x402))
         .unwrap();
     device_map
+        .register_device(device::vga::VgaController::new())
+        .unwrap();
+    device_map
         .register_device(device::dma::Dma8237::new())
         .unwrap();
     device_map
