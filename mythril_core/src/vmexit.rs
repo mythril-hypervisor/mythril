@@ -41,8 +41,13 @@ pub extern "C" fn vmexit_handler(state: *mut GuestCpuState) {
 
     let reason = ExitReason::from_active_vmcs(&mut vcpu.vmcs).expect("Failed to get vm reason");
 
-    vcpu.handle_vmexit(state, reason)
-        .expect("Failed to handle vmexit")
+    if let Err(e) = vcpu.handle_vmexit(state, reason) {
+        // Build the reason again, because we don't want to clone
+        // in the typical (non-error) case.
+        let reason = ExitReason::from_active_vmcs(&mut vcpu.vmcs).expect("Failed to get vm reason");
+        info!("exit reason = {:?}", reason);
+        panic!("Failed to handle vmexit: {:?}", e);
+    }
 }
 
 #[no_mangle]
