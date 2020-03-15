@@ -58,6 +58,9 @@ fn default_vm(
         .register_device(device::dma::Dma8237::new())
         .unwrap();
     device_map
+        .register_device(device::ignore::IgnoredDevice::new())
+        .unwrap();
+    device_map
         .register_device(device::pci::PciRootComplex::new())
         .unwrap();
     device_map

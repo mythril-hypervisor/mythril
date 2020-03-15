@@ -12,6 +12,7 @@ pub mod acpi;
 pub mod com;
 pub mod debug;
 pub mod dma;
+pub mod ignore;
 pub mod keyboard;
 pub mod pci;
 pub mod pic;
