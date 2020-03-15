@@ -21,8 +21,11 @@ docker run -v $(pwd):/src adamschwalm/hypervisor-build:5 make test
 
 ## Running the Hypervisor
 
-After building the multiboot2 application as described above, the image can be executed
-with:
+After building the multiboot2 application as described above, a linux kernel and initramfs
+must be added to the `scripts/` directory. The kernel must be named `vmlinuz` and the
+initramfs must be named `initramfs`. _Note that currently, copying these images in to the
+guest is very slow, so avoid using a large initramfs_. Once in place, the hypervisor
+can be executed with:
 
 ```
 make qemu
