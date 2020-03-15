@@ -134,7 +134,7 @@ pub fn load_linux(
 
     if setup_size as usize > kernel.len() {
         return Err(Error::InvalidValue(
-            "Invalid kernel header (setup size > header size)".into(),
+            "Invalid kernel header (setup size > kernel size)".into(),
         ));
     }
     let kernel_size = kernel.len() as i32 - setup_size;
@@ -145,7 +145,6 @@ pub fn load_linux(
 
     builder.add_i32(FwCfgSelector::SETUP_ADDR, real_addr);
     builder.add_i32(FwCfgSelector::SETUP_SIZE, setup_size);
-    //TODO: this should never be _more_ than 8k
     builder.add_bytes(FwCfgSelector::SETUP_DATA, &kernel[..setup_size as usize]);
 
     info!("CMDLINE_ADDR: 0x{:x}", cmdline_addr);
