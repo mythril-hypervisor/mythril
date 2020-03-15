@@ -99,7 +99,7 @@ fn default_vm(
     linux::load_linux(
         "kernel",
         "initramfs",
-        "earlyprintk=serial,0x3f8,115200 debug nokaslr\0".as_bytes(),
+        "earlyprintk=serial,0x3f8,115200 console=ttyS0 debug nokaslr\0".as_bytes(),
         mem,
         &mut fw_cfg_builder,
         services,
