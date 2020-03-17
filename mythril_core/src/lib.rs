@@ -16,6 +16,7 @@ extern crate alloc;
 extern crate log;
 
 pub mod device;
+pub mod emulate;
 pub mod error;
 pub mod interrupt;
 pub mod linux;
