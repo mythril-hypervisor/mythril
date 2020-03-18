@@ -11,7 +11,7 @@ description = "A intel-focused hypervisor using VT-x/EPT"
 multiboot2 = "0.8.1"
 mythril_core = { version = "*", path = "../mythril_core" }
 log = { version = "0.4.8", default-features = false }
-linked_list_allocator = "0.6.6"
+linked_list_allocator = "0.8.1"
 spin = "0.5"
 x86 = "0.27.0"
 
