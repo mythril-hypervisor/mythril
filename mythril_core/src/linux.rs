@@ -45,13 +45,14 @@ pub fn load_linux(
     }
 
     let protocol = LittleEndian::read_u16(&kernel[0x206..0x206 + 2]);
-    let (real_addr, cmdline_addr, prot_addr) = if protocol < 0x200 || (kernel[0x211] & 0x01) == 0 {
-        (0x90000, 0x9a000 - cmdline.len() as i32, 0x10000)
-    } else if protocol < 0x202 {
-        (0x90000, 0x9a000 - cmdline.len() as i32, 0x100000)
-    } else {
-        (0x10000, 0x20000, 0x100000)
-    };
+    let (real_addr, cmdline_addr, prot_addr) =
+        if protocol < 0x200 || (kernel[0x211] & 0x01) == 0 {
+            (0x90000, 0x9a000 - cmdline.len() as i32, 0x10000)
+        } else if protocol < 0x202 {
+            (0x90000, 0x9a000 - cmdline.len() as i32, 0x100000)
+        } else {
+            (0x10000, 0x20000, 0x100000)
+        };
 
     info!("Protocol = 0x{:x}", protocol);
 
@@ -123,7 +124,10 @@ pub fn load_linux(
     builder.add_i32(FwCfgSelector::INITRD_SIZE, initramfs.len() as i32);
     builder.add_bytes(FwCfgSelector::INITRD_DATA, initramfs);
     LittleEndian::write_i32(&mut kernel[0x218..0x218 + 4], initrd_addr);
-    LittleEndian::write_i32(&mut kernel[0x21c..0x21c + 4], initramfs.len() as i32);
+    LittleEndian::write_i32(
+        &mut kernel[0x21c..0x21c + 4],
+        initramfs.len() as i32,
+    );
 
     let setup_size = match kernel[0x1f1] {
         // For legacy compat, setup size 0 is really 4 sectors
@@ -141,11 +145,13 @@ pub fn load_linux(
 
     builder.add_i32(FwCfgSelector::KERNEL_ADDR, prot_addr);
     builder.add_i32(FwCfgSelector::KERNEL_SIZE, kernel_size);
-    builder.add_bytes(FwCfgSelector::KERNEL_DATA, &kernel[setup_size as usize..]);
+    builder
+        .add_bytes(FwCfgSelector::KERNEL_DATA, &kernel[setup_size as usize..]);
 
     builder.add_i32(FwCfgSelector::SETUP_ADDR, real_addr);
     builder.add_i32(FwCfgSelector::SETUP_SIZE, setup_size);
-    builder.add_bytes(FwCfgSelector::SETUP_DATA, &kernel[..setup_size as usize]);
+    builder
+        .add_bytes(FwCfgSelector::SETUP_DATA, &kernel[..setup_size as usize]);
 
     info!("CMDLINE_ADDR: 0x{:x}", cmdline_addr);
     info!("CMDLINE_SIZE: 0x{:x}", cmdline.len());

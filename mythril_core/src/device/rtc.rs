@@ -111,7 +111,11 @@ impl EmulatedDevice for CmosRtc {
         vec![DeviceRegion::PortIo(Self::RTC_ADDRESS..=Self::RTC_DATA)]
     }
 
-    fn on_port_read(&mut self, port: Port, val: &mut PortIoValue) -> Result<()> {
+    fn on_port_read(
+        &mut self,
+        port: Port,
+        val: &mut PortIoValue,
+    ) -> Result<()> {
         match port {
             Self::RTC_ADDRESS => {
                 *val = (self.addr as u8).into();
@@ -136,7 +140,8 @@ impl EmulatedDevice for CmosRtc {
             Self::RTC_ADDRESS => {
                 // OVMF expects to be able to read pretty much any address
                 // (and just get zeros for meaningless ones)
-                self.addr = CmosRegister::try_from(val).unwrap_or(CmosRegister::Unknown);
+                self.addr = CmosRegister::try_from(val)
+                    .unwrap_or(CmosRegister::Unknown);
             }
             Self::RTC_DATA => {
                 match self.addr {
@@ -144,7 +149,8 @@ impl EmulatedDevice for CmosRtc {
                         // It's not clear what's supposed to happen here, just ignore
                         // it for now
                     }
-                    CmosRegister::StatusRegisterD | CmosRegister::StatusRegisterC => {
+                    CmosRegister::StatusRegisterD
+                    | CmosRegister::StatusRegisterC => {
                         // Status register C and D are read-only (but OVMF will attempt
                         // to write to them, so we must explicitly ignore the writes)
                     }

@@ -31,13 +31,21 @@ impl Pic8259 {
 impl EmulatedDevice for Pic8259 {
     fn services(&self) -> Vec<DeviceRegion> {
         vec![
-            DeviceRegion::PortIo(Self::PIC_MASTER_COMMAND..=Self::PIC_MASTER_DATA),
-            DeviceRegion::PortIo(Self::PIC_SLAVE_COMMAND..=Self::PIC_SLAVE_DATA),
+            DeviceRegion::PortIo(
+                Self::PIC_MASTER_COMMAND..=Self::PIC_MASTER_DATA,
+            ),
+            DeviceRegion::PortIo(
+                Self::PIC_SLAVE_COMMAND..=Self::PIC_SLAVE_DATA,
+            ),
             DeviceRegion::PortIo(Self::PIC_ECLR_COMMAND..=Self::PIC_ECLR_DATA),
         ]
     }
 
-    fn on_port_read(&mut self, port: Port, val: &mut PortIoValue) -> Result<()> {
+    fn on_port_read(
+        &mut self,
+        port: Port,
+        val: &mut PortIoValue,
+    ) -> Result<()> {
         let data = match port {
             Self::PIC_MASTER_DATA => self.master_state.imr,
             Self::PIC_SLAVE_DATA => self.master_state.imr,

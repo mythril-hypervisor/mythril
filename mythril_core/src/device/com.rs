@@ -58,10 +58,18 @@ impl EmulatedDevice for ComDevice {
         vec![DeviceRegion::PortIo(self.base_port..=self.base_port + 7)]
     }
 
-    fn on_port_read(&mut self, port: Port, val: &mut PortIoValue) -> Result<()> {
-        if port - self.base_port == SerialOffset::DATA && self.divisor_latch_bit_set() {
+    fn on_port_read(
+        &mut self,
+        port: Port,
+        val: &mut PortIoValue,
+    ) -> Result<()> {
+        if port - self.base_port == SerialOffset::DATA
+            && self.divisor_latch_bit_set()
+        {
             val.copy_from_u32((self.divisor & 0xff).into());
-        } else if port - self.base_port == SerialOffset::DLL && self.divisor_latch_bit_set() {
+        } else if port - self.base_port == SerialOffset::DLL
+            && self.divisor_latch_bit_set()
+        {
             val.copy_from_u32((self.divisor >> 8).into());
         }
 
@@ -91,7 +99,9 @@ impl EmulatedDevice for ComDevice {
                     self.buff.clear();
                 }
             }
-        } else if port - self.base_port == SerialOffset::DLL && self.divisor_latch_bit_set() {
+        } else if port - self.base_port == SerialOffset::DLL
+            && self.divisor_latch_bit_set()
+        {
             let val: u8 = val.try_into()?;
             self.divisor = (self.divisor & 0xff) | (val as u16) << 8;
         }

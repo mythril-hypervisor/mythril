@@ -32,13 +32,21 @@ impl Dma8237 {
 impl EmulatedDevice for Dma8237 {
     fn services(&self) -> Vec<DeviceRegion> {
         vec![
-            DeviceRegion::PortIo(Self::DMA1_CHAN2_ADDR..=Self::DMA1_MASTER_CLEAR),
-            DeviceRegion::PortIo(Self::DMA_CHAN2_PAGE_CHECK..=Self::DMA_CHAN1_PAGE_CHECK),
+            DeviceRegion::PortIo(
+                Self::DMA1_CHAN2_ADDR..=Self::DMA1_MASTER_CLEAR,
+            ),
+            DeviceRegion::PortIo(
+                Self::DMA_CHAN2_PAGE_CHECK..=Self::DMA_CHAN1_PAGE_CHECK,
+            ),
             DeviceRegion::PortIo(Self::DMA2_MASK..=Self::DMA2_MASTER_CLEAR),
         ]
     }
 
-    fn on_port_read(&mut self, _port: Port, _val: &mut PortIoValue) -> Result<()> {
+    fn on_port_read(
+        &mut self,
+        _port: Port,
+        _val: &mut PortIoValue,
+    ) -> Result<()> {
         Ok(())
     }
 

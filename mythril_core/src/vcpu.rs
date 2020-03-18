@@ -24,7 +24,9 @@ extern "C" {
 /// The post-startup point where a core begins executing its statically
 /// assigned VCPU. The `vm_map` maps APIC core id's to the virtual machine
 /// associated with that core.
-pub fn smp_entry_point(vm_map: &'static BTreeMap<usize, Arc<RwLock<VirtualMachine>>>) -> ! {
+pub fn smp_entry_point(
+    vm_map: &'static BTreeMap<usize, Arc<RwLock<VirtualMachine>>>,
+) -> ! {
     let cpuid = CpuId::new();
     let apicid = match cpuid.get_feature_info() {
         Some(finfo) => finfo.initial_local_apic_id() as usize,
@@ -96,13 +98,22 @@ impl VCpu {
         unreachable!()
     }
 
-    fn initialize_host_vmcs(vmcs: &mut vmcs::ActiveVmcs, stack: u64) -> Result<()> {
+    fn initialize_host_vmcs(
+        vmcs: &mut vmcs::ActiveVmcs,
+        stack: u64,
+    ) -> Result<()> {
         //TODO: Check with MSR_IA32_VMX_CR0_FIXED0/1 that these bits are valid
-        vmcs.write_field(vmcs::VmcsField::HostCr0, unsafe { cr0() }.bits() as u64)?;
+        vmcs.write_field(
+            vmcs::VmcsField::HostCr0,
+            unsafe { cr0() }.bits() as u64,
+        )?;
 
         let current_cr3 = unsafe { cr3() };
         vmcs.write_field(vmcs::VmcsField::HostCr3, current_cr3)?;
-        vmcs.write_field(vmcs::VmcsField::HostCr4, unsafe { cr4() }.bits() as u64)?;
+        vmcs.write_field(
+            vmcs::VmcsField::HostCr4,
+            unsafe { cr4() }.bits() as u64,
+        )?;
 
         // Unsafe is required here due to reading an extern static
         unsafe {
@@ -193,7 +204,8 @@ impl VCpu {
         vmcs.write_field(vmcs::VmcsField::GuestIa32Efer, 0x00)?;
 
         let (guest_cr0, guest_cr4) = {
-            let mut cr0_fixed0 = unsafe { msr::rdmsr(msr::IA32_VMX_CR0_FIXED0) };
+            let mut cr0_fixed0 =
+                unsafe { msr::rdmsr(msr::IA32_VMX_CR0_FIXED0) };
             cr0_fixed0 &= !(1 << 0); // disable PE
             cr0_fixed0 &= !(1 << 31); // disable PG
             let cr4_fixed0 = unsafe { msr::rdmsr(msr::IA32_VMX_CR4_FIXED0) };
@@ -331,31 +343,49 @@ impl VCpu {
                 match info.cr_num {
                     0 => match info.access_type {
                         vmexit::CrAccessType::Clts => {
-                            let cr0 = self.vmcs.read_field(vmcs::VmcsField::GuestCr0)?;
-                            self.vmcs
-                                .write_field(vmcs::VmcsField::GuestCr0, cr0 & !0b1000)?;
+                            let cr0 = self
+                                .vmcs
+                                .read_field(vmcs::VmcsField::GuestCr0)?;
+                            self.vmcs.write_field(
+                                vmcs::VmcsField::GuestCr0,
+                                cr0 & !0b1000,
+                            )?;
                         }
                         vmexit::CrAccessType::MovToCr => {
                             let reg = info.register.unwrap();
                             let val = reg.read(&self.vmcs, guest_cpu)?;
-                            self.vmcs.write_field(vmcs::VmcsField::GuestCr0, val)?;
+                            self.vmcs
+                                .write_field(vmcs::VmcsField::GuestCr0, val)?;
                         }
-                        op => panic!("Unsupported MovToCr cr0 operation: {:?}", op),
+                        op => panic!(
+                            "Unsupported MovToCr cr0 operation: {:?}",
+                            op
+                        ),
                     },
                     3 => match info.access_type {
                         vmexit::CrAccessType::MovToCr => {
                             let reg = info.register.unwrap();
                             let val = reg.read(&self.vmcs, guest_cpu)?;
-                            self.vmcs.write_field(vmcs::VmcsField::GuestCr3, val)?;
+                            self.vmcs
+                                .write_field(vmcs::VmcsField::GuestCr3, val)?;
                         }
                         vmexit::CrAccessType::MovFromCr => {
                             let reg = info.register.unwrap();
-                            let val = self.vmcs.read_field(vmcs::VmcsField::GuestCr3)?;
+                            let val = self
+                                .vmcs
+                                .read_field(vmcs::VmcsField::GuestCr3)?;
                             reg.write(val, &mut self.vmcs, guest_cpu)?;
                         }
-                        op => panic!("Unsupported MovFromCr cr0 operation: {:?}", op),
+                        op => panic!(
+                            "Unsupported MovFromCr cr0 operation: {:?}",
+                            op
+                        ),
                     },
-                    _ => return Err(Error::InvalidValue(format!("Unsupported CR number access"))),
+                    _ => {
+                        return Err(Error::InvalidValue(format!(
+                            "Unsupported CR number access"
+                        )))
+                    }
                 }
 
                 self.skip_emulated_instruction()?;
@@ -376,7 +406,9 @@ impl VCpu {
             vmexit::ExitInformation::WrMsr => {
                 info!(
                     "wrmsr: {:x}:{:x} to register 0x{:x}",
-                    guest_cpu.rdx as u32, guest_cpu.rax as u32, guest_cpu.rcx as u32
+                    guest_cpu.rdx as u32,
+                    guest_cpu.rax as u32,
+                    guest_cpu.rcx as u32
                 );
             }
             _ => {

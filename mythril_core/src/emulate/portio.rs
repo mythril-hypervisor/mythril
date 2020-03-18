@@ -12,7 +12,8 @@ fn emulate_outs(
 ) -> Result<()> {
     let mut vm = vcpu.vm.write();
 
-    let linear_addr = vcpu.vmcs.read_field(vmcs::VmcsField::GuestLinearAddress)?;
+    let linear_addr =
+        vcpu.vmcs.read_field(vmcs::VmcsField::GuestLinearAddress)?;
     let guest_addr = memory::GuestVirtAddr::new(linear_addr, &vcpu.vmcs)?;
 
     // FIXME: This could actually be any priv level due to IOPL, but for now
@@ -28,11 +29,10 @@ fn emulate_outs(
         access,
     )?;
 
-    let dev = vm
-        .config
-        .device_map()
-        .device_for_mut(port)
-        .ok_or(Error::MissingDevice(format!("No device for port {}", port)))?;
+    let dev =
+        vm.config.device_map().device_for_mut(port).ok_or(
+            Error::MissingDevice(format!("No device for port {}", port)),
+        )?;
 
     // FIXME: Actually test for REP
     for chunk in bytes.chunks_exact(exit.size as usize) {
@@ -52,13 +52,13 @@ fn emulate_ins(
 ) -> Result<()> {
     let mut vm = vcpu.vm.write();
 
-    let dev = vm
-        .config
-        .device_map()
-        .device_for_mut(port)
-        .ok_or(Error::MissingDevice(format!("No device for port {}", port)))?;
+    let dev =
+        vm.config.device_map().device_for_mut(port).ok_or(
+            Error::MissingDevice(format!("No device for port {}", port)),
+        )?;
 
-    let linear_addr = vcpu.vmcs.read_field(vmcs::VmcsField::GuestLinearAddress)?;
+    let linear_addr =
+        vcpu.vmcs.read_field(vmcs::VmcsField::GuestLinearAddress)?;
     let guest_addr = memory::GuestVirtAddr::new(linear_addr, &vcpu.vmcs)?;
     let access = memory::GuestAccess::Read(memory::PrivilegeLevel(0));
 
@@ -82,20 +82,22 @@ pub fn emulate_portio(
     guest_cpu: &mut vmexit::GuestCpuState,
     exit: vmexit::IoInstructionInformation,
 ) -> Result<()> {
-    let (port, input, size, string) = (exit.port, exit.input, exit.size, exit.string);
+    let (port, input, size, string) =
+        (exit.port, exit.input, exit.size, exit.string);
 
     if !string {
         let mut vm = vcpu.vm.write();
 
-        let dev = vm
-            .config
-            .device_map()
-            .device_for_mut(port)
-            .ok_or(Error::MissingDevice(format!("No device for port {}", port)))?;
+        let dev = vm.config.device_map().device_for_mut(port).ok_or(
+            Error::MissingDevice(format!("No device for port {}", port)),
+        )?;
 
         if !input {
             let arr = (guest_cpu.rax as u32).to_be_bytes();
-            dev.on_port_write(port, PortIoValue::try_from(&arr[4 - size as usize..])?)?;
+            dev.on_port_write(
+                port,
+                PortIoValue::try_from(&arr[4 - size as usize..])?,
+            )?;
         } else {
             let mut val = match size {
                 1 => PortIoValue::OneByte([0]),

@@ -73,7 +73,10 @@ pub enum DeviceRegion {
 
 pub trait DeviceInteraction {
     fn find_device(self, map: &DeviceMap) -> Option<&Box<dyn EmulatedDevice>>;
-    fn find_device_mut(self, map: &mut DeviceMap) -> Option<&mut Box<dyn EmulatedDevice>>;
+    fn find_device_mut(
+        self,
+        map: &mut DeviceMap,
+    ) -> Option<&mut Box<dyn EmulatedDevice>>;
 }
 
 impl DeviceInteraction for u16 {
@@ -81,7 +84,10 @@ impl DeviceInteraction for u16 {
         let range = PortIoRegion(RangeInclusive::new(self, self));
         map.portio_map.get(&range).map(|v| &**v)
     }
-    fn find_device_mut(self, map: &mut DeviceMap) -> Option<&mut Box<dyn EmulatedDevice>> {
+    fn find_device_mut(
+        self,
+        map: &mut DeviceMap,
+    ) -> Option<&mut Box<dyn EmulatedDevice>> {
         let range = PortIoRegion(RangeInclusive::new(self, self));
         //NOTE: This is safe because all of the clones will exist in the same DeviceMap,
         //      so there cannot be other outstanding references
@@ -96,7 +102,10 @@ impl DeviceInteraction for GuestPhysAddr {
         let range = MemIoRegion(RangeInclusive::new(self, self));
         map.memio_map.get(&range).map(|v| &**v)
     }
-    fn find_device_mut(self, map: &mut DeviceMap) -> Option<&mut Box<dyn EmulatedDevice>> {
+    fn find_device_mut(
+        self,
+        map: &mut DeviceMap,
+    ) -> Option<&mut Box<dyn EmulatedDevice>> {
         let range = MemIoRegion(RangeInclusive::new(self, self));
         map.memio_map
             .get_mut(&range)
@@ -113,7 +122,10 @@ pub struct DeviceMap {
 
 impl DeviceMap {
     /// Find the device that is responsible for handling an interaction
-    pub fn device_for(&self, op: impl DeviceInteraction) -> Option<&Box<dyn EmulatedDevice>> {
+    pub fn device_for(
+        &self,
+        op: impl DeviceInteraction,
+    ) -> Option<&Box<dyn EmulatedDevice>> {
         op.find_device(self)
     }
 
@@ -124,7 +136,10 @@ impl DeviceMap {
         op.find_device_mut(self)
     }
 
-    pub fn register_device(&mut self, dev: Box<dyn EmulatedDevice>) -> Result<()> {
+    pub fn register_device(
+        &mut self,
+        dev: Box<dyn EmulatedDevice>,
+    ) -> Result<()> {
         let services = dev.services();
         let dev = Rc::new(dev);
         for region in services.into_iter() {
@@ -169,17 +184,29 @@ impl DeviceMap {
 pub trait EmulatedDevice {
     fn services(&self) -> Vec<DeviceRegion>;
 
-    fn on_mem_read(&mut self, _addr: GuestPhysAddr, _data: &mut [u8]) -> Result<()> {
+    fn on_mem_read(
+        &mut self,
+        _addr: GuestPhysAddr,
+        _data: &mut [u8],
+    ) -> Result<()> {
         Err(Error::NotImplemented(
             "MemoryMapped device does not support reading".into(),
         ))
     }
-    fn on_mem_write(&mut self, _addr: GuestPhysAddr, _data: &[u8]) -> Result<()> {
+    fn on_mem_write(
+        &mut self,
+        _addr: GuestPhysAddr,
+        _data: &[u8],
+    ) -> Result<()> {
         Err(Error::NotImplemented(
             "MemoryMapped device does not support writing".into(),
         ))
     }
-    fn on_port_read(&mut self, _port: Port, _val: &mut PortIoValue) -> Result<()> {
+    fn on_port_read(
+        &mut self,
+        _port: Port,
+        _val: &mut PortIoValue,
+    ) -> Result<()> {
         Err(Error::NotImplemented(
             "PortIo device does not support reading".into(),
         ))

@@ -84,7 +84,11 @@ impl QemuFwCfgBuilder {
         //    struct FWCfgFile f[]; /* array of file entries */
         // };
         let info_len = (self.file_info.len() as u32).to_be_bytes();
-        let mut buffer = vec![0u8; 4 + self.file_info.len() * core::mem::size_of::<FWCfgFile>()];
+        let mut buffer = vec![
+            0u8;
+            4 + self.file_info.len()
+                * core::mem::size_of::<FWCfgFile>()
+        ];
 
         // Copy the count
         buffer[..4].copy_from_slice(&info_len);
@@ -117,7 +121,11 @@ impl QemuFwCfgBuilder {
             + 1
     }
 
-    pub fn add_file(&mut self, name: impl AsRef<str>, data: &[u8]) -> Result<()> {
+    pub fn add_file(
+        &mut self,
+        name: impl AsRef<str>,
+        data: &[u8],
+    ) -> Result<()> {
         if name.as_ref().len() > FW_CFG_MAX_FILE_NAME {
             return Err(Error::InvalidValue(format!(
                 "qemu_fw_cfg: file name too long: {}",
@@ -126,7 +134,9 @@ impl QemuFwCfgBuilder {
         }
         let selector = self.next_file_selector();
         if selector > FwCfgSelector::FILE_LAST {
-            return Err(Error::InvalidValue("qemu_fw_cfg: too many files".into()));
+            return Err(Error::InvalidValue(
+                "qemu_fw_cfg: too many files".into(),
+            ));
         }
 
         let name = name.as_ref().as_bytes();
@@ -168,11 +178,17 @@ impl QemuFwCfg {
 impl EmulatedDevice for QemuFwCfg {
     fn services(&self) -> Vec<DeviceRegion> {
         vec![
-            DeviceRegion::PortIo(Self::FW_CFG_PORT_SEL..=Self::FW_CFG_PORT_DATA), // No Support for DMA right now
+            DeviceRegion::PortIo(
+                Self::FW_CFG_PORT_SEL..=Self::FW_CFG_PORT_DATA,
+            ), // No Support for DMA right now
         ]
     }
 
-    fn on_port_read(&mut self, port: Port, val: &mut PortIoValue) -> Result<()> {
+    fn on_port_read(
+        &mut self,
+        port: Port,
+        val: &mut PortIoValue,
+    ) -> Result<()> {
         let len = val.len();
         match port {
             Self::FW_CFG_PORT_SEL => {
@@ -182,12 +198,16 @@ impl EmulatedDevice for QemuFwCfg {
                 match self.selector {
                     selector if self.data.contains_key(&self.selector) => {
                         let data = &self.data[&(selector)];
-                        val.as_mut_slice()
-                            .copy_from_slice(&data[self.data_idx..self.data_idx + len]);
+                        val.as_mut_slice().copy_from_slice(
+                            &data[self.data_idx..self.data_idx + len],
+                        );
                         self.data_idx += len;
                     }
                     selector => {
-                        info!("Attempt to read from selector: 0x{:x}", selector);
+                        info!(
+                            "Attempt to read from selector: 0x{:x}",
+                            selector
+                        );
 
                         // For now, just return zeros for other fields
                         val.copy_from_u32(0);

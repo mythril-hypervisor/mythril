@@ -275,7 +275,11 @@ bitflags! {
     }
 }
 
-fn vmcs_write_with_fixed(field: VmcsField, value: u64, msr: u32) -> Result<u64> {
+fn vmcs_write_with_fixed(
+    field: VmcsField,
+    value: u64,
+    msr: u32,
+) -> Result<u64> {
     let mut required_value = value;
     let fixed = unsafe { rdmsr(msr) };
     let low = fixed & 0x00000000ffffffff;
@@ -405,7 +409,12 @@ impl ActiveVmcs {
         vmcs_write(field, value)
     }
 
-    pub fn write_with_fixed(&mut self, field: VmcsField, value: u64, msr: u32) -> Result<u64> {
+    pub fn write_with_fixed(
+        &mut self,
+        field: VmcsField,
+        value: u64,
+        msr: u32,
+    ) -> Result<u64> {
         vmcs_write_with_fixed(field, value, msr)
     }
 
@@ -417,9 +426,10 @@ impl ActiveVmcs {
 
 impl fmt::Display for ActiveVmcs {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let read_field = |field: VmcsField| -> core::result::Result<u64, fmt::Error> {
-            self.read_field(field).map_err(|_| fmt::Error)
-        };
+        let read_field =
+            |field: VmcsField| -> core::result::Result<u64, fmt::Error> {
+                self.read_field(field).map_err(|_| fmt::Error)
+            };
 
         write!(f, "VMCS:\n")?;
         write!(f, " Guest State:\n")?;
@@ -546,13 +556,19 @@ impl<'a> TemporaryActiveVmcs<'a> {
         vmcs_write(field, value)
     }
 
-    pub fn write_with_fixed(&mut self, field: VmcsField, value: u64, msr: u32) -> Result<u64> {
+    pub fn write_with_fixed(
+        &mut self,
+        field: VmcsField,
+        value: u64,
+        msr: u32,
+    ) -> Result<u64> {
         vmcs_write_with_fixed(field, value, msr)
     }
 }
 
 impl<'a> Drop for TemporaryActiveVmcs<'a> {
     fn drop(&mut self) {
-        vmcs_clear(&mut self.vmcs.frame).expect("Failed to clear TemporaryActiveVmcs");
+        vmcs_clear(&mut self.vmcs.frame)
+            .expect("Failed to clear TemporaryActiveVmcs");
     }
 }

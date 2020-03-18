@@ -64,7 +64,9 @@ impl GuestVirtAddr {
     // Convert a 64 bit number to a virtual address in the context of the current
     // guest configuration (as read from a VMCS)
     pub fn new(val: u64, vmcs: &vmcs::ActiveVmcs) -> Result<Self> {
-        let cr0 = Cr0::from_bits_truncate(vmcs.read_field(vmcs::VmcsField::GuestCr0)? as usize);
+        let cr0 = Cr0::from_bits_truncate(
+            vmcs.read_field(vmcs::VmcsField::GuestCr0)? as usize,
+        );
         if cr0.contains(Cr0::CR0_ENABLE_PAGING) {
             Ok(GuestVirtAddr::Paging4Level(Guest4LevelPagingAddr::new(val)))
         } else {
@@ -255,9 +257,14 @@ impl GuestAddressSpace {
         map_guest_memory(&mut self.root, guest_addr, host_frame, readonly)
     }
 
-    pub fn map_new_frame(&mut self, guest_addr: GuestPhysAddr, readonly: bool) -> Result<()> {
+    pub fn map_new_frame(
+        &mut self,
+        guest_addr: GuestPhysAddr,
+        readonly: bool,
+    ) -> Result<()> {
         let page = Box::into_raw(Box::new(Raw4kPage::default()));
-        let page = HostPhysFrame::from_start_address(HostPhysAddr::new(page as u64))?;
+        let page =
+            HostPhysFrame::from_start_address(HostPhysAddr::new(page as u64))?;
         self.map_frame(guest_addr, page, readonly)
     }
 
@@ -273,8 +280,12 @@ impl GuestAddressSpace {
         access: GuestAccess,
     ) -> Result<GuestPhysAddr> {
         match addr {
-            GuestVirtAddr::NoPaging(addr) => Ok(GuestPhysAddr::new(addr.as_u64())),
-            GuestVirtAddr::Paging4Level(vaddr) => self.translate_pl4_address(vaddr, cr3, access),
+            GuestVirtAddr::NoPaging(addr) => {
+                Ok(GuestPhysAddr::new(addr.as_u64()))
+            }
+            GuestVirtAddr::Paging4Level(vaddr) => {
+                self.translate_pl4_address(vaddr, cr3, access)
+            }
         }
     }
 
@@ -288,48 +299,67 @@ impl GuestAddressSpace {
     ) -> Result<GuestPhysAddr> {
         let guest_pml4_root = self.find_host_frame(cr3)?;
 
-        let guest_pml4 = guest_pml4_root.start_address().as_u64() as *const PML4;
-        let guest_pml4e = unsafe { (*guest_pml4)[u16::from(addr.p4_index()) as usize] };
-        let guest_pml4e_addr = GuestPhysAddr::new(guest_pml4e.address().as_u64());
+        let guest_pml4 =
+            guest_pml4_root.start_address().as_u64() as *const PML4;
+        let guest_pml4e =
+            unsafe { (*guest_pml4)[u16::from(addr.p4_index()) as usize] };
+        let guest_pml4e_addr =
+            GuestPhysAddr::new(guest_pml4e.address().as_u64());
         let guest_pml4e_host_frame = self.find_host_frame(guest_pml4e_addr)?;
 
-        let guest_pdpt = guest_pml4e_host_frame.start_address().as_u64() as *const PDPT;
-        let guest_pdpte = unsafe { (*guest_pdpt)[u16::from(addr.p3_index()) as usize] };
-        let guest_pdpte_addr = GuestPhysAddr::new(guest_pdpte.address().as_u64());
+        let guest_pdpt =
+            guest_pml4e_host_frame.start_address().as_u64() as *const PDPT;
+        let guest_pdpte =
+            unsafe { (*guest_pdpt)[u16::from(addr.p3_index()) as usize] };
+        let guest_pdpte_addr =
+            GuestPhysAddr::new(guest_pdpte.address().as_u64());
         let guest_pdpte_host_frame = self.find_host_frame(guest_pdpte_addr)?;
 
-        let guest_pdt = guest_pdpte_host_frame.start_address().as_u64() as *const PD;
-        let guest_pdte = unsafe { (*guest_pdt)[u16::from(addr.p2_index()) as usize] };
-        let _guest_pdte_addr = GuestPhysAddr::new(guest_pdte.address().as_u64());
+        let guest_pdt =
+            guest_pdpte_host_frame.start_address().as_u64() as *const PD;
+        let guest_pdte =
+            unsafe { (*guest_pdt)[u16::from(addr.p2_index()) as usize] };
+        let _guest_pdte_addr =
+            GuestPhysAddr::new(guest_pdte.address().as_u64());
 
-        let translated_vaddr =
-            guest_pdte.address().as_u64() + (u32::from(addr.large_page_offset()) as u64);
+        let translated_vaddr = guest_pdte.address().as_u64()
+            + (u32::from(addr.large_page_offset()) as u64);
 
         Ok(GuestPhysAddr::new(translated_vaddr))
     }
 
     //FIXME this ignores read/write/exec permissions and 2MB/1GB pages (and lots of other stuff)
-    pub fn find_host_frame(&self, addr: GuestPhysAddr) -> Result<HostPhysFrame> {
+    pub fn find_host_frame(
+        &self,
+        addr: GuestPhysAddr,
+    ) -> Result<HostPhysFrame> {
         let ept_pml4e = &self.root[addr.p4_index()];
         if ept_pml4e.is_unused() {
             return Err(Error::InvalidValue(
                 "No PML4 entry for GuestPhysAddr".into(),
             ));
         }
-        let ept_pdpt = ept_pml4e.addr().as_u64() as *const EptPageDirectoryPointerTable;
+        let ept_pdpt =
+            ept_pml4e.addr().as_u64() as *const EptPageDirectoryPointerTable;
         let ept_pdpe = unsafe { &(*ept_pdpt)[addr.p3_index()] };
         if ept_pdpe.is_unused() {
-            return Err(Error::InvalidValue("No PDP entry for GuestPhysAddr".into()));
+            return Err(Error::InvalidValue(
+                "No PDP entry for GuestPhysAddr".into(),
+            ));
         }
         let ept_pdt = ept_pdpe.addr().as_u64() as *const EptPageDirectory;
         let ept_pde = unsafe { &(*ept_pdt)[addr.p2_index()] };
         if ept_pde.is_unused() {
-            return Err(Error::InvalidValue("No PD entry for GuestPhysAddr".into()));
+            return Err(Error::InvalidValue(
+                "No PD entry for GuestPhysAddr".into(),
+            ));
         }
         let ept_pt = ept_pde.addr().as_u64() as *const EptPageTable;
         let ept_pte = unsafe { &(*ept_pt)[addr.p1_index()] };
         if ept_pte.is_unused() {
-            return Err(Error::InvalidValue("No PT entry for GuestPhysAddr".into()));
+            return Err(Error::InvalidValue(
+                "No PT entry for GuestPhysAddr".into(),
+            ));
         }
         HostPhysFrame::from_start_address(ept_pte.addr())
     }
@@ -394,18 +424,21 @@ impl GuestAddressSpace {
         let iter = self.frame_iter(vmcs, addr, access)?;
 
         // How many frames this region spans
-        let count = (bytes.len() + HostPhysFrame::SIZE - 1) / HostPhysFrame::SIZE;
+        let count =
+            (bytes.len() + HostPhysFrame::SIZE - 1) / HostPhysFrame::SIZE;
 
         let mut start_offset = addr.as_u64() as usize % HostPhysFrame::SIZE;
         for frame in iter.take(count) {
             let frame = frame?;
             let array = unsafe { frame.as_mut_array() };
             let _slice = if start_offset + bytes.len() <= HostPhysFrame::SIZE {
-                array[start_offset..start_offset + bytes.len()].copy_from_slice(&bytes);
+                array[start_offset..start_offset + bytes.len()]
+                    .copy_from_slice(&bytes);
                 break;
             } else {
-                &array[start_offset..]
-                    .copy_from_slice(&bytes[..(HostPhysFrame::SIZE - start_offset)]);
+                &array[start_offset..].copy_from_slice(
+                    &bytes[..(HostPhysFrame::SIZE - start_offset)],
+                );
                 bytes = &bytes[(HostPhysFrame::SIZE - start_offset)..];
             };
 
@@ -435,10 +468,11 @@ impl<'a> Iterator for FrameIter<'a> {
         // can't change except at this granularity
         self.addr = self.addr + 4096;
 
-        let physaddr = match self
-            .space
-            .translate_linear_address(old, self.cr3, self.access)
-        {
+        let physaddr = match self.space.translate_linear_address(
+            old,
+            self.cr3,
+            self.access,
+        ) {
             Ok(addr) => addr,
             Err(e) => return Some(Err(e)),
         };
@@ -555,11 +589,14 @@ impl EptPageTableEntry {
 
     pub fn set_addr(&mut self, addr: HostPhysAddr, flags: EptTableFlags) {
         assert!(addr.is_frame_aligned());
-        self.entry = (addr.as_u64()) | flags.bits() | ((self.mem_type() as u64) << 5);
+        self.entry =
+            (addr.as_u64()) | flags.bits() | ((self.mem_type() as u64) << 5);
     }
 
     pub fn set_flags(&mut self, flags: EptTableFlags) {
-        self.entry = self.addr().as_u64() | flags.bits() | ((self.mem_type() as u64) << 5);
+        self.entry = self.addr().as_u64()
+            | flags.bits()
+            | ((self.mem_type() as u64) << 5);
     }
 
     pub fn set_mem_type(&mut self, mem_type: EptMemoryType) {
@@ -604,15 +641,18 @@ fn map_guest_memory(
 
     let ept_pml4e = &mut guest_ept_base[guest_addr.p4_index()];
     if ept_pml4e.is_unused() {
-        let ept_pdpt_frame = Box::into_raw(Box::new(EptPageDirectoryPointerTable::default()));
+        let ept_pdpt_frame =
+            Box::into_raw(Box::new(EptPageDirectoryPointerTable::default()));
         let ept_pdpt_addr = HostPhysAddr::new(ept_pdpt_frame as u64);
         ept_pml4e.set_addr(ept_pdpt_addr, default_flags);
     }
 
-    let ept_pdpt = ept_pml4e.addr().as_u64() as *mut EptPageDirectoryPointerTable;
+    let ept_pdpt =
+        ept_pml4e.addr().as_u64() as *mut EptPageDirectoryPointerTable;
     let ept_pdpe = unsafe { &mut (*ept_pdpt)[guest_addr.p3_index()] };
     if ept_pdpe.is_unused() {
-        let ept_pdt_frame = Box::into_raw(Box::new(EptPageDirectory::default()));
+        let ept_pdt_frame =
+            Box::into_raw(Box::new(EptPageDirectory::default()));
         let ept_pdt_addr = HostPhysAddr::new(ept_pdt_frame as u64);
         ept_pdpe.set_addr(ept_pdt_addr, default_flags);
     }

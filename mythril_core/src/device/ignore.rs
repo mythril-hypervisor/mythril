@@ -26,7 +26,11 @@ impl EmulatedDevice for IgnoredDevice {
         ]
     }
 
-    fn on_port_read(&mut self, _port: Port, _val: &mut PortIoValue) -> Result<()> {
+    fn on_port_read(
+        &mut self,
+        _port: Port,
+        _val: &mut PortIoValue,
+    ) -> Result<()> {
         Ok(())
     }
 

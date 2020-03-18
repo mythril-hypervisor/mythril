@@ -26,7 +26,11 @@ impl EmulatedDevice for DebugPort {
         vec![DeviceRegion::PortIo(self.port..=self.port)]
     }
 
-    fn on_port_read(&mut self, _port: Port, val: &mut PortIoValue) -> Result<()> {
+    fn on_port_read(
+        &mut self,
+        _port: Port,
+        val: &mut PortIoValue,
+    ) -> Result<()> {
         // This is a magical value (called BOCHS_DEBUG_PORT_MAGIC by edk2)
         *val = 0xe9u8.into();
         Ok(())

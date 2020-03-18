@@ -1,7 +1,8 @@
 use crate::device::DeviceMap;
 use crate::error::{Error, Result};
 use crate::memory::{
-    self, GuestAddressSpace, GuestPhysAddr, HostPhysAddr, HostPhysFrame, Raw4kPage,
+    self, GuestAddressSpace, GuestPhysAddr, HostPhysAddr, HostPhysFrame,
+    Raw4kPage,
 };
 use alloc::boxed::Box;
 use alloc::string::String;
@@ -49,7 +50,11 @@ impl VirtualMachineConfig {
     ///
     /// The precise meaning of `image` will vary by platform. This will be a
     /// value suitable to be passed to `VmServices::read_file`.
-    pub fn map_image(&mut self, image: String, addr: GuestPhysAddr) -> Result<()> {
+    pub fn map_image(
+        &mut self,
+        image: String,
+        addr: GuestPhysAddr,
+    ) -> Result<()> {
         self.images.push((image, addr));
         Ok(())
     }
@@ -99,17 +104,30 @@ impl VirtualMachine {
         })))
     }
 
-    fn map_data(image: &[u8], addr: &GuestPhysAddr, space: &mut GuestAddressSpace) -> Result<()> {
+    fn map_data(
+        image: &[u8],
+        addr: &GuestPhysAddr,
+        space: &mut GuestAddressSpace,
+    ) -> Result<()> {
         for (i, chunk) in image.chunks(4096 as usize).enumerate() {
-            let frame_ptr = Box::into_raw(Box::new(Raw4kPage::default())) as *mut u8;
-            let frame = HostPhysFrame::from_start_address(HostPhysAddr::new(frame_ptr as u64))?;
+            let frame_ptr =
+                Box::into_raw(Box::new(Raw4kPage::default())) as *mut u8;
+            let frame = HostPhysFrame::from_start_address(HostPhysAddr::new(
+                frame_ptr as u64,
+            ))?;
             let chunk_ptr = chunk.as_ptr();
             unsafe {
-                core::ptr::copy_nonoverlapping(chunk_ptr, frame_ptr, chunk.len());
+                core::ptr::copy_nonoverlapping(
+                    chunk_ptr,
+                    frame_ptr,
+                    chunk.len(),
+                );
             }
 
             space.map_frame(
-                memory::GuestPhysAddr::new(addr.as_u64() + (i as u64 * 4096) as u64),
+                memory::GuestPhysAddr::new(
+                    addr.as_u64() + (i as u64 * 4096) as u64,
+                ),
                 frame,
                 false,
             )?;
@@ -164,9 +182,10 @@ impl VirtualMachine {
 
         // Iterate over each page
         for i in 0..(config.memory << 8) {
-            match guest_space
-                .map_new_frame(memory::GuestPhysAddr::new((i as u64 * 4096) as u64), false)
-            {
+            match guest_space.map_new_frame(
+                memory::GuestPhysAddr::new((i as u64 * 4096) as u64),
+                false,
+            ) {
                 Ok(_) | Err(Error::DuplicateMapping(_)) => continue,
                 Err(e) => return Err(e),
             }

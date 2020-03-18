@@ -29,7 +29,11 @@ impl EmulatedDevice for ProgrammableOptionSelect {
         )]
     }
 
-    fn on_port_read(&mut self, _port: Port, val: &mut PortIoValue) -> Result<()> {
+    fn on_port_read(
+        &mut self,
+        _port: Port,
+        val: &mut PortIoValue,
+    ) -> Result<()> {
         val.copy_from_u32(0);
         Ok(())
     }

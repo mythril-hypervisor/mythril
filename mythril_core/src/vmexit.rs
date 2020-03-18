@@ -39,12 +39,14 @@ pub extern "C" fn vmexit_handler(state: *mut GuestCpuState) {
     let state = unsafe { state.as_mut() }.expect("Guest cpu sate is NULL");
     let vcpu = unsafe { state.vcpu.as_mut() }.expect("VCpu state is NULL");
 
-    let reason = ExitReason::from_active_vmcs(&mut vcpu.vmcs).expect("Failed to get vm reason");
+    let reason = ExitReason::from_active_vmcs(&mut vcpu.vmcs)
+        .expect("Failed to get vm reason");
 
     if let Err(e) = vcpu.handle_vmexit(state, reason) {
         // Build the reason again, because we don't want to clone
         // in the typical (non-error) case.
-        let reason = ExitReason::from_active_vmcs(&mut vcpu.vmcs).expect("Failed to get vm reason");
+        let reason = ExitReason::from_active_vmcs(&mut vcpu.vmcs)
+            .expect("Failed to get vm reason");
         info!("exit reason = {:?}", reason);
         panic!("Failed to handle vmexit: {:?}", e);
     }
@@ -52,7 +54,8 @@ pub extern "C" fn vmexit_handler(state: *mut GuestCpuState) {
 
 #[no_mangle]
 pub extern "C" fn vmresume_failure_handler(rflags: u64) {
-    error::check_vm_insruction(rflags, "Failed to vmresume".into()).expect("vmresume failed");
+    error::check_vm_insruction(rflags, "Failed to vmresume".into())
+        .expect("vmresume failed");
 }
 
 pub trait ExtendedExitInformation
@@ -141,9 +144,9 @@ impl ExitReason {
         let basic_reason = (reason & 0x7fff) as u32;
         let flags = ExitReasonFlags::from_bits_truncate(reason);
         let info = match basic_reason {
-            0 => ExitInformation::NonMaskableInterrupt(VectoredEventInformation::from_active_vmcs(
-                vmcs,
-            )?),
+            0 => ExitInformation::NonMaskableInterrupt(
+                VectoredEventInformation::from_active_vmcs(vmcs)?,
+            ),
             1 => ExitInformation::ExternalInterrupt,
             2 => ExitInformation::TripleFault,
             3 => ExitInformation::InitSignal,
@@ -171,9 +174,13 @@ impl ExitReason {
             25 => ExitInformation::VmWrite,
             26 => ExitInformation::VmxOff,
             27 => ExitInformation::VmxOn,
-            28 => ExitInformation::CrAccess(CrInformation::from_active_vmcs(vmcs)?),
+            28 => ExitInformation::CrAccess(CrInformation::from_active_vmcs(
+                vmcs,
+            )?),
             29 => ExitInformation::MovDr,
-            30 => ExitInformation::IoInstruction(IoInstructionInformation::from_active_vmcs(vmcs)?),
+            30 => ExitInformation::IoInstruction(
+                IoInstructionInformation::from_active_vmcs(vmcs)?,
+            ),
             31 => ExitInformation::RdMsr,
             32 => ExitInformation::WrMsr,
             33 => ExitInformation::VmEntryInvalidGuestState,
@@ -190,7 +197,9 @@ impl ExitReason {
             45 => ExitInformation::VirtualEio,
             46 => ExitInformation::AccessGdtridtr,
             47 => ExitInformation::AccessLdtrTr,
-            48 => ExitInformation::EptViolation(EptInformation::from_active_vmcs(vmcs)?),
+            48 => ExitInformation::EptViolation(
+                EptInformation::from_active_vmcs(vmcs)?,
+            ),
             49 => ExitInformation::EptMisconfigure,
             50 => ExitInformation::InvEpt,
             51 => ExitInformation::Rdtscp,
@@ -266,7 +275,8 @@ pub struct VectoredEventInformation {
 impl ExtendedExitInformation for VectoredEventInformation {
     fn from_active_vmcs(vmcs: &vmcs::ActiveVmcs) -> Result<Self> {
         let inter_info = vmcs.read_field(vmcs::VmcsField::VmExitIntrInfo)?;
-        let inter_error = vmcs.read_field(vmcs::VmcsField::VmExitIntrErrorCode)?;
+        let inter_error =
+            vmcs.read_field(vmcs::VmcsField::VmExitIntrErrorCode)?;
 
         let error_code = if inter_info & (1 << 11) != 0 {
             Some(inter_error as u32)
@@ -276,8 +286,10 @@ impl ExtendedExitInformation for VectoredEventInformation {
 
         Ok(VectoredEventInformation {
             vector: (inter_info & 0xff) as u8,
-            interrupt_type: InterruptType::try_from(((inter_info & 0x700) >> 8) as u8)
-                .ok_or(Error::InvalidValue("Invalid interrupt type".into()))?,
+            interrupt_type: InterruptType::try_from(
+                ((inter_info & 0x700) >> 8) as u8,
+            )
+            .ok_or(Error::InvalidValue("Invalid interrupt type".into()))?,
             error_code: error_code,
             nmi_unblocking_iret: inter_info & (1 << 12) != 0,
             valid: inter_info & (1 << 31) != 0,
@@ -313,8 +325,9 @@ impl ExtendedExitInformation for EptInformation {
         } else {
             None
         };
-        let guest_phys_addr =
-            GuestPhysAddr::new(vmcs.read_field(vmcs::VmcsField::GuestPhysicalAddress)?);
+        let guest_phys_addr = GuestPhysAddr::new(
+            vmcs.read_field(vmcs::VmcsField::GuestPhysicalAddress)?,
+        );
 
         Ok(EptInformation {
             read: qualifier & (1 << 0) != 0,
@@ -366,7 +379,11 @@ pub enum MovCrRegister {
 }
 
 impl MovCrRegister {
-    pub fn read(&self, vmcs: &vmcs::ActiveVmcs, guest_cpu: &GuestCpuState) -> Result<u64> {
+    pub fn read(
+        &self,
+        vmcs: &vmcs::ActiveVmcs,
+        guest_cpu: &GuestCpuState,
+    ) -> Result<u64> {
         Ok(match self {
             MovCrRegister::Rax => guest_cpu.rax,
             MovCrRegister::Rcx => guest_cpu.rcx,
@@ -409,7 +426,9 @@ impl MovCrRegister {
             MovCrRegister::R13 => guest_cpu.r13 = value,
             MovCrRegister::R14 => guest_cpu.r14 = value,
             MovCrRegister::R15 => guest_cpu.r15 = value,
-            MovCrRegister::Rsp => vmcs.write_field(vmcs::VmcsField::GuestRsp, value)?,
+            MovCrRegister::Rsp => {
+                vmcs.write_field(vmcs::VmcsField::GuestRsp, value)?
+            }
         }
         Ok(())
     }
@@ -427,17 +446,17 @@ pub struct CrInformation {
 impl ExtendedExitInformation for CrInformation {
     fn from_active_vmcs(vmcs: &vmcs::ActiveVmcs) -> Result<Self> {
         let qualifier = vmcs.read_field(vmcs::VmcsField::ExitQualification)?;
-        let access_type = CrAccessType::try_from(((qualifier & 0b110000) >> 4) as u8)
-            .ok_or(Error::InvalidValue("Invalid CR access type".into()))?;
+        let access_type =
+            CrAccessType::try_from(((qualifier & 0b110000) >> 4) as u8)
+                .ok_or(Error::InvalidValue("Invalid CR access type".into()))?;
         let reg = ((qualifier & 0xf00) >> 8) as u8;
         let cr_num = (qualifier & 0b1111) as u8;
         let (cr_num, reg, source) = match access_type {
             CrAccessType::MovToCr | CrAccessType::MovFromCr => (
                 cr_num,
-                Some(
-                    MovCrRegister::try_from(reg)
-                        .ok_or(Error::InvalidValue("Invalid general register".into()))?,
-                ),
+                Some(MovCrRegister::try_from(reg).ok_or(
+                    Error::InvalidValue("Invalid general register".into()),
+                )?),
                 None,
             ),
             _ => (0, None, Some(((qualifier & 0xffff0000) >> 16) as u16)),

@@ -56,8 +56,8 @@ pub fn check_vm_insruction(rflags: u64, error: String) -> Result<()> {
                  : "volatile");
             value
         };
-        let vm_error =
-            VmInstructionError::try_from(errno).unwrap_or(VmInstructionError::UnknownError);
+        let vm_error = VmInstructionError::try_from(errno)
+            .unwrap_or(VmInstructionError::UnknownError);
 
         Err(Error::VmFailValid((vm_error, error)))
     } else {

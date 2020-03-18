@@ -11,7 +11,8 @@ impl Allocator {
     pub unsafe fn allocate_from(start: u64, end: u64) {
         match ALLOCATOR {
             Allocator::Unavailable => {
-                ALLOCATOR = Allocator::Available(MultibootAllocator::new(start, end));
+                ALLOCATOR =
+                    Allocator::Available(MultibootAllocator::new(start, end));
             }
             _ => panic!("Allocator has already been initialized"),
         }

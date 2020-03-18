@@ -95,9 +95,15 @@ enum PciConfigSpace {
 impl PciConfigSpace {
     fn as_registers(&self) -> &[u32; 64] {
         match self {
-            PciConfigSpace::Type0(space) => unsafe { core::mem::transmute(space) },
-            PciConfigSpace::Type1(space) => unsafe { core::mem::transmute(space) },
-            PciConfigSpace::Type2(space) => unsafe { core::mem::transmute(space) },
+            PciConfigSpace::Type0(space) => unsafe {
+                core::mem::transmute(space)
+            },
+            PciConfigSpace::Type1(space) => unsafe {
+                core::mem::transmute(space)
+            },
+            PciConfigSpace::Type2(space) => unsafe {
+                core::mem::transmute(space)
+            },
         }
     }
 
@@ -125,7 +131,9 @@ impl From<u16> for PciBdf {
 
 impl Into<u16> for PciBdf {
     fn into(self) -> u16 {
-        (self.bus as u16) << 8 | (u16::from(self.device) << 3) | u16::from(self.function)
+        (self.bus as u16) << 8
+            | (u16::from(self.device) << 3)
+            | u16::from(self.function)
     }
 }
 
@@ -149,21 +157,25 @@ impl PciRootComplex {
 
         let host_bridge = PciDevice {
             bdf: PciBdf::from(0x0000),
-            config_space: PciConfigSpace::Type0(PciNonBridgeSpace::new(PciNonBridgeHeader {
-                vendor_id: VendorId::Intel as u16,
-                device_id: DeviceId::P35Mch as u16,
-                ..PciNonBridgeHeader::default()
-            })),
+            config_space: PciConfigSpace::Type0(PciNonBridgeSpace::new(
+                PciNonBridgeHeader {
+                    vendor_id: VendorId::Intel as u16,
+                    device_id: DeviceId::P35Mch as u16,
+                    ..PciNonBridgeHeader::default()
+                },
+            )),
         };
         devices.insert(host_bridge.bdf.into(), host_bridge);
 
         let ich9 = PciDevice {
             bdf: PciBdf::from(0b1000),
-            config_space: PciConfigSpace::Type0(PciNonBridgeSpace::new(PciNonBridgeHeader {
-                vendor_id: VendorId::Intel as u16,
-                device_id: DeviceId::Ich9 as u16,
-                ..PciNonBridgeHeader::default()
-            })),
+            config_space: PciConfigSpace::Type0(PciNonBridgeSpace::new(
+                PciNonBridgeHeader {
+                    vendor_id: VendorId::Intel as u16,
+                    device_id: DeviceId::Ich9 as u16,
+                    ..PciNonBridgeHeader::default()
+                },
+            )),
         };
         devices.insert(ich9.bdf.into(), ich9);
 
@@ -177,11 +189,19 @@ impl PciRootComplex {
 impl EmulatedDevice for PciRootComplex {
     fn services(&self) -> Vec<DeviceRegion> {
         vec![
-            DeviceRegion::PortIo(Self::PCI_CONFIG_ADDRESS..=Self::PCI_CONFIG_ADDRESS),
-            DeviceRegion::PortIo(Self::PCI_CONFIG_DATA..=Self::PCI_CONFIG_DATA_MAX),
+            DeviceRegion::PortIo(
+                Self::PCI_CONFIG_ADDRESS..=Self::PCI_CONFIG_ADDRESS,
+            ),
+            DeviceRegion::PortIo(
+                Self::PCI_CONFIG_DATA..=Self::PCI_CONFIG_DATA_MAX,
+            ),
         ]
     }
-    fn on_port_read(&mut self, port: Port, val: &mut PortIoValue) -> Result<()> {
+    fn on_port_read(
+        &mut self,
+        port: Port,
+        val: &mut PortIoValue,
+    ) -> Result<()> {
         match port {
             Self::PCI_CONFIG_ADDRESS => {
                 // For now, always set the enable bit
@@ -195,7 +215,8 @@ impl EmulatedDevice for PciRootComplex {
 
                 match self.devices.get(&bdf) {
                     Some(device) => {
-                        let res = device.config_space.read_register(register) >> (offset * 8);
+                        let res = device.config_space.read_register(register)
+                            >> (offset * 8);
                         val.copy_from_u32(res);
                         info!(
                             "port=0x{:x}, register=0x{:x}, offset=0x{:x}, val={:?}",

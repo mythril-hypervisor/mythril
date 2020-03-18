@@ -17,9 +17,13 @@ impl VmServices for Multiboot2Services {
     fn read_file<'a>(&'a self, path: &str) -> Result<&'a [u8]> {
         for module in self.info.module_tags() {
             if module.name() == path {
-                let size = (module.end_address() - module.start_address()) as usize;
+                let size =
+                    (module.end_address() - module.start_address()) as usize;
                 let data: &'static [u8] = unsafe {
-                    core::slice::from_raw_parts(module.start_address() as *const u8, size)
+                    core::slice::from_raw_parts(
+                        module.start_address() as *const u8,
+                        size,
+                    )
                 };
                 return Ok(data);
             }

@@ -99,7 +99,8 @@ fn default_vm(
     linux::load_linux(
         "kernel",
         "initramfs",
-        "earlyprintk=serial,0x3f8,115200 console=ttyS0 debug nokaslr\0".as_bytes(),
+        "earlyprintk=serial,0x3f8,115200 console=ttyS0 debug nokaslr\0"
+            .as_bytes(),
         mem,
         &mut fw_cfg_builder,
         services,
@@ -144,7 +145,8 @@ fn global_alloc_region(info: &multiboot2::BootInformation) -> (u64, u64) {
     });
 
     // Avoid allocating over the BootInformation structure itself
-    let multiboot_info = [(info.start_address() as u64, info.end_address() as u64)];
+    let multiboot_info =
+        [(info.start_address() as u64, info.end_address() as u64)];
     debug!(
         "Multiboot Info: 0x{:x}-0x{:x}",
         info.start_address(),
@@ -167,7 +169,9 @@ fn global_alloc_region(info: &multiboot2::BootInformation) -> (u64, u64) {
 
     if largest_region.0 > max_excluded.1 {
         largest_region
-    } else if max_excluded.1 > largest_region.0 && max_excluded.1 < largest_region.1 {
+    } else if max_excluded.1 > largest_region.0
+        && max_excluded.1 < largest_region.1
+    {
         (max_excluded.1, largest_region.1)
     } else {
         panic!("Unable to find suitable global alloc region")
@@ -196,9 +200,12 @@ pub extern "C" fn kmain(multiboot_info_addr: usize) -> ! {
         alloc_region.0, alloc_region.1
     );
 
-    unsafe { allocator::Allocator::allocate_from(alloc_region.0, alloc_region.1) }
+    unsafe {
+        allocator::Allocator::allocate_from(alloc_region.0, alloc_region.1)
+    }
 
-    let mut multiboot_services = services::Multiboot2Services::new(multiboot_info);
+    let mut multiboot_services =
+        services::Multiboot2Services::new(multiboot_info);
     let mut map = BTreeMap::new();
     map.insert(0usize, default_vm(0, 512, &mut multiboot_services));
     let map: &'static _ = Box::leak(Box::new(map));

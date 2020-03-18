@@ -72,7 +72,11 @@ impl EmulatedDevice for VgaController {
         ]
     }
 
-    fn on_port_read(&mut self, port: Port, val: &mut PortIoValue) -> Result<()> {
+    fn on_port_read(
+        &mut self,
+        port: Port,
+        val: &mut PortIoValue,
+    ) -> Result<()> {
         match port {
             Self::VGA_DATA => {
                 val.copy_from_u32(self.registers[self.index as usize] as u32);
@@ -91,10 +95,12 @@ impl EmulatedDevice for VgaController {
         match port {
             Self::VGA_INDEX => match val {
                 PortIoValue::OneByte(b) => {
-                    self.index = VgaRegister::try_from(b[0]).ok_or(Error::InvalidValue(format!(
-                        "Invalid vga register 0x{:x}",
-                        b[0]
-                    )))?
+                    self.index = VgaRegister::try_from(b[0]).ok_or(
+                        Error::InvalidValue(format!(
+                            "Invalid vga register 0x{:x}",
+                            b[0]
+                        )),
+                    )?
                 }
 
                 // The VGA controller allows a register update and data write
@@ -103,9 +109,12 @@ impl EmulatedDevice for VgaController {
                 PortIoValue::TwoBytes(bytes) => {
                     let index = bytes[1];
                     let data = bytes[0];
-                    self.index = VgaRegister::try_from(index).ok_or(Error::InvalidValue(
-                        format!("Invalid vga register 0x{:x}", index),
-                    ))?;
+                    self.index = VgaRegister::try_from(index).ok_or(
+                        Error::InvalidValue(format!(
+                            "Invalid vga register 0x{:x}",
+                            index
+                        )),
+                    )?;
                     self.registers[self.index as usize] = data;
                 }
                 _ => {

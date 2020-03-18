@@ -43,20 +43,31 @@ impl EmulatedDevice for AcpiRuntime {
             DeviceRegion::PortIo(self.pm1a_cnt()..=self.pm1a_cnt()),
             DeviceRegion::PortIo(self.pmtimer()..=self.pmtimer()),
             DeviceRegion::PortIo(Self::GPE_BLOCK_START..=Self::GPE_BLOCK_END),
-            DeviceRegion::PortIo(Self::PCI_SLOT_INJECTION_START..=Self::PCI_SLOT_INJECTION_END),
             DeviceRegion::PortIo(
-                Self::PCI_SLOT_REMOVAL_NOTIFY_START..=Self::PCI_SLOT_REMOVAL_NOTIFY_END,
+                Self::PCI_SLOT_INJECTION_START..=Self::PCI_SLOT_INJECTION_END,
             ),
-            DeviceRegion::PortIo(Self::PCI_DEVICE_EJECT_START..=Self::PCI_DEVICE_EJECT_END),
             DeviceRegion::PortIo(
-                Self::PCI_REMOVABILITY_STATUS_START..=Self::PCI_REMOVABILITY_STATUS_END,
+                Self::PCI_SLOT_REMOVAL_NOTIFY_START
+                    ..=Self::PCI_SLOT_REMOVAL_NOTIFY_END,
+            ),
+            DeviceRegion::PortIo(
+                Self::PCI_DEVICE_EJECT_START..=Self::PCI_DEVICE_EJECT_END,
+            ),
+            DeviceRegion::PortIo(
+                Self::PCI_REMOVABILITY_STATUS_START
+                    ..=Self::PCI_REMOVABILITY_STATUS_END,
             ),
         ]
     }
 
-    fn on_port_read(&mut self, port: Port, val: &mut PortIoValue) -> Result<()> {
+    fn on_port_read(
+        &mut self,
+        port: Port,
+        val: &mut PortIoValue,
+    ) -> Result<()> {
         if port == self.pmtimer() {
-            let pm_time = tsc::read_tsc() * PMTIMER_HZ / (tsc::tsc_khz() * 1000);
+            let pm_time =
+                tsc::read_tsc() * PMTIMER_HZ / (tsc::tsc_khz() * 1000);
             info!("pm_time={}", pm_time);
             val.copy_from_u32(pm_time as u32);
         }

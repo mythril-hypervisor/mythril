@@ -1,9 +1,15 @@
 use crate::error::Result;
 use crate::{vcpu, vmexit};
 
-pub fn emulate_cpuid(_vcpu: &mut vcpu::VCpu, guest_cpu: &mut vmexit::GuestCpuState) -> Result<()> {
+pub fn emulate_cpuid(
+    _vcpu: &mut vcpu::VCpu,
+    guest_cpu: &mut vmexit::GuestCpuState,
+) -> Result<()> {
     //FIXME: for now just use the actual cpuid
-    let mut res = raw_cpuid::native_cpuid::cpuid_count(guest_cpu.rax as u32, guest_cpu.rcx as u32);
+    let mut res = raw_cpuid::native_cpuid::cpuid_count(
+        guest_cpu.rax as u32,
+        guest_cpu.rcx as u32,
+    );
 
     if guest_cpu.rax as u32 == 1 {
         // Disable MTRR
