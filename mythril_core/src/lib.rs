@@ -25,6 +25,8 @@ pub mod linux;
 pub mod logger;
 pub mod memory;
 mod registers;
+/// Support for the RSDP.
+pub mod rsdp;
 pub mod tsc;
 pub mod vcpu;
 pub mod vm;

@@ -3,6 +3,7 @@ use crate::emulate;
 use crate::error::{self, Error, Result};
 use crate::memory::Raw4kPage;
 use crate::registers::{GdtrBase, IdtrBase};
+use crate::rsdp::RSDP;
 use crate::vm::VirtualMachine;
 use crate::{vmcs, vmexit, vmx};
 use alloc::boxed::Box;
@@ -38,6 +39,12 @@ pub fn smp_entry_point(
         local_apic.raw_base(),
         local_apic.version()
     );
+
+    let rsdp = match RSDP::find() {
+        Ok(rsdp) => rsdp,
+        Err(e) => panic!("Failed to find the RSDP: {:?}", e),
+    };
+    info!("{:?}", rsdp);
 
     let vm = vm_map
         .get(&local_apic.id())
