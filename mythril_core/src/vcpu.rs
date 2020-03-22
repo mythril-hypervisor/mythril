@@ -1,7 +1,9 @@
+use crate::apic::LocalApic;
 use crate::emulate;
 use crate::error::{self, Error, Result};
 use crate::memory::Raw4kPage;
 use crate::registers::{GdtrBase, IdtrBase};
+use crate::rsdp::RSDP;
 use crate::vm::VirtualMachine;
 use crate::{vmcs, vmexit, vmx};
 use alloc::boxed::Box;
@@ -10,7 +12,6 @@ use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::mem;
 use core::pin::Pin;
-use raw_cpuid::CpuId;
 use spin::RwLock;
 use x86::controlregs::{cr0, cr3, cr4};
 use x86::msr;
@@ -27,12 +28,27 @@ extern "C" {
 pub fn smp_entry_point(
     vm_map: &'static BTreeMap<usize, Arc<RwLock<VirtualMachine>>>,
 ) -> ! {
-    let cpuid = CpuId::new();
-    let apicid = match cpuid.get_feature_info() {
-        Some(finfo) => finfo.initial_local_apic_id() as usize,
-        _ => panic!("Unable to get cpuid"),
+    let local_apic = match LocalApic::init() {
+        Ok(local_apic) => local_apic,
+        Err(e) => panic!("{:?}", e),
     };
-    let vm = vm_map.get(&apicid).expect("Failed to locate VM for VCPU");
+
+    info!(
+        "X2APIC:\tid={}\tbase=0x{:x}\tversion=0x{:x}",
+        local_apic.id(),
+        local_apic.raw_base(),
+        local_apic.version()
+    );
+
+    let rsdp = match RSDP::find() {
+        Ok(rsdp) => rsdp,
+        Err(e) => panic!("Failed to find the RSDP: {:?}", e),
+    };
+    info!("{:?}", rsdp);
+
+    let vm = vm_map
+        .get(&local_apic.id())
+        .expect("Failed to locate VM for VCPU");
     let vcpu = VCpu::new(vm.clone()).expect("Failed to create vcpu");
     vcpu.launch().expect("Failed to launch vm")
 }

@@ -76,6 +76,7 @@ pub enum Error {
     MissingFile(String),
     NullPtr(String),
     NotSupported,
+    NotFound,
     Uefi(String),
     InvalidValue(String),
     InvalidDevice(String),

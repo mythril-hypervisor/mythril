@@ -15,6 +15,8 @@ extern crate alloc;
 #[macro_use]
 extern crate log;
 
+/// Support for the local APIC.
+pub mod apic;
 pub mod device;
 pub mod emulate;
 pub mod error;
@@ -23,6 +25,8 @@ pub mod linux;
 pub mod logger;
 pub mod memory;
 mod registers;
+/// Support for the RSDP.
+pub mod rsdp;
 pub mod tsc;
 pub mod vcpu;
 pub mod vm;
