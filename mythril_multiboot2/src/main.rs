@@ -231,8 +231,21 @@ pub extern "C" fn kmain(multiboot_info_addr: usize) -> ! {
     }
 
     // Locate the RSDP and start ACPI parsing
-    let rsdp = rsdp::RSDP::find().expect("Failed to find the RSDP");
+    let rsdp = acpi::rsdp::RSDP::find().expect("Failed to find the RSDP");
     info!("{:?}", rsdp);
+
+    let rsdt = match rsdp.rsdt() {
+        Ok(rsdt) => rsdt,
+        Err(e) => panic!("Failed to create the RSDT: {:?}", e),
+    };
+    info!("{:?}", rsdt);
+
+    for entry in rsdt.entries() {
+        match entry {
+            Ok(sdt) => info!("{:?}", sdt),
+            Err(e) => info!("Malformed SDT: {:?}", e),
+        }
+    }
 
     let mut multiboot_services =
         services::Multiboot2Services::new(multiboot_info);

@@ -1,4 +1,5 @@
-#![deny(missing_docs)]
+use super::rsdt::RSDT;
+use super::verify_checksum;
 use crate::error::{Error, Result};
 use byteorder::{ByteOrder, NativeEndian};
 use core::fmt;
@@ -16,9 +17,7 @@ const MAIN_BIOS_DATA_SIZE: usize = 0x20000;
 /// Well Known RSDP Signature
 const RSDP_SIGNATURE: &[u8; 8] = b"RSD PTR ";
 
-/// Offsets from [ACPI § 5.2.5.3]
-///
-/// [ACPI § 5.2.5.3]: https://uefi.org/sites/default/files/resources/ACPI_6_3_May16.pdf
+/// Offsets from `ACPI § 5.2.5.3`
 mod offsets {
     use super::*;
     /// Well known bytes, "RST PTR ".
@@ -46,7 +45,9 @@ const RSDP_V1_SIZE: usize = offsets::RSDT_ADDR.end;
 /// Structure size of the RSDP for revision two.
 const RSDP_V2_SIZE: usize = offsets::RESERVED.end;
 
-/// The Root System Descriptor Pointer (RSDP)
+/// Root System Descriptor Pointer (RSDP).
+///
+/// See `ACPI § 5.2.7`
 pub enum RSDP {
     /// RSDP structure variant for version 1 (`revision == 0`).
     V1 {
@@ -91,9 +92,7 @@ impl RSDP {
     /// Find the RSDP in the Extended BIOS Data Area or the
     /// Main BIOS area.
     ///
-    /// This is described in [ACPI § 5.2.5.1]
-    ///
-    /// [ACPI § 5.2.5.1]: https://uefi.org/sites/default/files/resources/ACPI_6_3_May16.pdf
+    /// This is described in `ACPI § 5.2.5.1`
     pub fn find() -> Result<RSDP> {
         let bytes = unsafe {
             // Try to find the RSDP in the Extended BIOS Data Area (EBDA).
@@ -183,19 +182,14 @@ impl RSDP {
     /// Checksum validation for the RSDP.
     fn verify_rsdp_checksum(bytes: &[u8]) -> Result<()> {
         // Verify the RSDT checksum regardless of the ACPI version.
-        Self::verify_checksum(
-            bytes,
-            offsets::RSDT_ADDR.end,
-            offsets::CHECKSUM,
-        )?;
+        verify_checksum(&bytes[..offsets::RSDT_ADDR.end], offsets::CHECKSUM)?;
 
         // We need to also validate the checksum of the extended data
         // for ACPI 2.0.
         match bytes[offsets::REVISION] {
             0 => Ok(()),
-            2 => Self::verify_checksum(
-                bytes,
-                offsets::RESERVED.end,
+            2 => verify_checksum(
+                &bytes[..offsets::RESERVED.end],
                 offsets::EXT_CHECKSUM,
             ),
             _ => Err(Error::InvalidValue(format!(
@@ -205,26 +199,11 @@ impl RSDP {
         }
     }
 
-    fn verify_checksum(
-        bytes: &[u8],
-        length: usize,
-        cksum_idx: usize,
-    ) -> Result<()> {
-        // Sum up the bytes in the buffer.
-        let result = &bytes[..length]
-            .iter()
-            .fold(0usize, |acc, val| acc + *val as usize);
-
-        // The result of the sum should be zero. See the ACPI spec § 5.2.5.3
-        // in Table 5-27.
-        if (result & 0xff) == 0x00 {
-            Ok(())
-        } else {
-            Err(Error::InvalidValue(format!(
-                "Checksum mismatch cksum={:x} {:x} != 0x00",
-                bytes[cksum_idx],
-                result & 0xff,
-            )))
+    /// Return the RSDT pointed to by this structure.
+    pub fn rsdt(&self) -> Result<RSDT> {
+        match self {
+            &RSDP::V1 { rsdt_addr, .. } => RSDT::new(rsdt_addr),
+            &RSDP::V2 { .. } => Err(Error::NotSupported),
         }
     }
 }
