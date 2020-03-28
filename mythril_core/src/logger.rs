@@ -1,9 +1,9 @@
 use core::fmt;
 use core::fmt::Write;
+use spin::Mutex;
 
 pub fn write_console(s: impl AsRef<str>) {
     //FIXME: what about addresses above 4GB?
-    //FIXME: should we lock to prevent partial strings on the console?
     let len = s.as_ref().len();
     let ptr = s.as_ref().as_ptr();
     unsafe {
@@ -14,13 +14,24 @@ pub fn write_console(s: impl AsRef<str>) {
     }
 }
 
-pub struct DirectLogger;
+pub struct DirectLogger {
+    lock: Mutex<()>
+}
+impl DirectLogger {
+    pub const fn new() -> Self {
+        DirectLogger {
+            lock: Mutex::new(())
+        }
+    }
+}
+
 impl log::Log for DirectLogger {
     fn enabled(&self, _metadata: &log::Metadata) -> bool {
         true
     }
 
     fn log(&self, record: &log::Record) {
+        let _lock = self.lock.lock();
         writeln!(
             DirectWriter {},
             "MYTHRIL-{}: {}",
