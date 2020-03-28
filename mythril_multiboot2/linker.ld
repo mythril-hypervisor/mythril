@@ -1,6 +1,13 @@
 ENTRY(_start)
 
 SECTIONS {
+    . = 0x7E00;
+
+    .ap_startup ALIGN(4K) : ALIGN(4K)
+    {
+       KEEP(*(.ap_startup .ap_startup.*))
+    }
+
     . = 1M;
 
     .boot ALIGN(4K) : ALIGN(4K)

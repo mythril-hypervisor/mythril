@@ -17,15 +17,18 @@ mod services;
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
-use mythril_core::vm::VmServices;
 use mythril_core::*;
 use spin::RwLock;
+
+extern "C" {
+    static AP_STARTUP_ADDR: u64;
+}
 
 // Temporary helper function to create a vm for a single core
 fn default_vm(
     core: usize,
     mem: u64,
-    services: &mut impl VmServices,
+    services: &mut impl vm::VmServices,
 ) -> Arc<RwLock<vm::VirtualMachine>> {
     let mut config = vm::VirtualMachineConfig::new(vec![core as u8], mem);
 
@@ -179,12 +182,21 @@ fn global_alloc_region(info: &multiboot2::BootInformation) -> (u64, u64) {
 }
 
 #[no_mangle]
+pub extern "C" fn ap_entry() -> ! {
+    info!("inside ap");
+
+    loop{}
+}
+
+static LOGGER: logger::DirectLogger = logger::DirectLogger::new();
+
+#[no_mangle]
 pub extern "C" fn kmain(multiboot_info_addr: usize) -> ! {
     // Setup the actual interrupt handlers
     unsafe { interrupt::idt::init() };
 
     // Setup our (com0) logger
-    log::set_logger(&logger::DirectLogger {})
+    log::set_logger(&LOGGER)
         .map(|()| log::set_max_level(log::LevelFilter::Info))
         .expect("Failed to set logger");
 
@@ -204,11 +216,42 @@ pub extern "C" fn kmain(multiboot_info_addr: usize) -> ! {
         allocator::Allocator::allocate_from(alloc_region.0, alloc_region.1)
     }
 
+    // Locate the RSDP and start ACPI parsing
+    let rsdp = rsdp::RSDP::find()
+        .expect("Failed to find the RSDP");
+    info!("{:?}", rsdp);
+
     let mut multiboot_services =
         services::Multiboot2Services::new(multiboot_info);
     let mut map = BTreeMap::new();
     map.insert(0usize, default_vm(0, 512, &mut multiboot_services));
     let map: &'static _ = Box::leak(Box::new(map));
 
-    vcpu::smp_entry_point(map)
+    let local_apic = apic::LocalApic::init()
+        .expect("Failed to initialize local APIC");
+
+    info!("Send INIT to ap");
+    local_apic.send_ipi(1,
+                        apic::DstShorthand::NoShorthand,
+                        apic::TriggerMode::Edge,
+                        apic::Level::Assert,
+                        apic::DstMode::Physical,
+                        apic::DeliveryMode::Init,
+                        0);
+
+    unsafe {
+        info!("ap_startup address: 0x{:x}", AP_STARTUP_ADDR);
+
+        info!("Send SIPI to ap");
+        local_apic.send_ipi(1,
+                            apic::DstShorthand::NoShorthand,
+                            apic::TriggerMode::Edge,
+                            apic::Level::Assert,
+                            apic::DstMode::Physical,
+                            apic::DeliveryMode::StartUp,
+                            (AP_STARTUP_ADDR >> 12) as u8
+        );
+    }
+
+    vcpu::mp_ap_entry_point(map)
 }

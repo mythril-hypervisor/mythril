@@ -5,3 +5,5 @@ _boot.img
 debug.log
 os.iso
 _isofiles
+scripts/initramfs
+scripts/vmlinuz

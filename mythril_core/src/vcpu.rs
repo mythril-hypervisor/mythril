@@ -3,7 +3,6 @@ use crate::emulate;
 use crate::error::{self, Error, Result};
 use crate::memory::Raw4kPage;
 use crate::registers::{GdtrBase, IdtrBase};
-use crate::rsdp::RSDP;
 use crate::vm::VirtualMachine;
 use crate::{vmcs, vmexit, vmx};
 use alloc::boxed::Box;
@@ -25,13 +24,11 @@ extern "C" {
 /// The post-startup point where a core begins executing its statically
 /// assigned VCPU. The `vm_map` maps APIC core id's to the virtual machine
 /// associated with that core.
-pub fn smp_entry_point(
+pub fn mp_ap_entry_point(
     vm_map: &'static BTreeMap<usize, Arc<RwLock<VirtualMachine>>>,
 ) -> ! {
-    let local_apic = match LocalApic::init() {
-        Ok(local_apic) => local_apic,
-        Err(e) => panic!("{:?}", e),
-    };
+    let local_apic = LocalApic::init()
+        .expect("Failed to initialize local apic");
 
     info!(
         "X2APIC:\tid={}\tbase=0x{:x}\tversion=0x{:x}",
@@ -39,12 +36,6 @@ pub fn smp_entry_point(
         local_apic.raw_base(),
         local_apic.version()
     );
-
-    let rsdp = match RSDP::find() {
-        Ok(rsdp) => rsdp,
-        Err(e) => panic!("Failed to find the RSDP: {:?}", e),
-    };
-    info!("{:?}", rsdp);
 
     let vm = vm_map
         .get(&local_apic.id())
