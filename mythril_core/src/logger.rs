@@ -2,7 +2,11 @@ use core::fmt;
 use core::fmt::Write;
 use spin::Mutex;
 
+static LOG_LOCK: Mutex<()> = Mutex::new(());
+
 pub fn write_console(s: impl AsRef<str>) {
+    let _lock = LOG_LOCK.lock();
+
     //FIXME: what about addresses above 4GB?
     let len = s.as_ref().len();
     let ptr = s.as_ref().as_ptr();
@@ -14,14 +18,10 @@ pub fn write_console(s: impl AsRef<str>) {
     }
 }
 
-pub struct DirectLogger {
-    lock: Mutex<()>
-}
+pub struct DirectLogger;
 impl DirectLogger {
     pub const fn new() -> Self {
-        DirectLogger {
-            lock: Mutex::new(())
-        }
+        DirectLogger {}
     }
 }
 
@@ -31,7 +31,6 @@ impl log::Log for DirectLogger {
     }
 
     fn log(&self, record: &log::Record) {
-        let _lock = self.lock.lock();
         writeln!(
             DirectWriter {},
             "MYTHRIL-{}: {}",
