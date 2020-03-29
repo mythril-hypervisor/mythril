@@ -83,6 +83,10 @@ pub unsafe fn init() {
     IDT[13].set_func(protection_fault_handler);
     IDT[14].set_func(page_fault_handler);
 
+    ap_init();
+}
+
+pub unsafe fn ap_init() {
     let idt = DescriptorTablePointer::new_from_slice(&IDT);
     lidt(&idt);
 }

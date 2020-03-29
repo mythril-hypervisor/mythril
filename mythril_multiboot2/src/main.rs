@@ -14,14 +14,15 @@ extern crate log;
 mod allocator;
 mod services;
 
-use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
 use mythril_core::*;
 use spin::RwLock;
 
 extern "C" {
-    static AP_STARTUP_ADDR: u64;
+    static AP_STARTUP_ADDR: u16;
+    static mut AP_STACK_ADDR: u64;
+    static mut AP_READY: u8;
 }
 
 // Temporary helper function to create a vm for a single core
@@ -183,9 +184,19 @@ fn global_alloc_region(info: &multiboot2::BootInformation) -> (u64, u64) {
 
 #[no_mangle]
 pub extern "C" fn ap_entry() -> ! {
-    info!("inside ap");
+    unsafe { interrupt::idt::ap_init() };
 
-    loop{}
+    let local_apic =
+        apic::LocalApic::init().expect("Failed to initialize local APIC");
+
+    info!(
+        "X2APIC:\tid={}\tbase=0x{:x}\tversion=0x{:x}",
+        local_apic.id(),
+        local_apic.raw_base(),
+        local_apic.version()
+    );
+
+    vcpu::mp_entry_point(local_apic.id())
 }
 
 static LOGGER: logger::DirectLogger = logger::DirectLogger::new();
@@ -217,41 +228,57 @@ pub extern "C" fn kmain(multiboot_info_addr: usize) -> ! {
     }
 
     // Locate the RSDP and start ACPI parsing
-    let rsdp = rsdp::RSDP::find()
-        .expect("Failed to find the RSDP");
+    let rsdp = rsdp::RSDP::find().expect("Failed to find the RSDP");
     info!("{:?}", rsdp);
 
     let mut multiboot_services =
         services::Multiboot2Services::new(multiboot_info);
-    let mut map = BTreeMap::new();
-    map.insert(0usize, default_vm(0, 512, &mut multiboot_services));
-    let map: &'static _ = Box::leak(Box::new(map));
 
-    let local_apic = apic::LocalApic::init()
-        .expect("Failed to initialize local APIC");
-
-    info!("Send INIT to ap");
-    local_apic.send_ipi(1,
-                        apic::DstShorthand::NoShorthand,
-                        apic::TriggerMode::Edge,
-                        apic::Level::Assert,
-                        apic::DstMode::Physical,
-                        apic::DeliveryMode::Init,
-                        0);
+    let local_apic =
+        apic::LocalApic::init().expect("Failed to initialize local APIC");
 
     unsafe {
-        info!("ap_startup address: 0x{:x}", AP_STARTUP_ADDR);
-
-        info!("Send SIPI to ap");
-        local_apic.send_ipi(1,
-                            apic::DstShorthand::NoShorthand,
-                            apic::TriggerMode::Edge,
-                            apic::Level::Assert,
-                            apic::DstMode::Physical,
-                            apic::DeliveryMode::StartUp,
-                            (AP_STARTUP_ADDR >> 12) as u8
-        );
+        let mut map = BTreeMap::new();
+        map.insert(0usize, default_vm(0, 256, &mut multiboot_services));
+        map.insert(1usize, default_vm(1, 256, &mut multiboot_services));
+        vm::VM_MAP = Some(map);
     }
 
-    vcpu::mp_ap_entry_point(map)
+    debug!("AP_STARTUP address: 0x{:x}", unsafe { AP_STARTUP_ADDR });
+
+    // TODO: this should be done per-ap
+    {
+        let ap_apic_id = 1;
+        unsafe {
+            AP_STACK_ADDR = vec![0u8; 10 * 1024].as_ptr() as u64;
+        }
+
+        debug!("Send INIT to AP id={}", ap_apic_id);
+        local_apic.send_ipi(
+            ap_apic_id,
+            apic::DstShorthand::NoShorthand,
+            apic::TriggerMode::Edge,
+            apic::Level::Assert,
+            apic::DstMode::Physical,
+            apic::DeliveryMode::Init,
+            0,
+        );
+
+        unsafe {
+            debug!("Send SIPI to AP id={}", ap_apic_id);
+            local_apic.send_ipi(
+                ap_apic_id,
+                apic::DstShorthand::NoShorthand,
+                apic::TriggerMode::Edge,
+                apic::Level::Assert,
+                apic::DstMode::Physical,
+                apic::DeliveryMode::StartUp,
+                (AP_STARTUP_ADDR >> 12) as u8,
+            );
+        }
+
+        while unsafe { AP_READY != 1 } {}
+    }
+
+    vcpu::mp_entry_point(local_apic.id())
 }

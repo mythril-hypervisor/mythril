@@ -5,10 +5,14 @@ use crate::memory::{
     Raw4kPage,
 };
 use alloc::boxed::Box;
+use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use spin::RwLock;
+
+pub static mut VM_MAP: Option<BTreeMap<usize, Arc<RwLock<VirtualMachine>>>> =
+    None;
 
 /// The abstract 'services' required for a given platform to support Mythril
 ///

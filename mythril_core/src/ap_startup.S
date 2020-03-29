@@ -1,5 +1,3 @@
-%include "paging.mac"
-
 [BITS 16]
 
 global ap_startup
@@ -15,9 +13,9 @@ ap_startup:
 
 global AP_STARTUP_ADDR
 AP_STARTUP_ADDR:
-    dq ap_startup
+    dw ap_startup
 
-;; ; Global Descriptor Table
+;; ; Global (32-bit) Descriptor Table
 GDT32:                           ; Global Descriptor Table (64-bit).
 .null: equ $ - GDT32         ; The null descriptor.
     dw 0                         ; Limit (low).
@@ -61,8 +59,6 @@ ap_startup_32:
     mov fs, ax
     mov gs, ax
 
-    lea esp, [AP_STACK_TOP]
-
     ; Enter long mode.
     mov eax, 10100000b                ; Set the PAE and PGE bit.
     mov cr4, eax
@@ -82,14 +78,27 @@ ap_startup_32:
 
     lgdt [GDT64.pointer]
 
-    jmp GDT64.code:ap_entry
+    jmp GDT64.code:ap_startup_64
 
-%define AP_STACK_SIZE (PAGE_SIZE*50)
+[BITS 64]
 
-; FIXME: this must be done per-ap
-global AP_STACK_TOP
-section .bss
-AP_STACK_BOTTOM:
-   align PAGE_SIZE
-   times AP_STACK_SIZE db 0
-AP_STACK_TOP:
+;; This function is a short stub, just so the stack for this ap can be a
+;; 64-bit value
+ap_startup_64:
+    ; Load the stack provided by the bsp
+    mov rsp, [AP_STACK_ADDR]
+
+    ; Acknowledge that the stack has been used
+    mov byte [AP_READY], 1
+
+    ; Jump to rust code
+    jmp ap_entry
+
+
+global AP_STACK_ADDR
+AP_STACK_ADDR:
+    dq 0
+
+global AP_READY
+AP_READY:
+    db 0

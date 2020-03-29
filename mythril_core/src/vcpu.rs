@@ -1,12 +1,10 @@
-use crate::apic::LocalApic;
 use crate::emulate;
 use crate::error::{self, Error, Result};
 use crate::memory::Raw4kPage;
 use crate::registers::{GdtrBase, IdtrBase};
 use crate::vm::VirtualMachine;
-use crate::{vmcs, vmexit, vmx};
+use crate::{vm, vmcs, vmexit, vmx};
 use alloc::boxed::Box;
-use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::mem;
@@ -22,24 +20,17 @@ extern "C" {
 }
 
 /// The post-startup point where a core begins executing its statically
-/// assigned VCPU. The `vm_map` maps APIC core id's to the virtual machine
-/// associated with that core.
-pub fn mp_ap_entry_point(
-    vm_map: &'static BTreeMap<usize, Arc<RwLock<VirtualMachine>>>,
-) -> ! {
-    let local_apic = LocalApic::init()
-        .expect("Failed to initialize local apic");
-
-    info!(
-        "X2APIC:\tid={}\tbase=0x{:x}\tversion=0x{:x}",
-        local_apic.id(),
-        local_apic.raw_base(),
-        local_apic.version()
-    );
-
-    let vm = vm_map
-        .get(&local_apic.id())
-        .expect("Failed to locate VM for VCPU");
+/// assigned VCPU. The `apic_id` must x2 APIC ID for the running core.
+/// Past this point, there is no distinction between BSP and AP.
+pub fn mp_entry_point(apic_id: usize) -> ! {
+    let vm = unsafe {
+        vm::VM_MAP
+            .as_ref()
+            .unwrap()
+            .get(&apic_id)
+            .expect("Failed to find VM for core")
+            .clone()
+    };
     let vcpu = VCpu::new(vm.clone()).expect("Failed to create vcpu");
     vcpu.launch().expect("Failed to launch vm")
 }
