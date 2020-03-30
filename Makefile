@@ -1,7 +1,8 @@
 CARGO?=cargo
 MULTIBOOT2_TARGET?=multiboot2_target
+BUILD_TYPE?=release
 
-multiboot2_binary = target/$(MULTIBOOT2_TARGET)/release/mythril_multiboot2
+multiboot2_binary = target/$(MULTIBOOT2_TARGET)/$(BUILD_TYPE)/mythril_multiboot2
 multiboot2_debug_binary = target/$(MULTIBOOT2_TARGET)/debug/mythril_multiboot2
 mythril_src = $(shell find . -type f -name '*.rs' -or -name '*.S' -or -name '*.ld')
 seabios = seabios/out/bios.bin
@@ -34,7 +35,7 @@ qemu-debug: multiboot2-debug $(seabios)
 	    -gdb tcp::1234 -S $(QEMU_EXTRA)
 
 $(multiboot2_binary): $(mythril_src)
-	$(CARGO) xbuild --release \
+	$(CARGO) xbuild --$(BUILD_TYPE) \
 	    --target mythril_multiboot2/$(MULTIBOOT2_TARGET).json \
 	    --manifest-path mythril_multiboot2/Cargo.toml
 
