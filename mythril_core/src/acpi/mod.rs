@@ -10,6 +10,8 @@
 
 use crate::error::{Error, Result};
 
+/// Support for the Multiple APIC Descriptor Table (MADT).
+pub mod madt;
 /// Support for the Root System Descriptor Pointer (RSDP).
 pub mod rsdp;
 /// Support for the Root System Descriptor Table (RSDT).

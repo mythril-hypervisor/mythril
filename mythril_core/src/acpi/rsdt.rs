@@ -1,5 +1,5 @@
 use super::verify_checksum;
-use crate::error::Result;
+use crate::error::{Error, Result};
 use byteorder::{ByteOrder, NativeEndian};
 use core::fmt;
 use core::ops::Range;
@@ -122,6 +122,16 @@ impl<'a> RSDT<'a> {
     /// Return an iterator for the SDT entries.
     pub fn entries(&self) -> RSDTIterator<'a> {
         RSDTIterator::new(self.0.table)
+    }
+
+    /// Returns the first matching SDT for a given signature.
+    pub fn find_entry(&self, signature: &[u8]) -> Result<SDT<'a>> {
+        self.entries()
+            .find(|entry| match entry {
+                Ok(entry) if &entry.signature == signature => true,
+                _ => false,
+            })
+            .unwrap_or(Err(Error::NotFound))
     }
 }
 
