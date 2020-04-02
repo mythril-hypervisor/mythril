@@ -221,7 +221,7 @@ impl HostPhysFrame {
         ptr.as_ref().unwrap()
     }
 
-    pub unsafe fn as_mut_array(&self) -> &mut [u8; Self::SIZE] {
+    pub unsafe fn as_mut_array(&mut self) -> &mut [u8; Self::SIZE] {
         let ptr = self.0.as_u64() as *mut [u8; Self::SIZE];
         ptr.as_mut().unwrap()
     }
@@ -429,7 +429,7 @@ impl GuestAddressSpace {
 
         let mut start_offset = addr.as_u64() as usize % HostPhysFrame::SIZE;
         for frame in iter.take(count) {
-            let frame = frame?;
+            let mut frame = frame?;
             let array = unsafe { frame.as_mut_array() };
             let _slice = if start_offset + bytes.len() <= HostPhysFrame::SIZE {
                 array[start_offset..start_offset + bytes.len()]

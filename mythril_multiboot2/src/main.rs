@@ -272,7 +272,7 @@ pub extern "C" fn kmain(multiboot_info_addr: usize) -> ! {
             apic::Level::Assert,
             apic::DstMode::Physical,
             apic::DeliveryMode::StartUp,
-            unsafe {(AP_STARTUP_ADDR >> 12) as u8},
+            unsafe { (AP_STARTUP_ADDR >> 12) as u8 },
         );
 
         while unsafe { AP_READY != 1 } {}

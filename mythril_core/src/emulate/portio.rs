@@ -29,10 +29,9 @@ fn emulate_outs(
         access,
     )?;
 
-    let dev =
-        vm.config.device_map().device_for_mut(port).ok_or(
-            Error::MissingDevice(format!("No device for port {}", port)),
-        )?;
+    let dev = vm.config.device_map().device_for_mut(port).ok_or_else(|| {
+        Error::MissingDevice(format!("No device for port {}", port))
+    })?;
 
     // FIXME: Actually test for REP
     for chunk in bytes.chunks_exact(exit.size as usize) {
@@ -52,10 +51,9 @@ fn emulate_ins(
 ) -> Result<()> {
     let mut vm = vcpu.vm.write();
 
-    let dev =
-        vm.config.device_map().device_for_mut(port).ok_or(
-            Error::MissingDevice(format!("No device for port {}", port)),
-        )?;
+    let dev = vm.config.device_map().device_for_mut(port).ok_or_else(|| {
+        Error::MissingDevice(format!("No device for port {}", port))
+    })?;
 
     let linear_addr =
         vcpu.vmcs.read_field(vmcs::VmcsField::GuestLinearAddress)?;
@@ -88,9 +86,10 @@ pub fn emulate_portio(
     if !string {
         let mut vm = vcpu.vm.write();
 
-        let dev = vm.config.device_map().device_for_mut(port).ok_or(
-            Error::MissingDevice(format!("No device for port {}", port)),
-        )?;
+        let dev =
+            vm.config.device_map().device_for_mut(port).ok_or_else(|| {
+                Error::MissingDevice(format!("No device for port {}", port))
+            })?;
 
         if !input {
             let arr = (guest_cpu.rax as u32).to_be_bytes();
