@@ -237,10 +237,10 @@ pub extern "C" fn kmain(multiboot_info_addr: usize) -> ! {
     let local_apic =
         apic::LocalApic::init().expect("Failed to initialize local APIC");
 
+    let mut map = BTreeMap::new();
+    map.insert(0usize, default_vm(0, 256, &mut multiboot_services));
+    map.insert(1usize, default_vm(1, 256, &mut multiboot_services));
     unsafe {
-        let mut map = BTreeMap::new();
-        map.insert(0usize, default_vm(0, 256, &mut multiboot_services));
-        map.insert(1usize, default_vm(1, 256, &mut multiboot_services));
         vm::VM_MAP = Some(map);
     }
 
@@ -264,18 +264,16 @@ pub extern "C" fn kmain(multiboot_info_addr: usize) -> ! {
             0,
         );
 
-        unsafe {
-            debug!("Send SIPI to AP id={}", ap_apic_id);
-            local_apic.send_ipi(
-                ap_apic_id,
-                apic::DstShorthand::NoShorthand,
-                apic::TriggerMode::Edge,
-                apic::Level::Assert,
-                apic::DstMode::Physical,
-                apic::DeliveryMode::StartUp,
-                (AP_STARTUP_ADDR >> 12) as u8,
-            );
-        }
+        debug!("Send SIPI to AP id={}", ap_apic_id);
+        local_apic.send_ipi(
+            ap_apic_id,
+            apic::DstShorthand::NoShorthand,
+            apic::TriggerMode::Edge,
+            apic::Level::Assert,
+            apic::DstMode::Physical,
+            apic::DeliveryMode::StartUp,
+            unsafe {(AP_STARTUP_ADDR >> 12) as u8},
+        );
 
         while unsafe { AP_READY != 1 } {}
     }
