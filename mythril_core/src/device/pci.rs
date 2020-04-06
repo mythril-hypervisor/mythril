@@ -219,7 +219,7 @@ impl EmulatedDevice for PciRootComplex {
                             >> (offset * 8);
                         val.copy_from_u32(res);
                         info!(
-                            "port=0x{:x}, register=0x{:x}, offset=0x{:x}, val={:?}",
+                            "port=0x{:x}, register=0x{:x}, offset=0x{:x}, val={}",
                             port, register, offset, val
                         );
                     }

@@ -76,7 +76,7 @@ impl EmulatedDevice for AcpiRuntime {
 
     fn on_port_write(&mut self, port: Port, val: PortWriteRequest) -> Result<()> {
         info!(
-            "Attempt to write to AcpiRuntime port=0x{:x}, val={:?}. Ignoring",
+            "Attempt to write to AcpiRuntime port=0x{:x}, val={}. Ignoring",
             port, val
         );
         Ok(())

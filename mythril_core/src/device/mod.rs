@@ -6,6 +6,7 @@ use alloc::rc::Rc;
 use alloc::vec::Vec;
 use core::cmp::Ordering;
 use core::convert::{TryFrom, TryInto};
+use core::fmt;
 use core::ops::RangeInclusive;
 
 pub mod acpi;
@@ -289,6 +290,24 @@ impl<'a> TryFrom<&'a mut [u8]> for PortReadRequest<'a> {
     }
 }
 
+impl<'a> fmt::Display for PortReadRequest<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::OneByte(arr) => {
+                write!(f, "PortReadRequest([0x{:x}])", arr[0])
+            }
+            Self::TwoBytes(arr) => {
+                write!(f, "PortReadRequest([0x{:x}, 0x{:x}])", arr[0], arr[1])
+            }
+            Self::FourBytes(arr) => write!(
+                f,
+                "PortReadRequest([0x{:x}, 0x{:x}, 0x{:x}, 0x{:x}])",
+                arr[0], arr[1], arr[2], arr[3]
+            ),
+        }
+    }
+}
+
 impl<'a> PortWriteRequest<'a> {
     pub fn as_slice(&self) -> &'a [u8] {
         match *self {
@@ -367,6 +386,24 @@ impl<'a> TryInto<u32> for PortWriteRequest<'a> {
                 "Value {:?} cannot be converted to u32",
                 val
             ))),
+        }
+    }
+}
+
+impl<'a> fmt::Display for PortWriteRequest<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::OneByte(arr) => {
+                write!(f, "PortWriteRequest([0x{:x}])", arr[0])
+            }
+            Self::TwoBytes(arr) => {
+                write!(f, "PortWriteRequest([0x{:x}, 0x{:x}])", arr[0], arr[1])
+            }
+            Self::FourBytes(arr) => write!(
+                f,
+                "PortWriteRequest([0x{:x}, 0x{:x}, 0x{:x}, 0x{:x}])",
+                arr[0], arr[1], arr[2], arr[3]
+            ),
         }
     }
 }
