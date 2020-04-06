@@ -1,4 +1,4 @@
-use crate::device::{DeviceRegion, EmulatedDevice, Port, PortIoValue};
+use crate::device::{DeviceRegion, EmulatedDevice, Port, PortReadRequest, PortWriteRequest};
 use crate::error::{Error, Result};
 use alloc::boxed::Box;
 use alloc::vec::Vec;
@@ -75,7 +75,7 @@ impl EmulatedDevice for VgaController {
     fn on_port_read(
         &mut self,
         port: Port,
-        val: &mut PortIoValue,
+        mut val: PortReadRequest,
     ) -> Result<()> {
         match port {
             Self::VGA_DATA => {
@@ -91,10 +91,10 @@ impl EmulatedDevice for VgaController {
         Ok(())
     }
 
-    fn on_port_write(&mut self, port: Port, val: PortIoValue) -> Result<()> {
+    fn on_port_write(&mut self, port: Port, val: PortWriteRequest) -> Result<()> {
         match port {
             Self::VGA_INDEX => match val {
-                PortIoValue::OneByte(b) => {
+                PortWriteRequest::OneByte(b) => {
                     self.index =
                         VgaRegister::try_from(b[0]).ok_or_else(|| {
                             Error::InvalidValue(format!(
@@ -107,7 +107,7 @@ impl EmulatedDevice for VgaController {
                 // The VGA controller allows a register update and data write
                 // in one operation (and linux actually does this), so handle
                 // that here
-                PortIoValue::TwoBytes(bytes) => {
+                PortWriteRequest::TwoBytes(bytes) => {
                     let index = bytes[1];
                     let data = bytes[0];
                     self.index =

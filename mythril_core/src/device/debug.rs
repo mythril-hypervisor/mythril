@@ -1,4 +1,4 @@
-use crate::device::{DeviceRegion, EmulatedDevice, Port, PortIoValue};
+use crate::device::{DeviceRegion, EmulatedDevice, Port, PortReadRequest, PortWriteRequest};
 use crate::error::Result;
 use crate::logger;
 use alloc::boxed::Box;
@@ -29,14 +29,14 @@ impl EmulatedDevice for DebugPort {
     fn on_port_read(
         &mut self,
         _port: Port,
-        val: &mut PortIoValue,
+        mut val: PortReadRequest,
     ) -> Result<()> {
         // This is a magical value (called BOCHS_DEBUG_PORT_MAGIC by edk2)
-        *val = 0xe9u8.into();
+        val.copy_from_u32(0xe9);
         Ok(())
     }
 
-    fn on_port_write(&mut self, _port: Port, val: PortIoValue) -> Result<()> {
+    fn on_port_write(&mut self, _port: Port, val: PortWriteRequest) -> Result<()> {
         self.buff.extend_from_slice(val.as_slice());
 
         // Flush on newlines

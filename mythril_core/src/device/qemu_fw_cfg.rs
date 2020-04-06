@@ -1,4 +1,4 @@
-use crate::device::{DeviceRegion, EmulatedDevice, Port, PortIoValue};
+use crate::device::{DeviceRegion, EmulatedDevice, Port, PortReadRequest, PortWriteRequest};
 use crate::error::{Error, Result};
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
@@ -187,7 +187,7 @@ impl EmulatedDevice for QemuFwCfg {
     fn on_port_read(
         &mut self,
         port: Port,
-        val: &mut PortIoValue,
+        mut val: PortReadRequest,
     ) -> Result<()> {
         let len = val.len();
         match port {
@@ -219,7 +219,7 @@ impl EmulatedDevice for QemuFwCfg {
         Ok(())
     }
 
-    fn on_port_write(&mut self, port: Port, val: PortIoValue) -> Result<()> {
+    fn on_port_write(&mut self, port: Port, val: PortWriteRequest) -> Result<()> {
         match port {
             Self::FW_CFG_PORT_SEL => {
                 self.selector = val.try_into()?;

@@ -1,4 +1,4 @@
-use crate::device::{DeviceRegion, EmulatedDevice, Port, PortIoValue};
+use crate::device::{DeviceRegion, EmulatedDevice, Port, PortReadRequest, PortWriteRequest};
 use crate::error::{Error, Result};
 use alloc::boxed::Box;
 use alloc::vec::Vec;
@@ -44,7 +44,7 @@ impl EmulatedDevice for Pic8259 {
     fn on_port_read(
         &mut self,
         port: Port,
-        val: &mut PortIoValue,
+        mut val: PortReadRequest,
     ) -> Result<()> {
         let data = match port {
             Self::PIC_MASTER_DATA => self.master_state.imr,
@@ -55,11 +55,11 @@ impl EmulatedDevice for Pic8259 {
                 ))
             }
         };
-        *val = data.into();
+        val.copy_from_u32(data as u32);
         Ok(())
     }
 
-    fn on_port_write(&mut self, port: Port, val: PortIoValue) -> Result<()> {
+    fn on_port_write(&mut self, port: Port, val: PortWriteRequest) -> Result<()> {
         match port {
             Self::PIC_MASTER_DATA => {
                 info!("Set master PIC data: {:?}", val);

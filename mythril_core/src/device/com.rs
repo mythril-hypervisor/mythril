@@ -1,4 +1,4 @@
-use crate::device::{DeviceRegion, EmulatedDevice, Port, PortIoValue};
+use crate::device::{DeviceRegion, EmulatedDevice, Port, PortReadRequest, PortWriteRequest};
 use crate::error::Result;
 use crate::logger;
 use alloc::boxed::Box;
@@ -61,7 +61,7 @@ impl EmulatedDevice for ComDevice {
     fn on_port_read(
         &mut self,
         port: Port,
-        val: &mut PortIoValue,
+        mut val: PortReadRequest,
     ) -> Result<()> {
         if port - self.base_port == SerialOffset::DATA
             && self.divisor_latch_bit_set()
@@ -86,9 +86,9 @@ impl EmulatedDevice for ComDevice {
         Ok(())
     }
 
-    fn on_port_write(&mut self, port: Port, val: PortIoValue) -> Result<()> {
+    fn on_port_write(&mut self, port: Port, val: PortWriteRequest) -> Result<()> {
+        let val: u8 = val.try_into()?;
         if port - self.base_port == SerialOffset::DATA {
-            let val: u8 = val.try_into()?;
             if self.divisor_latch_bit_set() {
                 self.divisor &= 0xff00 | val as u16;
             } else {
@@ -102,14 +102,13 @@ impl EmulatedDevice for ComDevice {
         } else if port - self.base_port == SerialOffset::DLL
             && self.divisor_latch_bit_set()
         {
-            let val: u8 = val.try_into()?;
             self.divisor = (self.divisor & 0xff) | (val as u16) << 8;
         }
 
         if port - self.base_port == SerialOffset::IIR {
-            self.interrupt_identification_register = val.try_into()?;
+            self.interrupt_identification_register = val;
         } else if port - self.base_port == SerialOffset::IER {
-            self.interrupt_enable_register = val.try_into()?;
+            self.interrupt_enable_register = val;
         }
 
         Ok(())

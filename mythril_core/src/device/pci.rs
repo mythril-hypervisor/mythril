@@ -1,4 +1,4 @@
-use crate::device::{DeviceRegion, EmulatedDevice, Port, PortIoValue};
+use crate::device::{DeviceRegion, EmulatedDevice, Port, PortReadRequest, PortWriteRequest};
 use crate::error::{Error, Result};
 use alloc::boxed::Box;
 use alloc::collections::btree_map::BTreeMap;
@@ -200,13 +200,13 @@ impl EmulatedDevice for PciRootComplex {
     fn on_port_read(
         &mut self,
         port: Port,
-        val: &mut PortIoValue,
+        mut val: PortReadRequest,
     ) -> Result<()> {
         match port {
             Self::PCI_CONFIG_ADDRESS => {
                 // For now, always set the enable bit
                 let addr = 0x80000000 | self.current_address;
-                *val = addr.into();
+                val.copy_from_u32(addr);
             }
             Self::PCI_CONFIG_DATA..=Self::PCI_CONFIG_DATA_MAX => {
                 let bdf = ((self.current_address & 0xffff00) >> 8) as u16;
@@ -240,7 +240,7 @@ impl EmulatedDevice for PciRootComplex {
         Ok(())
     }
 
-    fn on_port_write(&mut self, port: Port, val: PortIoValue) -> Result<()> {
+    fn on_port_write(&mut self, port: Port, val: PortWriteRequest) -> Result<()> {
         match port {
             Self::PCI_CONFIG_ADDRESS => {
                 let addr: u32 = val.try_into()?;
@@ -273,60 +273,56 @@ mod test {
     #[test]
     fn test_full_register_read() {
         let mut complex = complex_ready_for_reg_read(0);
-        let mut val = PortIoValue::from(0u32);
+        let mut buff = [0u8; 4];
+        let val = PortReadRequest::FourBytes(&mut buff);
         complex
-            .on_port_read(PciRootComplex::PCI_CONFIG_DATA, &mut val)
+            .on_port_read(PciRootComplex::PCI_CONFIG_DATA, val)
             .unwrap();
 
-        let read_val: u32 = val.try_into().unwrap();
-        assert_eq!(read_val, 0x29c08086);
+        assert_eq!(u32::from_be_bytes(buff), 0x29c08086);
     }
 
     #[test]
     fn test_half_register_read() {
         let mut complex = complex_ready_for_reg_read(0);
-        let mut val = PortIoValue::from(0u16);
+        let mut buff = [0u8; 2];
+        let val = PortReadRequest::TwoBytes(&mut buff);
 
         complex
-            .on_port_read(PciRootComplex::PCI_CONFIG_DATA, &mut val)
+            .on_port_read(PciRootComplex::PCI_CONFIG_DATA, val)
             .unwrap();
-        let read_val: u16 = val.try_into().unwrap();
-        assert_eq!(read_val, 0x8086);
+        assert_eq!(u16::from_be_bytes(buff), 0x8086);
 
         complex
-            .on_port_read(PciRootComplex::PCI_CONFIG_DATA + 2, &mut val)
+            .on_port_read(PciRootComplex::PCI_CONFIG_DATA + 2, val)
             .unwrap();
-        let read_val: u16 = val.try_into().unwrap();
-        assert_eq!(read_val, 0x29c0);
+        assert_eq!(u16::from_be_bytes(buff), 0x29c0);
     }
 
     #[test]
     fn test_register_byte_read() {
         let mut complex = complex_ready_for_reg_read(0);
-        let mut val = PortIoValue::from(0u8);
+        let mut buff = [0u8; 1];
+        let val = PortReadRequest::OneByte(&mut buff);
 
         complex
-            .on_port_read(PciRootComplex::PCI_CONFIG_DATA, &mut val)
+            .on_port_read(PciRootComplex::PCI_CONFIG_DATA, val)
             .unwrap();
-        let read_val: u8 = val.try_into().unwrap();
-        assert_eq!(read_val, 0x86);
+        assert_eq!(u8::from_be_bytes(buff), 0x86);
 
         complex
-            .on_port_read(PciRootComplex::PCI_CONFIG_DATA + 1, &mut val)
+            .on_port_read(PciRootComplex::PCI_CONFIG_DATA + 1, val)
             .unwrap();
-        let read_val: u8 = val.try_into().unwrap();
-        assert_eq!(read_val, 0x80);
+        assert_eq!(u8::from_be_bytes(buff), 0x80);
 
         complex
-            .on_port_read(PciRootComplex::PCI_CONFIG_DATA + 2, &mut val)
+            .on_port_read(PciRootComplex::PCI_CONFIG_DATA + 2, val)
             .unwrap();
-        let read_val: u8 = val.try_into().unwrap();
-        assert_eq!(read_val, 0xc0);
+        assert_eq!(u8::from_be_bytes(buff), 0xc0);
 
         complex
-            .on_port_read(PciRootComplex::PCI_CONFIG_DATA + 3, &mut val)
+            .on_port_read(PciRootComplex::PCI_CONFIG_DATA + 3, val)
             .unwrap();
-        let read_val: u8 = val.try_into().unwrap();
-        assert_eq!(read_val, 0x29);
+        assert_eq!(u8::from_be_bytes(buff), 0x29);
     }
 }

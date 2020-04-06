@@ -1,4 +1,4 @@
-use crate::device::{Port, PortIoValue};
+use crate::device::{Port, PortReadRequest, PortWriteRequest};
 use crate::error::{Error, Result};
 use crate::memory;
 use crate::{vcpu, vmcs, vmexit};
@@ -35,7 +35,8 @@ fn emulate_outs(
 
     // FIXME: Actually test for REP
     for chunk in bytes.chunks_exact(exit.size as usize) {
-        dev.on_port_write(port, PortIoValue::try_from(chunk)?)?;
+        let request = PortWriteRequest::try_from(chunk)?;
+        dev.on_port_write(port, request)?;
     }
 
     guest_cpu.rsi += bytes.len() as u64;
@@ -62,9 +63,8 @@ fn emulate_ins(
 
     let mut bytes = vec![0u8; guest_cpu.rcx as usize];
     for chunk in bytes.chunks_exact_mut(exit.size as usize) {
-        let mut val = PortIoValue::try_from(&*chunk)?;
-        dev.on_port_read(port, &mut val)?;
-        chunk.copy_from_slice(val.as_slice());
+        let request = PortReadRequest::try_from(chunk)?;
+        dev.on_port_read(port, request)?;
     }
 
     vm.guest_space
@@ -95,18 +95,20 @@ pub fn emulate_portio(
             let arr = (guest_cpu.rax as u32).to_be_bytes();
             dev.on_port_write(
                 port,
-                PortIoValue::try_from(&arr[4 - size as usize..])?,
+                PortWriteRequest::try_from(&arr[4 - size as usize..])?,
             )?;
         } else {
-            let mut val = match size {
-                1 => PortIoValue::OneByte([0]),
-                2 => PortIoValue::TwoBytes([0, 0]),
-                4 => PortIoValue::FourBytes([0, 0, 0, 0]),
+            let mut arr = [0u8; 4];
+            let slice = match size {
+                1 => &mut arr[0..1],
+                2 => &mut arr[0..2],
+                4 => &mut arr[..],
                 _ => panic!("Invalid portio read size: {}", size),
             };
-            dev.on_port_read(port, &mut val)?;
+            let request = PortReadRequest::try_from(slice)?;
+            dev.on_port_read(port, request)?;
             guest_cpu.rax &= (!guest_cpu.rax) << (size * 8);
-            guest_cpu.rax |= val.as_u32() as u64;
+            guest_cpu.rax |= u32::from_be_bytes(arr) as u64;
         }
     } else {
         if !input {
