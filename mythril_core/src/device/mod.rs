@@ -453,26 +453,27 @@ mod test {
     }
 
     #[test]
-    fn test_portio_value() {
-        let val: Result<PortIoValue> = [0x12, 0x34, 0x56, 0x78][..].try_into();
+    fn test_write_request_try_from() {
+        let val: Result<PortWriteRequest> = [0x12, 0x34, 0x56, 0x78][..].try_into();
         assert_eq!(val.is_ok(), true);
 
-        let val: Result<PortIoValue> = [0x12, 0x34, 0x56][..].try_into();
+        let val: Result<PortWriteRequest> = [0x12, 0x34, 0x56][..].try_into();
         assert_eq!(val.is_err(), true);
 
-        let val: PortIoValue = [0x12, 0x34, 0x56, 0x78][..].try_into().unwrap();
+        let val: PortWriteRequest = [0x12, 0x34, 0x56, 0x78][..].try_into().unwrap();
         assert_eq!(val.as_u32(), 0x12345678);
 
-        let val: PortIoValue = [0x12, 0x34][..].try_into().unwrap();
+        let val: PortWriteRequest = [0x12, 0x34][..].try_into().unwrap();
         assert_eq!(val.as_u32(), 0x1234);
     }
 
     #[test]
     fn test_portio_value_read() {
-        let mut val = PortIoValue::TwoBytes([0x00, 0x00]);
+        let mut arr = [0x00, 0x00];
+        let mut val = PortReadRequest::TwoBytes(&mut arr);
         val.copy_from_u32(0x1234u32);
         assert_eq!([0x12, 0x34], val.as_slice());
-        assert_eq!(0x1234, val.as_u32());
+        assert_eq!(0x1234, u16::from_be_bytes(arr));
     }
 
     #[test]

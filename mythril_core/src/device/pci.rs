@@ -262,10 +262,13 @@ mod test {
     use super::*;
 
     fn complex_ready_for_reg_read(reg: u8) -> Box<PciRootComplex> {
+        use core::convert::TryFrom;
+
         let mut complex = PciRootComplex::new();
-        let addr = (reg << 2) as u32;
+        let addr = ((reg << 2) as u32).to_be_bytes();
+        let request = PortWriteRequest::try_from(&addr[..]).unwrap();
         complex
-            .on_port_write(PciRootComplex::PCI_CONFIG_ADDRESS, addr.into())
+            .on_port_write(PciRootComplex::PCI_CONFIG_ADDRESS, request)
             .unwrap();
         complex
     }
@@ -293,6 +296,7 @@ mod test {
             .unwrap();
         assert_eq!(u16::from_be_bytes(buff), 0x8086);
 
+        let val = PortReadRequest::TwoBytes(&mut buff);
         complex
             .on_port_read(PciRootComplex::PCI_CONFIG_DATA + 2, val)
             .unwrap();
@@ -310,16 +314,19 @@ mod test {
             .unwrap();
         assert_eq!(u8::from_be_bytes(buff), 0x86);
 
+        let val = PortReadRequest::OneByte(&mut buff);
         complex
             .on_port_read(PciRootComplex::PCI_CONFIG_DATA + 1, val)
             .unwrap();
         assert_eq!(u8::from_be_bytes(buff), 0x80);
 
+        let val = PortReadRequest::OneByte(&mut buff);
         complex
             .on_port_read(PciRootComplex::PCI_CONFIG_DATA + 2, val)
             .unwrap();
         assert_eq!(u8::from_be_bytes(buff), 0xc0);
 
+        let val = PortReadRequest::OneByte(&mut buff);
         complex
             .on_port_read(PciRootComplex::PCI_CONFIG_DATA + 3, val)
             .unwrap();
