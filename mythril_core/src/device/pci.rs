@@ -1,5 +1,9 @@
-use crate::device::{DeviceRegion, EmulatedDevice, Port, PortReadRequest, PortWriteRequest};
+use crate::device::{
+    DeviceRegion, EmulatedDevice, Port, PortReadRequest, PortWriteRequest,
+};
 use crate::error::{Error, Result};
+use crate::memory::GuestAddressSpace;
+use crate::vcpu::VCpu;
 use alloc::boxed::Box;
 use alloc::collections::btree_map::BTreeMap;
 use alloc::vec::Vec;
@@ -199,8 +203,10 @@ impl EmulatedDevice for PciRootComplex {
     }
     fn on_port_read(
         &mut self,
+        _vcpu: &VCpu,
         port: Port,
         mut val: PortReadRequest,
+        _space: &mut GuestAddressSpace,
     ) -> Result<()> {
         match port {
             Self::PCI_CONFIG_ADDRESS => {
@@ -240,7 +246,13 @@ impl EmulatedDevice for PciRootComplex {
         Ok(())
     }
 
-    fn on_port_write(&mut self, port: Port, val: PortWriteRequest) -> Result<()> {
+    fn on_port_write(
+        &mut self,
+        _vcpu: &VCpu,
+        port: Port,
+        val: PortWriteRequest,
+        _space: &mut GuestAddressSpace,
+    ) -> Result<()> {
         match port {
             Self::PCI_CONFIG_ADDRESS => {
                 let addr: u32 = val.try_into()?;

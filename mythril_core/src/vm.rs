@@ -1,9 +1,10 @@
-use crate::device::DeviceMap;
+use crate::device::{DeviceMap, Port, PortReadRequest, PortWriteRequest};
 use crate::error::{Error, Result};
 use crate::memory::{
     self, GuestAddressSpace, GuestPhysAddr, HostPhysAddr, HostPhysFrame,
     Raw4kPage,
 };
+use crate::vcpu;
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
 use alloc::string::String;
@@ -106,6 +107,38 @@ impl VirtualMachine {
             config: config,
             guest_space: guest_space,
         })))
+    }
+
+    pub fn on_port_read(
+        &mut self,
+        vcpu: &vcpu::VCpu,
+        port: Port,
+        val: PortReadRequest,
+    ) -> Result<()> {
+        let dev =
+            self.config
+                .device_map()
+                .device_for_mut(port)
+                .ok_or_else(|| {
+                    Error::MissingDevice(format!("No device for port {}", port))
+                })?;
+        dev.on_port_read(vcpu, port, val, &mut self.guest_space)
+    }
+
+    pub fn on_port_write(
+        &mut self,
+        vcpu: &vcpu::VCpu,
+        port: Port,
+        val: PortWriteRequest,
+    ) -> Result<()> {
+        let dev =
+            self.config
+                .device_map()
+                .device_for_mut(port)
+                .ok_or_else(|| {
+                    Error::MissingDevice(format!("No device for port {}", port))
+                })?;
+        dev.on_port_write(vcpu, port, val, &mut self.guest_space)
     }
 
     fn map_data(

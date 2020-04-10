@@ -1,5 +1,5 @@
 use crate::device::{Port, PortReadRequest, PortWriteRequest};
-use crate::error::{Error, Result};
+use crate::error::Result;
 use crate::memory;
 use crate::{vcpu, vmcs, vmexit};
 use core::convert::TryFrom;
@@ -29,14 +29,10 @@ fn emulate_outs(
         access,
     )?;
 
-    let dev = vm.config.device_map().device_for_mut(port).ok_or_else(|| {
-        Error::MissingDevice(format!("No device for port {}", port))
-    })?;
-
     // FIXME: Actually test for REP
     for chunk in bytes.chunks_exact(exit.size as usize) {
         let request = PortWriteRequest::try_from(chunk)?;
-        dev.on_port_write(port, request)?;
+        vm.on_port_write(vcpu, port, request)?;
     }
 
     guest_cpu.rsi += bytes.len() as u64;
@@ -52,10 +48,6 @@ fn emulate_ins(
 ) -> Result<()> {
     let mut vm = vcpu.vm.write();
 
-    let dev = vm.config.device_map().device_for_mut(port).ok_or_else(|| {
-        Error::MissingDevice(format!("No device for port {}", port))
-    })?;
-
     let linear_addr =
         vcpu.vmcs.read_field(vmcs::VmcsField::GuestLinearAddress)?;
     let guest_addr = memory::GuestVirtAddr::new(linear_addr, &vcpu.vmcs)?;
@@ -64,7 +56,7 @@ fn emulate_ins(
     let mut bytes = vec![0u8; guest_cpu.rcx as usize];
     for chunk in bytes.chunks_exact_mut(exit.size as usize) {
         let request = PortReadRequest::try_from(chunk)?;
-        dev.on_port_read(port, request)?;
+        vm.on_port_read(vcpu, port, request)?;
     }
 
     vm.guest_space
@@ -86,21 +78,17 @@ pub fn emulate_portio(
     if !string {
         let mut vm = vcpu.vm.write();
 
-        let dev =
-            vm.config.device_map().device_for_mut(port).ok_or_else(|| {
-                Error::MissingDevice(format!("No device for port {}", port))
-            })?;
-
         if !input {
             let arr = (guest_cpu.rax as u32).to_be_bytes();
-            dev.on_port_write(
+            vm.on_port_write(
+                vcpu,
                 port,
                 PortWriteRequest::try_from(&arr[4 - size as usize..])?,
             )?;
         } else {
             let mut arr = [0u8; 4];
             let request = PortReadRequest::try_from(&mut arr[4 - size as usize..])?;
-            dev.on_port_read(port, request)?;
+            vm.on_port_read(vcpu, port, request)?;
             guest_cpu.rax &= (!guest_cpu.rax) << (size * 8);
             guest_cpu.rax |= u32::from_be_bytes(arr) as u64;
         }

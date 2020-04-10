@@ -1,5 +1,9 @@
-use crate::device::{DeviceRegion, EmulatedDevice, Port, PortReadRequest, PortWriteRequest};
+use crate::device::{
+    DeviceRegion, EmulatedDevice, Port, PortReadRequest, PortWriteRequest,
+};
 use crate::error::Result;
+use crate::memory::GuestAddressSpace;
+use crate::vcpu::VCpu;
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 
@@ -25,15 +29,23 @@ impl EmulatedDevice for Keyboard8042 {
 
     fn on_port_read(
         &mut self,
+        _vcpu: &VCpu,
         _port: Port,
         mut val: PortReadRequest,
+        _space: &mut GuestAddressSpace,
     ) -> Result<()> {
         //FIXME: For now just return 0xff for everything
         val.copy_from_u32(0xff);
         Ok(())
     }
 
-    fn on_port_write(&mut self, _port: Port, _val: PortWriteRequest) -> Result<()> {
+    fn on_port_write(
+        &mut self,
+        _vcpu: &VCpu,
+        _port: Port,
+        _val: PortWriteRequest,
+        _space: &mut GuestAddressSpace,
+    ) -> Result<()> {
         Ok(())
     }
 }

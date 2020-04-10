@@ -1,6 +1,10 @@
-use crate::device::{DeviceRegion, EmulatedDevice, Port, PortReadRequest, PortWriteRequest};
+use crate::device::{
+    DeviceRegion, EmulatedDevice, Port, PortReadRequest, PortWriteRequest,
+};
 use crate::error::Result;
+use crate::memory::GuestAddressSpace;
 use crate::tsc;
+use crate::vcpu::VCpu;
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 
@@ -62,8 +66,10 @@ impl EmulatedDevice for AcpiRuntime {
 
     fn on_port_read(
         &mut self,
+        _vcpu: &VCpu,
         port: Port,
         mut val: PortReadRequest,
+        _space: &mut GuestAddressSpace,
     ) -> Result<()> {
         if port == self.pmtimer() {
             let pm_time =
@@ -74,7 +80,13 @@ impl EmulatedDevice for AcpiRuntime {
         Ok(())
     }
 
-    fn on_port_write(&mut self, port: Port, val: PortWriteRequest) -> Result<()> {
+    fn on_port_write(
+        &mut self,
+        _vcpu: &VCpu,
+        port: Port,
+        val: PortWriteRequest,
+        _space: &mut GuestAddressSpace,
+    ) -> Result<()> {
         info!(
             "Attempt to write to AcpiRuntime port=0x{:x}, val={}. Ignoring",
             port, val
