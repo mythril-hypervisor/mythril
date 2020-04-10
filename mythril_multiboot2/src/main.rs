@@ -89,15 +89,18 @@ fn default_vm(
     // via qemu_fw_cfg
     fw_cfg_builder
         .add_file(
-            "genroms/linuxboot.bin",
-            services.read_file("linuxboot.bin").unwrap(),
+            "genroms/linuxboot_dma.bin",
+            services.read_file("linuxboot_dma.bin").unwrap(),
         )
         .unwrap();
 
     // Passing the bootorder file automatically selects the option rom
     // as the default boot device
     fw_cfg_builder
-        .add_file("bootorder", "/rom@genroms/linuxboot.bin\nHALT".as_bytes())
+        .add_file(
+            "bootorder",
+            "/rom@genroms/linuxboot_dma.bin\nHALT".as_bytes(),
+        )
         .unwrap();
 
     linux::load_linux(

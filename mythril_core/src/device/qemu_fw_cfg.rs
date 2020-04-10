@@ -2,11 +2,15 @@ use crate::device::{
     DeviceRegion, EmulatedDevice, Port, PortReadRequest, PortWriteRequest,
 };
 use crate::error::{Error, Result};
-use crate::memory::GuestAddressSpace;
+use crate::memory::{
+    GuestAccess, GuestAddressSpace, GuestPhysAddr, GuestVirtAddr,
+    PrivilegeLevel,
+};
 use crate::vcpu::VCpu;
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
+use bitflags::bitflags;
 use core::convert::TryInto;
 
 // This is _almost_ an enum, but there are 'file' selectors
@@ -59,6 +63,60 @@ struct FWCfgFile {
     name: [u8; FW_CFG_MAX_FILE_NAME + 1], // +1 for NULL terminator
 }
 
+#[repr(C)]
+struct RawFWCfgDmaAccess {
+    be_control: u32,
+    be_length: u32,
+    be_address: u64,
+}
+
+impl From<FWCfgDmaAccess> for RawFWCfgDmaAccess {
+    fn from(dma: FWCfgDmaAccess) -> Self {
+        let control = dma.control.bits() as u32;
+        Self {
+            be_control: control.to_be(),
+            be_length: dma.length.to_be(),
+            be_address: dma.address.to_be(),
+        }
+    }
+}
+
+#[derive(Debug)]
+struct FWCfgDmaAccess {
+    control: DmaControlFlags,
+    select: u16,
+    length: u32,
+    address: u64,
+}
+
+bitflags! {
+    pub struct DmaControlFlags: u16 {
+        const ERROR =  1 << 0;
+        const READ =   1 << 1;
+        const SKIP =   1 << 2;
+        const SELECT = 1 << 3;
+        const WRITE =  1 << 4;
+    }
+}
+
+impl From<RawFWCfgDmaAccess> for FWCfgDmaAccess {
+    fn from(raw: RawFWCfgDmaAccess) -> Self {
+        let control = u32::from_be(raw.be_control);
+        let select = (control >> 16) as u16;
+        let control = DmaControlFlags::from_bits_truncate(control as u16);
+
+        let length = u32::from_be(raw.be_length);
+        let address = u64::from_be(raw.be_address);
+
+        Self {
+            control,
+            select,
+            length,
+            address,
+        }
+    }
+}
+
 pub struct QemuFwCfgBuilder {
     file_info: Vec<FWCfgFile>,
     data: BTreeMap<u16, Vec<u8>>,
@@ -72,7 +130,7 @@ impl QemuFwCfgBuilder {
         };
 
         s.add_i32(FwCfgSelector::SIGNATURE, 0x554d4551); // QEMU
-        s.add_i32(FwCfgSelector::ID, 0x01);
+        s.add_i32(FwCfgSelector::ID, 0b11);
 
         s
     }
@@ -112,6 +170,7 @@ impl QemuFwCfgBuilder {
             selector: FwCfgSelector::SIGNATURE,
             data: self.data,
             data_idx: 0,
+            dma_addr: 0,
         })
     }
 
@@ -171,12 +230,92 @@ pub struct QemuFwCfg {
     selector: u16,
     data: BTreeMap<u16, Vec<u8>>,
     data_idx: usize,
+    dma_addr: u64,
 }
 
 impl QemuFwCfg {
     const FW_CFG_PORT_SEL: Port = 0x510;
     const FW_CFG_PORT_DATA: Port = 0x511;
-    const _FW_CFG_PORT_DMA: Port = 0x514;
+    const FW_CFG_PORT_DMA_HIGH: Port = 0x514;
+    const FW_CFG_PORT_DMA_LOW: Port = 0x518;
+
+    fn perform_dma_transfer(
+        &mut self,
+        vcpu: &VCpu,
+        space: &mut GuestAddressSpace,
+    ) -> Result<()> {
+        let bytes = space.read_bytes(
+            &vcpu.vmcs,
+            GuestVirtAddr::NoPaging(GuestPhysAddr::new(self.dma_addr)),
+            core::mem::size_of::<RawFWCfgDmaAccess>(),
+            GuestAccess::Read(PrivilegeLevel(0)),
+        )?;
+        let request: RawFWCfgDmaAccess = unsafe {
+            core::ptr::read(bytes.as_ptr() as *const RawFWCfgDmaAccess)
+        };
+        let mut request: FWCfgDmaAccess = request.into();
+
+        if request.control.contains(DmaControlFlags::SELECT) {
+            self.selector = request.select;
+            self.data_idx = 0;
+            request.control &= !DmaControlFlags::SELECT;
+        }
+
+        if request.control.contains(DmaControlFlags::SKIP) {
+            self.data_idx = request.length as usize;
+            request.control &= !DmaControlFlags::SKIP;
+        }
+
+        if request.control.contains(DmaControlFlags::READ) {
+            match self.read_selector(request.length as usize) {
+                Some(data) => {
+                    space.write_bytes(
+                        &vcpu.vmcs,
+                        GuestVirtAddr::NoPaging(GuestPhysAddr::new(
+                            request.address,
+                        )),
+                        data,
+                        GuestAccess::Read(PrivilegeLevel(0)),
+                    )?;
+                }
+                None => request.control = DmaControlFlags::ERROR.into(),
+            }
+            request.control &= !DmaControlFlags::READ;
+        }
+
+        // We don't support writes at all
+        if request.control.contains(DmaControlFlags::WRITE) {
+            request.control &= !DmaControlFlags::WRITE;
+            request.control |= DmaControlFlags::ERROR;
+        }
+
+        let request: RawFWCfgDmaAccess = request.into();
+        let data = unsafe {
+            core::slice::from_raw_parts(
+                (&request as *const RawFWCfgDmaAccess) as *const u8,
+                core::mem::size_of::<RawFWCfgDmaAccess>(),
+            )
+        };
+        space.write_bytes(
+            &vcpu.vmcs,
+            GuestVirtAddr::NoPaging(GuestPhysAddr::new(self.dma_addr)),
+            data,
+            GuestAccess::Read(PrivilegeLevel(0)),
+        )?;
+
+        Ok(())
+    }
+
+    fn read_selector(&mut self, length: usize) -> Option<&[u8]> {
+        if self.data.contains_key(&self.selector) {
+            let data = &self.data[&(self.selector)];
+            let slice = &data[self.data_idx..self.data_idx + length];
+            self.data_idx += length;
+            return Some(slice);
+        } else {
+            None
+        }
+    }
 }
 
 impl EmulatedDevice for QemuFwCfg {
@@ -184,7 +323,10 @@ impl EmulatedDevice for QemuFwCfg {
         vec![
             DeviceRegion::PortIo(
                 Self::FW_CFG_PORT_SEL..=Self::FW_CFG_PORT_DATA,
-            ), // No Support for DMA right now
+            ),
+            DeviceRegion::PortIo(
+                Self::FW_CFG_PORT_DMA_HIGH..=Self::FW_CFG_PORT_DMA_LOW,
+            ),
         ]
     }
 
@@ -201,24 +343,27 @@ impl EmulatedDevice for QemuFwCfg {
                 val.copy_from_u32(self.selector as u16 as u32);
             }
             Self::FW_CFG_PORT_DATA => {
-                match self.selector {
-                    selector if self.data.contains_key(&self.selector) => {
-                        let data = &self.data[&(selector)];
-                        val.as_mut_slice().copy_from_slice(
-                            &data[self.data_idx..self.data_idx + len],
-                        );
-                        self.data_idx += len;
+                let data = self.read_selector(len);
+                match data {
+                    Some(data) => {
+                        val.as_mut_slice().copy_from_slice(data);
                     }
-                    selector => {
+                    None => {
                         info!(
                             "Attempt to read from selector: 0x{:x}",
-                            selector
+                            self.selector
                         );
 
                         // For now, just return zeros for other fields
                         val.copy_from_u32(0);
                     }
                 }
+            }
+            Self::FW_CFG_PORT_DMA_LOW => {
+                val.copy_from_u32(0x20434647); // " CFG"
+            }
+            Self::FW_CFG_PORT_DMA_HIGH => {
+                val.copy_from_u32(0x51454d55) // "QEMU"
             }
             _ => unreachable!(),
         }
@@ -227,21 +372,33 @@ impl EmulatedDevice for QemuFwCfg {
 
     fn on_port_write(
         &mut self,
-        _vcpu: &VCpu,
+        vcpu: &VCpu,
         port: Port,
         val: PortWriteRequest,
-        _space: &mut GuestAddressSpace,
+        space: &mut GuestAddressSpace,
     ) -> Result<()> {
         match port {
             Self::FW_CFG_PORT_SEL => {
                 self.selector = val.try_into()?;
                 self.data_idx = 0;
             }
-            _ => {
+            Self::FW_CFG_PORT_DATA => {
                 return Err(Error::NotImplemented(
                     "Write to QEMU FW CFG data port not yet supported".into(),
                 ))
             }
+            Self::FW_CFG_PORT_DMA_LOW => {
+                let low = u32::from_be(val.try_into()?);
+                self.dma_addr |= low as u64;
+
+                self.perform_dma_transfer(vcpu, space)?;
+                self.dma_addr = 0;
+            }
+            Self::FW_CFG_PORT_DMA_HIGH => {
+                let high = u32::from_be(val.try_into()?);
+                self.dma_addr = (high as u64) << 32;
+            }
+            _ => unreachable!(),
         }
         Ok(())
     }

@@ -1,5 +1,5 @@
 use crate::error::{Error, Result};
-use crate::memory::{GuestPhysAddr, GuestAddressSpace};
+use crate::memory::{GuestAddressSpace, GuestPhysAddr};
 use crate::vcpu::VCpu;
 use alloc::boxed::Box;
 use alloc::collections::btree_map::BTreeMap;
@@ -191,7 +191,7 @@ pub trait EmulatedDevice {
         _vcpu: &VCpu,
         _addr: GuestPhysAddr,
         _data: &mut [u8],
-        _space: &mut GuestAddressSpace
+        _space: &mut GuestAddressSpace,
     ) -> Result<()> {
         Err(Error::NotImplemented(
             "MemoryMapped device does not support reading".into(),
@@ -202,7 +202,7 @@ pub trait EmulatedDevice {
         _vcpu: &VCpu,
         _addr: GuestPhysAddr,
         _data: &[u8],
-        _space: &mut GuestAddressSpace
+        _space: &mut GuestAddressSpace,
     ) -> Result<()> {
         Err(Error::NotImplemented(
             "MemoryMapped device does not support writing".into(),
@@ -213,7 +213,7 @@ pub trait EmulatedDevice {
         _vcpu: &VCpu,
         _port: Port,
         _val: PortReadRequest,
-        _space: &mut GuestAddressSpace
+        _space: &mut GuestAddressSpace,
     ) -> Result<()> {
         Err(Error::NotImplemented(
             "PortIo device does not support reading".into(),
@@ -224,7 +224,7 @@ pub trait EmulatedDevice {
         _vcpu: &VCpu,
         _port: Port,
         _val: PortWriteRequest,
-        _space: &mut GuestAddressSpace
+        _space: &mut GuestAddressSpace,
     ) -> Result<()> {
         Err(Error::NotImplemented(
             "PortIo device does not support writing".into(),
@@ -463,13 +463,15 @@ mod test {
 
     #[test]
     fn test_write_request_try_from() {
-        let val: Result<PortWriteRequest> = [0x12, 0x34, 0x56, 0x78][..].try_into();
+        let val: Result<PortWriteRequest> =
+            [0x12, 0x34, 0x56, 0x78][..].try_into();
         assert_eq!(val.is_ok(), true);
 
         let val: Result<PortWriteRequest> = [0x12, 0x34, 0x56][..].try_into();
         assert_eq!(val.is_err(), true);
 
-        let val: PortWriteRequest = [0x12, 0x34, 0x56, 0x78][..].try_into().unwrap();
+        let val: PortWriteRequest =
+            [0x12, 0x34, 0x56, 0x78][..].try_into().unwrap();
         assert_eq!(val.as_u32(), 0x12345678);
 
         let val: PortWriteRequest = [0x12, 0x34][..].try_into().unwrap();

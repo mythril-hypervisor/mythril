@@ -87,7 +87,8 @@ pub fn emulate_portio(
             )?;
         } else {
             let mut arr = [0u8; 4];
-            let request = PortReadRequest::try_from(&mut arr[4 - size as usize..])?;
+            let request =
+                PortReadRequest::try_from(&mut arr[4 - size as usize..])?;
             vm.on_port_read(vcpu, port, request)?;
             guest_cpu.rax &= (!guest_cpu.rax) << (size * 8);
             guest_cpu.rax |= u32::from_be_bytes(arr) as u64;
