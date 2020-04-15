@@ -122,7 +122,11 @@ impl VirtualMachine {
                 .ok_or_else(|| {
                     Error::MissingDevice(format!("No device for port {}", port))
                 })?;
-        dev.on_port_read(vcpu, port, val, &mut self.guest_space)
+        let view = memory::GuestAddressSpaceViewMut::from_vmcs(
+            &vcpu.vmcs,
+            &mut self.guest_space,
+        )?;
+        dev.on_port_read(port, val, view)
     }
 
     pub fn on_port_write(
@@ -138,7 +142,11 @@ impl VirtualMachine {
                 .ok_or_else(|| {
                     Error::MissingDevice(format!("No device for port {}", port))
                 })?;
-        dev.on_port_write(vcpu, port, val, &mut self.guest_space)
+        let view = memory::GuestAddressSpaceViewMut::from_vmcs(
+            &vcpu.vmcs,
+            &mut self.guest_space,
+        )?;
+        dev.on_port_write(port, val, view)
     }
 
     fn map_data(
@@ -229,5 +237,31 @@ impl VirtualMachine {
         }
 
         Ok(guest_space)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    struct TestVmServices;
+    impl VmServices for TestVmServices {
+        fn read_file<'a>(&'a self, _path: &str) -> Result<&'a [u8]> {
+            Err(Error::NotImplemented(
+                "read_file not implemented for TestVmServices".into(),
+            ))
+        }
+        fn acpi_addr(&self) -> Result<HostPhysAddr> {
+            Err(Error::NotImplemented(
+                "acpi_addr not implemented for TestVmServices".into(),
+            ))
+        }
+    }
+
+    #[test]
+    fn test_vm_creation() {
+        let config = VirtualMachineConfig::new(vec![1], 0);
+        VirtualMachine::new(config, Box::leak(Box::new(TestVmServices)))
+            .unwrap();
     }
 }

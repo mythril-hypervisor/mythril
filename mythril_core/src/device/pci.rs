@@ -2,8 +2,7 @@ use crate::device::{
     DeviceRegion, EmulatedDevice, Port, PortReadRequest, PortWriteRequest,
 };
 use crate::error::{Error, Result};
-use crate::memory::GuestAddressSpace;
-use crate::vcpu::VCpu;
+use crate::memory::GuestAddressSpaceViewMut;
 use alloc::boxed::Box;
 use alloc::collections::btree_map::BTreeMap;
 use alloc::vec::Vec;
@@ -203,10 +202,9 @@ impl EmulatedDevice for PciRootComplex {
     }
     fn on_port_read(
         &mut self,
-        _vcpu: &VCpu,
         port: Port,
         mut val: PortReadRequest,
-        _space: &mut GuestAddressSpace,
+        _space: GuestAddressSpaceViewMut,
     ) -> Result<()> {
         match port {
             Self::PCI_CONFIG_ADDRESS => {
@@ -248,10 +246,9 @@ impl EmulatedDevice for PciRootComplex {
 
     fn on_port_write(
         &mut self,
-        _vcpu: &VCpu,
         port: Port,
         val: PortWriteRequest,
-        _space: &mut GuestAddressSpace,
+        _space: GuestAddressSpaceViewMut,
     ) -> Result<()> {
         match port {
             Self::PCI_CONFIG_ADDRESS => {
@@ -272,26 +269,37 @@ impl EmulatedDevice for PciRootComplex {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::memory::{
+        GuestAddressSpace, GuestAddressSpaceViewMut, GuestPhysAddr,
+    };
+
+    fn define_test_view() -> GuestAddressSpaceViewMut<'static> {
+        let space: &'static mut GuestAddressSpace =
+            Box::leak(Box::new(GuestAddressSpace::new().unwrap()));
+        GuestAddressSpaceViewMut::new(GuestPhysAddr::new(0), space)
+    }
 
     fn complex_ready_for_reg_read(reg: u8) -> Box<PciRootComplex> {
         use core::convert::TryFrom;
 
+        let view = define_test_view();
         let mut complex = PciRootComplex::new();
         let addr = ((reg << 2) as u32).to_be_bytes();
         let request = PortWriteRequest::try_from(&addr[..]).unwrap();
         complex
-            .on_port_write(PciRootComplex::PCI_CONFIG_ADDRESS, request)
+            .on_port_write(PciRootComplex::PCI_CONFIG_ADDRESS, request, view)
             .unwrap();
         complex
     }
 
     #[test]
     fn test_full_register_read() {
+        let view = define_test_view();
         let mut complex = complex_ready_for_reg_read(0);
         let mut buff = [0u8; 4];
         let val = PortReadRequest::FourBytes(&mut buff);
         complex
-            .on_port_read(PciRootComplex::PCI_CONFIG_DATA, val)
+            .on_port_read(PciRootComplex::PCI_CONFIG_DATA, val, view)
             .unwrap();
 
         assert_eq!(u32::from_be_bytes(buff), 0x29c08086);
@@ -299,18 +307,20 @@ mod test {
 
     #[test]
     fn test_half_register_read() {
+        let view = define_test_view();
         let mut complex = complex_ready_for_reg_read(0);
         let mut buff = [0u8; 2];
         let val = PortReadRequest::TwoBytes(&mut buff);
 
         complex
-            .on_port_read(PciRootComplex::PCI_CONFIG_DATA, val)
+            .on_port_read(PciRootComplex::PCI_CONFIG_DATA, val, view)
             .unwrap();
         assert_eq!(u16::from_be_bytes(buff), 0x8086);
 
+        let view = define_test_view();
         let val = PortReadRequest::TwoBytes(&mut buff);
         complex
-            .on_port_read(PciRootComplex::PCI_CONFIG_DATA + 2, val)
+            .on_port_read(PciRootComplex::PCI_CONFIG_DATA + 2, val, view)
             .unwrap();
         assert_eq!(u16::from_be_bytes(buff), 0x29c0);
     }
@@ -319,28 +329,33 @@ mod test {
     fn test_register_byte_read() {
         let mut complex = complex_ready_for_reg_read(0);
         let mut buff = [0u8; 1];
+
+        let view = define_test_view();
         let val = PortReadRequest::OneByte(&mut buff);
 
         complex
-            .on_port_read(PciRootComplex::PCI_CONFIG_DATA, val)
+            .on_port_read(PciRootComplex::PCI_CONFIG_DATA, val, view)
             .unwrap();
         assert_eq!(u8::from_be_bytes(buff), 0x86);
 
+        let view = define_test_view();
         let val = PortReadRequest::OneByte(&mut buff);
         complex
-            .on_port_read(PciRootComplex::PCI_CONFIG_DATA + 1, val)
+            .on_port_read(PciRootComplex::PCI_CONFIG_DATA + 1, val, view)
             .unwrap();
         assert_eq!(u8::from_be_bytes(buff), 0x80);
 
+        let view = define_test_view();
         let val = PortReadRequest::OneByte(&mut buff);
         complex
-            .on_port_read(PciRootComplex::PCI_CONFIG_DATA + 2, val)
+            .on_port_read(PciRootComplex::PCI_CONFIG_DATA + 2, val, view)
             .unwrap();
         assert_eq!(u8::from_be_bytes(buff), 0xc0);
 
+        let view = define_test_view();
         let val = PortReadRequest::OneByte(&mut buff);
         complex
-            .on_port_read(PciRootComplex::PCI_CONFIG_DATA + 3, val)
+            .on_port_read(PciRootComplex::PCI_CONFIG_DATA + 3, val, view)
             .unwrap();
         assert_eq!(u8::from_be_bytes(buff), 0x29);
     }

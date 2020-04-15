@@ -20,10 +20,14 @@ fn emulate_outs(
     //        assume that is requires supervisor
     let access = memory::GuestAccess::Read(memory::PrivilegeLevel(0));
 
+    let view = memory::GuestAddressSpaceViewMut::from_vmcs(
+        &vcpu.vmcs,
+        &mut vm.guest_space,
+    )?;
+
     // FIXME: The direction we read is determined by the DF flag (I think)
     // FIXME: We should probably only be using some of the lower order bits
-    let bytes = vm.guest_space.read_bytes(
-        &vcpu.vmcs,
+    let bytes = view.read_bytes(
         guest_addr,
         (guest_cpu.rcx * exit.size as u64) as usize,
         access,
@@ -59,8 +63,11 @@ fn emulate_ins(
         vm.on_port_read(vcpu, port, request)?;
     }
 
-    vm.guest_space
-        .write_bytes(&vcpu.vmcs, guest_addr, &bytes, access)?;
+    let mut view = memory::GuestAddressSpaceViewMut::from_vmcs(
+        &vcpu.vmcs,
+        &mut vm.guest_space,
+    )?;
+    view.write_bytes(guest_addr, &bytes, access)?;
 
     guest_cpu.rdi += bytes.len() as u64;
     guest_cpu.rcx = 0;

@@ -3,8 +3,7 @@ use crate::device::{
 };
 use crate::error::Result;
 use crate::logger;
-use crate::memory::GuestAddressSpace;
-use crate::vcpu::VCpu;
+use crate::memory::GuestAddressSpaceViewMut;
 use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -32,10 +31,9 @@ impl EmulatedDevice for DebugPort {
 
     fn on_port_read(
         &mut self,
-        _vcpu: &VCpu,
         _port: Port,
         mut val: PortReadRequest,
-        _space: &mut GuestAddressSpace,
+        _space: GuestAddressSpaceViewMut,
     ) -> Result<()> {
         // This is a magical value (called BOCHS_DEBUG_PORT_MAGIC by edk2)
         val.copy_from_u32(0xe9);
@@ -44,10 +42,9 @@ impl EmulatedDevice for DebugPort {
 
     fn on_port_write(
         &mut self,
-        _vcpu: &VCpu,
         _port: Port,
         val: PortWriteRequest,
-        _space: &mut GuestAddressSpace,
+        _space: GuestAddressSpaceViewMut,
     ) -> Result<()> {
         self.buff.extend_from_slice(val.as_slice());
 

@@ -3,10 +3,9 @@ use crate::device::{
 };
 use crate::error::{Error, Result};
 use crate::memory::{
-    GuestAccess, GuestAddressSpace, GuestPhysAddr, GuestVirtAddr,
+    GuestAccess, GuestAddressSpaceViewMut, GuestPhysAddr, GuestVirtAddr,
     PrivilegeLevel,
 };
-use crate::vcpu::VCpu;
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
@@ -241,11 +240,9 @@ impl QemuFwCfg {
 
     fn perform_dma_transfer(
         &mut self,
-        vcpu: &VCpu,
-        space: &mut GuestAddressSpace,
+        mut space: GuestAddressSpaceViewMut,
     ) -> Result<()> {
         let bytes = space.read_bytes(
-            &vcpu.vmcs,
             GuestVirtAddr::NoPaging(GuestPhysAddr::new(self.dma_addr)),
             core::mem::size_of::<RawFWCfgDmaAccess>(),
             GuestAccess::Read(PrivilegeLevel(0)),
@@ -270,7 +267,6 @@ impl QemuFwCfg {
             match self.read_selector(request.length as usize) {
                 Some(data) => {
                     space.write_bytes(
-                        &vcpu.vmcs,
                         GuestVirtAddr::NoPaging(GuestPhysAddr::new(
                             request.address,
                         )),
@@ -297,7 +293,6 @@ impl QemuFwCfg {
             )
         };
         space.write_bytes(
-            &vcpu.vmcs,
             GuestVirtAddr::NoPaging(GuestPhysAddr::new(self.dma_addr)),
             data,
             GuestAccess::Read(PrivilegeLevel(0)),
@@ -332,10 +327,9 @@ impl EmulatedDevice for QemuFwCfg {
 
     fn on_port_read(
         &mut self,
-        _vcpu: &VCpu,
         port: Port,
         mut val: PortReadRequest,
-        _space: &mut GuestAddressSpace,
+        _space: GuestAddressSpaceViewMut,
     ) -> Result<()> {
         let len = val.len();
         match port {
@@ -372,10 +366,9 @@ impl EmulatedDevice for QemuFwCfg {
 
     fn on_port_write(
         &mut self,
-        vcpu: &VCpu,
         port: Port,
         val: PortWriteRequest,
-        space: &mut GuestAddressSpace,
+        space: GuestAddressSpaceViewMut,
     ) -> Result<()> {
         match port {
             Self::FW_CFG_PORT_SEL => {
@@ -391,7 +384,7 @@ impl EmulatedDevice for QemuFwCfg {
                 let low = u32::from_be(val.try_into()?);
                 self.dma_addr |= low as u64;
 
-                self.perform_dma_transfer(vcpu, space)?;
+                self.perform_dma_transfer(space)?;
                 self.dma_addr = 0;
             }
             Self::FW_CFG_PORT_DMA_HIGH => {

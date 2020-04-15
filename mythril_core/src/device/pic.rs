@@ -2,8 +2,7 @@ use crate::device::{
     DeviceRegion, EmulatedDevice, Port, PortReadRequest, PortWriteRequest,
 };
 use crate::error::{Error, Result};
-use crate::memory::GuestAddressSpace;
-use crate::vcpu::VCpu;
+use crate::memory::GuestAddressSpaceViewMut;
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 use core::convert::TryInto;
@@ -47,10 +46,9 @@ impl EmulatedDevice for Pic8259 {
 
     fn on_port_read(
         &mut self,
-        _vcpu: &VCpu,
         port: Port,
         mut val: PortReadRequest,
-        _space: &mut GuestAddressSpace,
+        _space: GuestAddressSpaceViewMut,
     ) -> Result<()> {
         let data = match port {
             Self::PIC_MASTER_DATA => self.master_state.imr,
@@ -67,10 +65,9 @@ impl EmulatedDevice for Pic8259 {
 
     fn on_port_write(
         &mut self,
-        _vcpu: &VCpu,
         port: Port,
         val: PortWriteRequest,
-        _space: &mut GuestAddressSpace,
+        _space: GuestAddressSpaceViewMut,
     ) -> Result<()> {
         match port {
             Self::PIC_MASTER_DATA => {

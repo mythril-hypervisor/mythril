@@ -1,6 +1,5 @@
 use crate::error::{Error, Result};
-use crate::memory::{GuestAddressSpace, GuestPhysAddr};
-use crate::vcpu::VCpu;
+use crate::memory::{GuestAddressSpaceViewMut, GuestPhysAddr};
 use alloc::boxed::Box;
 use alloc::collections::btree_map::BTreeMap;
 use alloc::rc::Rc;
@@ -188,10 +187,9 @@ pub trait EmulatedDevice {
 
     fn on_mem_read(
         &mut self,
-        _vcpu: &VCpu,
         _addr: GuestPhysAddr,
         _data: &mut [u8],
-        _space: &mut GuestAddressSpace,
+        _space: GuestAddressSpaceViewMut,
     ) -> Result<()> {
         Err(Error::NotImplemented(
             "MemoryMapped device does not support reading".into(),
@@ -199,10 +197,9 @@ pub trait EmulatedDevice {
     }
     fn on_mem_write(
         &mut self,
-        _vcpu: &VCpu,
         _addr: GuestPhysAddr,
         _data: &[u8],
-        _space: &mut GuestAddressSpace,
+        _space: GuestAddressSpaceViewMut,
     ) -> Result<()> {
         Err(Error::NotImplemented(
             "MemoryMapped device does not support writing".into(),
@@ -210,10 +207,9 @@ pub trait EmulatedDevice {
     }
     fn on_port_read(
         &mut self,
-        _vcpu: &VCpu,
         _port: Port,
         _val: PortReadRequest,
-        _space: &mut GuestAddressSpace,
+        _space: GuestAddressSpaceViewMut,
     ) -> Result<()> {
         Err(Error::NotImplemented(
             "PortIo device does not support reading".into(),
@@ -221,10 +217,9 @@ pub trait EmulatedDevice {
     }
     fn on_port_write(
         &mut self,
-        _vcpu: &VCpu,
         _port: Port,
         _val: PortWriteRequest,
-        _space: &mut GuestAddressSpace,
+        _space: GuestAddressSpaceViewMut,
     ) -> Result<()> {
         Err(Error::NotImplemented(
             "PortIo device does not support writing".into(),
@@ -421,7 +416,16 @@ impl<'a> fmt::Display for PortWriteRequest<'a> {
 mod test {
     use super::*;
     use crate::device::com::*;
+    use crate::memory::{
+        GuestAddressSpace, GuestAddressSpaceViewMut, GuestPhysAddr,
+    };
     use core::convert::TryInto;
+
+    fn define_test_view() -> GuestAddressSpaceViewMut<'static> {
+        let space: &'static mut GuestAddressSpace =
+            Box::leak(Box::new(GuestAddressSpace::new().unwrap()));
+        GuestAddressSpaceViewMut::new(GuestPhysAddr::new(0), space)
+    }
 
     // This is just a dummy device so we can have arbitrary port ranges
     // for testing.
@@ -446,9 +450,10 @@ mod test {
 
     #[test]
     fn test_memmap_write_to_portio_fails() {
+        let view = define_test_view();
         let mut com = ComDevice::new(0, 0);
         let addr = GuestPhysAddr::new(0);
-        assert_eq!(com.on_mem_write(addr, &[0, 0, 0, 0]).is_err(), true);
+        assert_eq!(com.on_mem_write(addr, &[0, 0, 0, 0], view).is_err(), true);
     }
 
     #[test]

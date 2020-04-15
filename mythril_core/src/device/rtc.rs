@@ -2,8 +2,7 @@ use crate::device::{
     DeviceRegion, EmulatedDevice, Port, PortReadRequest, PortWriteRequest,
 };
 use crate::error::Result;
-use crate::memory::GuestAddressSpace;
-use crate::vcpu::VCpu;
+use crate::memory::GuestAddressSpaceViewMut;
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 use core::convert::TryInto;
@@ -117,10 +116,9 @@ impl EmulatedDevice for CmosRtc {
 
     fn on_port_read(
         &mut self,
-        _vcpu: &VCpu,
         port: Port,
         mut val: PortReadRequest,
-        _space: &mut GuestAddressSpace,
+        _space: GuestAddressSpaceViewMut,
     ) -> Result<()> {
         match port {
             Self::RTC_ADDRESS => val.copy_from_u32(self.addr as u8 as u32),
@@ -137,10 +135,9 @@ impl EmulatedDevice for CmosRtc {
 
     fn on_port_write(
         &mut self,
-        _vcpu: &VCpu,
         port: Port,
         val: PortWriteRequest,
-        _space: &mut GuestAddressSpace,
+        _space: GuestAddressSpaceViewMut,
     ) -> Result<()> {
         // For now, just ignore the NMI masking
         let val: u8 = val.try_into()?;

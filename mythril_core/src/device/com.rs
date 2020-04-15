@@ -3,8 +3,7 @@ use crate::device::{
 };
 use crate::error::Result;
 use crate::logger;
-use crate::memory::GuestAddressSpace;
-use crate::vcpu::VCpu;
+use crate::memory::GuestAddressSpaceViewMut;
 use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -64,10 +63,9 @@ impl EmulatedDevice for ComDevice {
 
     fn on_port_read(
         &mut self,
-        _vcpu: &VCpu,
         port: Port,
         mut val: PortReadRequest,
-        _space: &mut GuestAddressSpace,
+        _space: GuestAddressSpaceViewMut,
     ) -> Result<()> {
         if port - self.base_port == SerialOffset::DATA
             && self.divisor_latch_bit_set()
@@ -94,10 +92,9 @@ impl EmulatedDevice for ComDevice {
 
     fn on_port_write(
         &mut self,
-        _vcpu: &VCpu,
         port: Port,
         val: PortWriteRequest,
-        _space: &mut GuestAddressSpace,
+        _space: GuestAddressSpaceViewMut,
     ) -> Result<()> {
         let val: u8 = val.try_into()?;
         if port - self.base_port == SerialOffset::DATA {

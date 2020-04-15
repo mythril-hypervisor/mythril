@@ -2,8 +2,7 @@ use crate::device::{
     DeviceRegion, EmulatedDevice, Port, PortReadRequest, PortWriteRequest,
 };
 use crate::error::{Error, Result};
-use crate::memory::GuestAddressSpace;
-use crate::vcpu::VCpu;
+use crate::memory::GuestAddressSpaceViewMut;
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 use core::convert::TryFrom;
@@ -91,20 +90,18 @@ impl EmulatedDevice for Pit8254 {
 
     fn on_port_read(
         &mut self,
-        _vcpu: &VCpu,
         _port: Port,
         _val: PortReadRequest,
-        _space: &mut GuestAddressSpace,
+        _space: GuestAddressSpaceViewMut,
     ) -> Result<()> {
         Ok(())
     }
 
     fn on_port_write(
         &mut self,
-        _vcpu: &VCpu,
         _port: Port,
         _val: PortWriteRequest,
-        _space: &mut GuestAddressSpace,
+        _space: GuestAddressSpaceViewMut,
     ) -> Result<()> {
         Ok(())
     }
