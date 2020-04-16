@@ -323,9 +323,9 @@ fn vmcs_write(field: VmcsField, value: u64) -> Result<()> {
 fn vmcs_read(field: VmcsField) -> Result<u64> {
     let value = unsafe {
         let value: u64;
-        asm!("vmreadq $0, $1;"
-             :"=r"(value)
-             :"r"(field as u64)
+        asm!("vmreadq %rdx, %rax"
+             :"={rax}"(value)
+             :"{rdx}"(field as u64)
              :"rflags"
              : "volatile");
         value

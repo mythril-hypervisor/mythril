@@ -253,7 +253,11 @@ pub extern "C" fn kmain(multiboot_info_addr: usize) -> ! {
     {
         let ap_apic_id = 1;
         unsafe {
-            AP_STACK_ADDR = vec![0u8; 10 * 1024].as_ptr() as u64;
+            core::ptr::write_volatile(
+                &mut AP_STACK_ADDR as *mut u64,
+                vec![0u8; 10 * 1024].as_ptr() as u64,
+            );
+            core::ptr::write_volatile(&mut AP_READY as *mut u8, 0)
         }
 
         debug!("Send INIT to AP id={}", ap_apic_id);
@@ -278,7 +282,8 @@ pub extern "C" fn kmain(multiboot_info_addr: usize) -> ! {
             unsafe { (AP_STARTUP_ADDR >> 12) as u8 },
         );
 
-        while unsafe { AP_READY != 1 } {}
+        while unsafe { core::ptr::read_volatile(&AP_READY as *const u8) != 1 } {
+        }
     }
 
     vcpu::mp_entry_point(local_apic.id())
