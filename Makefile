@@ -1,7 +1,8 @@
 CARGO?=cargo
 MULTIBOOT2_TARGET?=multiboot2_target
 
-multiboot2_binary = target/$(MULTIBOOT2_TARGET)/debug/mythril_multiboot2
+multiboot2_binary = target/$(MULTIBOOT2_TARGET)/release/mythril_multiboot2
+multiboot2_debug_binary = target/$(MULTIBOOT2_TARGET)/debug/mythril_multiboot2
 mythril_src = $(shell find . -type f -name '*.rs' -or -name '*.S' -or -name '*.ld')
 seabios = seabios/out/bios.bin
 
@@ -16,20 +17,28 @@ all: multiboot2 $(seabios)
 .PHONY: multiboot2
 multiboot2: $(multiboot2_binary)
 
+.PHONY: multiboot2-debug
+multiboot2-debug: $(multiboot2_debug_binary)
+
 $(seabios):
 	cp scripts/seabios.config seabios/.config
 	make -C seabios
 
 .PHONY: qemu
-qemu: all
+qemu: multiboot2 $(seabios)
 	./scripts/mythril-run.sh $(multiboot2_binary) $(QEMU_EXTRA)
 
 .PHONY: qemu-debug
-qemu-debug: all
-	./scripts/mythril-run.sh $(multiboot2_binary) \
+qemu-debug: multiboot2-debug $(seabios)
+	./scripts/mythril-run.sh $(multiboot2_debug_binary) \
 	    -gdb tcp::1234 -S $(QEMU_EXTRA)
 
 $(multiboot2_binary): $(mythril_src)
+	$(CARGO) xbuild --release \
+	    --target mythril_multiboot2/$(MULTIBOOT2_TARGET).json \
+	    --manifest-path mythril_multiboot2/Cargo.toml
+
+$(multiboot2_debug_binary): $(mythril_src)
 	$(CARGO) xbuild \
 	    --target mythril_multiboot2/$(MULTIBOOT2_TARGET).json \
 	    --manifest-path mythril_multiboot2/Cargo.toml

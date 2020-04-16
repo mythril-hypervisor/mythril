@@ -12,7 +12,7 @@ multiboot application, run:
 docker run -v $(pwd):/src adamschwalm/hypervisor-build:6 make
 ```
 
-This will create the multiboot2 application in `target/multiboot2_target/debug/mythril_multiboot2`.
+This will create the multiboot2 application in `target/multiboot2_target/release/mythril_multiboot2`.
 Similarly, unittests can be executed like:
 
 ```
@@ -23,9 +23,7 @@ docker run -v $(pwd):/src adamschwalm/hypervisor-build:6 make test
 
 After building the multiboot2 application as described above, a linux kernel and initramfs
 must be added to the `scripts/` directory. The kernel must be named `vmlinuz` and the
-initramfs must be named `initramfs`. _Note that currently, copying these images in to the
-guest is very slow, so avoid using a large initramfs_. Once in place, the hypervisor
-can be executed with:
+initramfs must be named `initramfs`. Once in place, the hypervisor can be executed with:
 
 ```
 make qemu
