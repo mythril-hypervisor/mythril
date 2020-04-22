@@ -287,11 +287,12 @@ pub extern "C" fn kmain(multiboot_info_addr: usize) -> ! {
 
     for ap_apic_id in apic_ids.into_iter() {
         unsafe {
+            let stack = vec![0u8; 100 * 1024];
             core::ptr::write_volatile(
                 &mut AP_STACK_ADDR as *mut u64,
-                vec![0u8; 10 * 1024].as_ptr() as u64,
+                stack.as_ptr() as u64,
             );
-            core::ptr::write_volatile(&mut AP_READY as *mut u8, 0)
+            core::mem::forget(stack);
         }
 
         debug!("Send INIT to AP id={}", ap_apic_id);
