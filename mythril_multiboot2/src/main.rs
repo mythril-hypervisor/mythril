@@ -272,7 +272,10 @@ pub extern "C" fn kmain(multiboot_info_addr: usize) -> ! {
         .collect::<Vec<_>>();
 
     let mut map = BTreeMap::new();
-    map.insert(0usize, default_vm(0, 256, &mut multiboot_services));
+    map.insert(
+        local_apic.id(),
+        default_vm(local_apic.id(), 256, &mut multiboot_services),
+    );
     for apic_id in apic_ids.iter() {
         map.insert(
             *apic_id as usize,
@@ -287,13 +290,22 @@ pub extern "C" fn kmain(multiboot_info_addr: usize) -> ! {
 
     for ap_apic_id in apic_ids.into_iter() {
         unsafe {
+            // Allocate a stack for the AP
             let stack = vec![0u8; 100 * 1024];
+
+            // Get the the bottom of the stack and align
+            let stack_bottom = (stack.as_ptr() as u64 + stack.len() as u64)
+                & 0xFFFFFFFFFFFFFFF0;
+
             core::ptr::write_volatile(
                 &mut AP_STACK_ADDR as *mut u64,
-                stack.as_ptr() as u64,
+                stack_bottom,
             );
             core::mem::forget(stack);
         }
+
+        // mfence to ensure that the APs see the new stack address
+        core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
 
         debug!("Send INIT to AP id={}", ap_apic_id);
         local_apic.send_ipi(
@@ -317,7 +329,13 @@ pub extern "C" fn kmain(multiboot_info_addr: usize) -> ! {
             unsafe { (AP_STARTUP_ADDR >> 12) as u8 },
         );
 
+        // Wait until the AP reports that it is done with startup
         while unsafe { core::ptr::read_volatile(&AP_READY as *const u8) != 1 } {
+        }
+
+        // Once the AP is done, clear the ready flag
+        unsafe {
+            core::ptr::write_volatile(&mut AP_READY as *mut u8, 0);
         }
     }
 
