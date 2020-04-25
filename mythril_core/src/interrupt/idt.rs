@@ -61,21 +61,48 @@ impl IdtEntry {
 
 pub static mut IDT: [IdtEntry; 256] = [IdtEntry::new(); 256];
 
-extern "C" fn nmi_handler() {
-    panic!("Non-maskable interrupt");
+#[allow(dead_code)]
+#[repr(packed)]
+pub struct IretRegisters {
+    pub error: usize,
+    pub rip: usize,
+    pub cs: usize,
+    pub rflags: usize,
 }
 
-extern "C" fn protection_fault_handler() {
-    panic!("General protection fault handler");
+macro_rules! interrupt_fn {
+     ($name:ident, $stack:ident, $func:block) => {
+         pub unsafe extern fn $name () {
+             #[inline(never)]
+             unsafe fn inner($stack: &$crate::interrupt::idt::IretRegisters) {
+                 $func
+             }
+
+             let rbp: usize;
+             asm!("" : "={rbp}"(rbp) : : : "volatile");
+
+             // Shift by a usize, because the preamble will 'push rbp'.
+             let stack = &*((rbp + core::mem::size_of::<usize>()) as *const IretRegisters);
+             inner(stack);
+         }
+     }
 }
 
-extern "C" fn page_fault_handler() {
-    panic!("Page fault handler");
-}
+interrupt_fn!(nmi_handler, iret_regs, {
+    panic!("Non-maskable interrupt (rip=0x{:x})", iret_regs.rip);
+});
 
-extern "C" fn zero_division_handler() {
-    panic!("Divide by zero");
-}
+interrupt_fn!(protection_fault_handler, iret_regs, {
+    panic!("General protection fault handler (rip=0x{:x})", iret_regs.rip);
+});
+
+interrupt_fn!(page_fault_handler, iret_regs, {
+    panic!("Page fault handler (rip=0x{:x})", iret_regs.rip);
+});
+
+interrupt_fn!(zero_division_handler, iret_regs, {
+    panic!("Divide by zero handler (rip=0x{:x})", iret_regs.rip);
+});
 
 pub unsafe fn init() {
     IDT[0].set_func(zero_division_handler);
