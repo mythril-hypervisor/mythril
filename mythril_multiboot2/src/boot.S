@@ -77,20 +77,22 @@ _start:
 
     ; Build the Page Directory.
     push edi
+    mov edx, edi
+
     mov eax, 0
-    lea edi, [edi+PAGE_SIZE*2]
+    lea edi, [edx+PAGE_SIZE*2]
     call map_page_directory
 
     mov eax, (HUGE_PAGE_SIZE*512)
-    lea edi, [edi+PAGE_SIZE*3]
+    lea edi, [edx+PAGE_SIZE*3]
     call map_page_directory
 
     mov eax, (HUGE_PAGE_SIZE*512)*2
-    lea edi, [edi+PAGE_SIZE*4]
+    lea edi, [edx+PAGE_SIZE*4]
     call map_page_directory
 
-     mov eax, (HUGE_PAGE_SIZE*512)*3
-    lea edi, [edi+PAGE_SIZE*5]
+    mov eax, (HUGE_PAGE_SIZE*512)*3
+    lea edi, [edx+PAGE_SIZE*5]
     call map_page_directory
     pop edi
 
