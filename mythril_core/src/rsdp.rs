@@ -98,13 +98,13 @@ impl RSDP {
         let bytes = unsafe {
             // Try to find the RSDP in the Extended BIOS Data Area (EBDA).
             let range = slice::from_raw_parts(
-                EXTENDED_BIOS_DATA_START as *const u8,
-                EXTENDED_BIOS_DATA_SIZE,
+                MAIN_BIOS_DATA_START as *const u8,
+                MAIN_BIOS_DATA_SIZE,
             );
             Self::search_range(range).or_else(|_| {
                 let range = slice::from_raw_parts(
-                    MAIN_BIOS_DATA_START as *const u8,
-                    MAIN_BIOS_DATA_SIZE,
+                    EXTENDED_BIOS_DATA_START as *const u8,
+                    EXTENDED_BIOS_DATA_SIZE,
                 );
                 // If we didn't find the RSDP in the EBDA, try to find it in
                 // the Main BIOS Data.
