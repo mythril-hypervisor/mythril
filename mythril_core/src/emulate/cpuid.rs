@@ -15,6 +15,12 @@ pub fn emulate_cpuid(
         // Disable MTRR
         res.edx &= !(1 << 12);
 
+        // Disable TSC
+        res.edx &= !(1 << 4);
+
+        // Disable TSC deadline
+        res.ecx &= !(1 << 24);
+
         // Disable XSAVE
         res.ecx &= !(1 << 26);
 
