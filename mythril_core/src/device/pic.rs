@@ -1,7 +1,7 @@
 use crate::device::{
     DeviceRegion, EmulatedDevice, Port, PortReadRequest, PortWriteRequest,
 };
-use crate::error::{Error, Result};
+use crate::error::Result;
 use crate::memory::GuestAddressSpaceViewMut;
 use alloc::boxed::Box;
 use alloc::vec::Vec;
@@ -54,9 +54,8 @@ impl EmulatedDevice for Pic8259 {
             Self::PIC_MASTER_DATA => self.master_state.imr,
             Self::PIC_SLAVE_DATA => self.master_state.imr,
             _ => {
-                return Err(Error::NotImplemented(
-                    "Read of PIC command port not yet supported".into(),
-                ))
+                info!("Read of PIC command port not yet supported");
+                return Ok(())
             }
         };
         val.copy_from_u32(data as u32);
@@ -83,9 +82,6 @@ impl EmulatedDevice for Pic8259 {
                     "Write to PIC command port not yet supported (port 0x{:x} = {})",
                     port, val
                 );
-                // return Err(Error::NotImplemented(
-                //     format!("Write to PIC command port not yet supported (port 0x{:x} = {:?})", port, val),
-                // ))
             }
         }
         Ok(())
