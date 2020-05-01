@@ -84,6 +84,11 @@ fn default_vm(
         .register_device(device::rtc::CmosRtc::new(mem))
         .unwrap();
 
+    //TODO: this should actually be per-vcpu
+    device_map
+        .register_device(device::lapic::LocalApic::new())
+        .unwrap();
+
     let mut fw_cfg_builder = device::qemu_fw_cfg::QemuFwCfgBuilder::new();
 
     // The 'linuxboot' file is an option rom that loads the linux kernel
@@ -107,7 +112,7 @@ fn default_vm(
     linux::load_linux(
         "kernel",
         "initramfs",
-        "earlyprintk=serial,0x3f8,115200 console=ttyS0 debug nokaslr\0"
+        "earlyprintk=serial,0x3f8,115200 console=ttyS0 debug nokaslr noapic mitigations=off\0"
             .as_bytes(),
         mem,
         &mut fw_cfg_builder,

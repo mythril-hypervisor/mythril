@@ -11,6 +11,7 @@ description = "A intel-focused hypervisor using VT-x/EPT"
 std = []
 
 [dependencies]
+arrayvec = { version = "0.5.1", default-features = false }
 byteorder = { version = "1", default-features = false }
 derive-try-from-primitive = "0.1.0"
 x86 = "0.27.0"
@@ -19,6 +20,11 @@ bitflags = "1.2.0"
 raw-cpuid = "7.0.3"
 spin = "0.5"
 ux = { version = "0.1.3", default-features = false }
+
+[dependencies.iced-x86]
+version = "1.1.0"
+default-features = false
+features = ["no_std", "decoder"]
 
 [build-dependencies]
 nasm-rs = "0.1.7"

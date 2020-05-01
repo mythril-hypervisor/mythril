@@ -15,6 +15,7 @@ pub mod debug;
 pub mod dma;
 pub mod ignore;
 pub mod keyboard;
+pub mod lapic;
 pub mod pci;
 pub mod pic;
 pub mod pit;
@@ -188,7 +189,7 @@ pub trait EmulatedDevice {
     fn on_mem_read(
         &mut self,
         _addr: GuestPhysAddr,
-        _data: &mut [u8],
+        _data: MemReadRequest,
         _space: GuestAddressSpaceViewMut,
     ) -> Result<()> {
         Err(Error::NotImplemented(
@@ -198,7 +199,7 @@ pub trait EmulatedDevice {
     fn on_mem_write(
         &mut self,
         _addr: GuestPhysAddr,
-        _data: &[u8],
+        _data: MemWriteRequest,
         _space: GuestAddressSpaceViewMut,
     ) -> Result<()> {
         Err(Error::NotImplemented(
@@ -359,7 +360,7 @@ impl<'a> TryInto<u8> for PortWriteRequest<'a> {
         match self {
             Self::OneByte(val) => Ok(val[0]),
             val => Err(Error::InvalidValue(format!(
-                "Value {:?} cannot be converted to u8",
+                "Value {} cannot be converted to u8",
                 val
             ))),
         }
@@ -373,7 +374,7 @@ impl<'a> TryInto<u16> for PortWriteRequest<'a> {
         match self {
             Self::TwoBytes(val) => Ok(u16::from_be_bytes(*val)),
             val => Err(Error::InvalidValue(format!(
-                "Value {:?} cannot be converted to u16",
+                "Value {} cannot be converted to u16",
                 val
             ))),
         }
@@ -387,7 +388,7 @@ impl<'a> TryInto<u32> for PortWriteRequest<'a> {
         match self {
             Self::FourBytes(val) => Ok(u32::from_be_bytes(*val)),
             val => Err(Error::InvalidValue(format!(
-                "Value {:?} cannot be converted to u32",
+                "Value {} cannot be converted to u32",
                 val
             ))),
         }
@@ -409,6 +410,64 @@ impl<'a> fmt::Display for PortWriteRequest<'a> {
                 arr[0], arr[1], arr[2], arr[3]
             ),
         }
+    }
+}
+
+#[derive(Debug)]
+pub struct MemWriteRequest<'a> {
+    data: &'a [u8]
+}
+
+impl<'a> MemWriteRequest<'a> {
+    pub fn new(data: &'a [u8]) -> Self {
+        Self { data }
+    }
+
+    pub fn as_slice(&self) -> &'a [u8] {
+        self.data
+    }
+}
+
+impl<'a> fmt::Display for MemWriteRequest<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "MemWriteRequest({:?})", self.data)
+    }
+}
+
+impl<'a> TryInto<u8> for MemWriteRequest<'a> {
+    type Error = Error;
+
+    fn try_into(self) -> Result<u8> {
+        if self.data.len() == 1 {
+            Ok(self.data[0])
+        } else {
+            Err(Error::InvalidValue(format!(
+                "Value {} cannot be converted to u8",
+                self
+            )))
+        }
+    }
+}
+
+
+#[derive(Debug)]
+pub struct MemReadRequest<'a> {
+    data: &'a mut[u8]
+}
+
+impl<'a> MemReadRequest<'a> {
+    pub fn new(data: &'a mut [u8]) -> Self {
+        Self { data }
+    }
+
+    pub fn as_slice(&self) -> &[u8] {
+        self.data
+    }
+}
+
+impl<'a> fmt::Display for MemReadRequest<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "MemReadRequest({:?})", self.data)
     }
 }
 
@@ -453,7 +512,9 @@ mod test {
         let view = define_test_view();
         let mut com = ComDevice::new(0, 0);
         let addr = GuestPhysAddr::new(0);
-        assert_eq!(com.on_mem_write(addr, &[0, 0, 0, 0], view).is_err(), true);
+        let data = [0u8; 4];
+        let req = MemWriteRequest::new(&data);
+        assert_eq!(com.on_mem_write(addr, req, view).is_err(), true);
     }
 
     #[test]

@@ -1,4 +1,7 @@
-use crate::device::{DeviceMap, Port, PortReadRequest, PortWriteRequest};
+use crate::device::{
+    DeviceMap, MemReadRequest, MemWriteRequest, Port, PortReadRequest,
+    PortWriteRequest,
+};
 use crate::error::{Error, Result};
 use crate::memory::{
     self, GuestAddressSpace, GuestPhysAddr, HostPhysAddr, HostPhysFrame,
@@ -107,6 +110,46 @@ impl VirtualMachine {
             config: config,
             guest_space: guest_space,
         })))
+    }
+
+    pub fn on_mem_read(
+        &mut self,
+        vcpu: &vcpu::VCpu,
+        addr: GuestPhysAddr,
+        val: MemReadRequest,
+    ) -> Result<()> {
+        let dev =
+            self.config
+                .device_map()
+                .device_for_mut(addr)
+                .ok_or_else(|| {
+                    Error::MissingDevice(format!("No device for address {:?}", addr))
+                })?;
+        let view = memory::GuestAddressSpaceViewMut::from_vmcs(
+            &vcpu.vmcs,
+            &mut self.guest_space,
+        )?;
+        dev.on_mem_read(addr, val, view)
+    }
+
+    pub fn on_mem_write(
+        &mut self,
+        vcpu: &vcpu::VCpu,
+        addr: GuestPhysAddr,
+        val: MemWriteRequest,
+    ) -> Result<()> {
+        let dev =
+            self.config
+                .device_map()
+                .device_for_mut(addr)
+                .ok_or_else(|| {
+                    Error::MissingDevice(format!("No device for address {:?}", addr))
+                })?;
+        let view = memory::GuestAddressSpaceViewMut::from_vmcs(
+            &vcpu.vmcs,
+            &mut self.guest_space,
+        )?;
+        dev.on_mem_write(addr, val, view)
     }
 
     pub fn on_port_read(

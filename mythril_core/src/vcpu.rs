@@ -311,18 +311,6 @@ impl VCpu {
         Ok(())
     }
 
-    fn handle_ept_violation(
-        &mut self,
-        _guest_cpu: &mut vmexit::GuestCpuState,
-        _exit: vmexit::EptInformation,
-    ) -> Result<()> {
-        let addr = self
-            .vmcs
-            .read_field(vmcs::VmcsField::GuestPhysicalAddress)?;
-        info!("ept violation: guest phys addr = 0x{:x}", addr);
-        Ok(())
-    }
-
     /// Handle an arbitrary guest VMEXIT.
     ///
     /// This is the rust 'entry' point when a guest exists.
@@ -398,7 +386,7 @@ impl VCpu {
                 self.skip_emulated_instruction()?;
             }
             vmexit::ExitInformation::EptViolation(info) => {
-                self.handle_ept_violation(guest_cpu, info)?;
+                emulate::memio::handle_ept_violation(self, guest_cpu, info)?;
                 self.skip_emulated_instruction()?;
             }
             vmexit::ExitInformation::WrMsr => {
