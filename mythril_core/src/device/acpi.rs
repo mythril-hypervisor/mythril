@@ -14,6 +14,9 @@ pub struct AcpiRuntime {
 }
 
 impl AcpiRuntime {
+    // This should actually be determind by the ACPI tables we're passing to the guest
+    const FADT_SMI_COMMAND: Port = 0xb2;
+
     // Seabios expects us to pass PCI hotplug info via ACPI like QEMU.
     // See https://github.com/qemu/qemu/blob/master/docs/specs/acpi_pci_hotplug.txt
     const GPE_BLOCK_START: Port = 0xafe0;
@@ -43,6 +46,7 @@ impl AcpiRuntime {
 impl EmulatedDevice for AcpiRuntime {
     fn services(&self) -> Vec<DeviceRegion> {
         vec![
+            DeviceRegion::PortIo(Self::FADT_SMI_COMMAND..=Self::FADT_SMI_COMMAND),
             DeviceRegion::PortIo(self.pm1a_cnt()..=self.pm1a_cnt()),
             DeviceRegion::PortIo(self.pmtimer()..=self.pmtimer()),
             DeviceRegion::PortIo(Self::GPE_BLOCK_START..=Self::GPE_BLOCK_END),
