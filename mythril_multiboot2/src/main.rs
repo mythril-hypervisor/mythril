@@ -16,6 +16,7 @@ mod services;
 
 use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
+use alloc::vec::Vec;
 use mythril_core::*;
 use spin::RwLock;
 
@@ -231,8 +232,21 @@ pub extern "C" fn kmain(multiboot_info_addr: usize) -> ! {
     }
 
     // Locate the RSDP and start ACPI parsing
-    let rsdp = rsdp::RSDP::find().expect("Failed to find the RSDP");
+    let rsdp = acpi::rsdp::RSDP::find().expect("Failed to find the RSDP");
     info!("{:?}", rsdp);
+
+    let rsdt = match rsdp.rsdt() {
+        Ok(rsdt) => rsdt,
+        Err(e) => panic!("Failed to create the RSDT: {:?}", e),
+    };
+    info!("{:?}", rsdt);
+
+    for entry in rsdt.entries() {
+        match entry {
+            Ok(sdt) => info!("{:?}", sdt),
+            Err(e) => info!("Malformed SDT: {:?}", e),
+        }
+    }
 
     let mut multiboot_services =
         services::Multiboot2Services::new(multiboot_info);
@@ -240,18 +254,38 @@ pub extern "C" fn kmain(multiboot_info_addr: usize) -> ! {
     let local_apic =
         apic::LocalApic::init().expect("Failed to initialize local APIC");
 
+    let madt_sdt = rsdt.find_entry(b"APIC").expect("No MADT found");
+    let madt = acpi::madt::MADT::new(&madt_sdt);
+
+    let apic_ids = madt
+        .structures()
+        .filter_map(|ics| match ics {
+            // TODO(dlrobertson): Check the flags to ensure we can acutally
+            // use this APIC.
+            Ok(acpi::madt::Ics::LocalApic { apic_id, .. })
+                if apic_id != local_apic.id() as u8 =>
+            {
+                Some(apic_id as u32)
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
     let mut map = BTreeMap::new();
-    map.insert(0usize, default_vm(0, 256, &mut multiboot_services));
-    map.insert(1usize, default_vm(1, 256, &mut multiboot_services));
+    map.insert(local_apic.id(), default_vm(0, 256, &mut multiboot_services));
+    for apic_id in apic_ids.iter() {
+        map.insert(
+            *apic_id as usize,
+            default_vm(*apic_id as usize, 256, &mut multiboot_services),
+        );
+    }
     unsafe {
         vm::VM_MAP = Some(map);
     }
 
     debug!("AP_STARTUP address: 0x{:x}", unsafe { AP_STARTUP_ADDR });
 
-    // TODO: this should be done per-ap
-    {
-        let ap_apic_id = 1;
+    for ap_apic_id in apic_ids.into_iter() {
         unsafe {
             core::ptr::write_volatile(
                 &mut AP_STACK_ADDR as *mut u64,

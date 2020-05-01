@@ -161,7 +161,7 @@ impl LocalApic {
     ///
     /// From the x2apic spec § 2.4.4:
     ///
-    /// > Logical x2APIC ID = [(x2APIC ID[31:4] << 16) | (1 << x2APIC ID[3:0])]
+    /// > Logical x2APIC ID = \[(x2APIC ID\[31:4\] << 16) | (1 << x2APIC ID\[3:0\])\]
     pub fn logical_id(&self) -> u32 {
         let id = unsafe { msr::rdmsr(msr::IA32_X2APIC_APICID) as u32 };
         ((id & 0xffff_fff0) << 16) | (1 << (id & 0xf))
