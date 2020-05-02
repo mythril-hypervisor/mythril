@@ -46,7 +46,9 @@ impl AcpiRuntime {
 impl EmulatedDevice for AcpiRuntime {
     fn services(&self) -> Vec<DeviceRegion> {
         vec![
-            DeviceRegion::PortIo(Self::FADT_SMI_COMMAND..=Self::FADT_SMI_COMMAND),
+            DeviceRegion::PortIo(
+                Self::FADT_SMI_COMMAND..=Self::FADT_SMI_COMMAND,
+            ),
             DeviceRegion::PortIo(self.pm1a_cnt()..=self.pm1a_cnt()),
             DeviceRegion::PortIo(self.pmtimer()..=self.pmtimer()),
             DeviceRegion::PortIo(Self::GPE_BLOCK_START..=Self::GPE_BLOCK_END),

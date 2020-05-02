@@ -55,7 +55,7 @@ impl EmulatedDevice for Pic8259 {
             Self::PIC_SLAVE_DATA => self.master_state.imr,
             _ => {
                 info!("Read of PIC command port not yet supported");
-                return Ok(())
+                return Ok(());
             }
         };
         val.copy_from_u32(data as u32);

@@ -93,7 +93,10 @@ interrupt_fn!(nmi_handler, iret_regs, {
 });
 
 interrupt_fn!(protection_fault_handler, iret_regs, {
-    panic!("General protection fault handler (rip=0x{:x})", iret_regs.rip);
+    panic!(
+        "General protection fault handler (rip=0x{:x})",
+        iret_regs.rip
+    );
 });
 
 interrupt_fn!(page_fault_handler, iret_regs, {

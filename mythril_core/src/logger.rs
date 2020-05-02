@@ -6,9 +6,7 @@ static LOG_LOCK: Mutex<()> = Mutex::new(());
 
 pub fn write_console(s: impl AsRef<str>) {
     let lock = LOG_LOCK.lock();
-    unsafe {
-        raw_write_console(s)
-    };
+    unsafe { raw_write_console(s) };
     drop(lock)
 }
 

@@ -123,7 +123,10 @@ impl VirtualMachine {
                 .device_map()
                 .device_for_mut(addr)
                 .ok_or_else(|| {
-                    Error::MissingDevice(format!("No device for address {:?}", addr))
+                    Error::MissingDevice(format!(
+                        "No device for address {:?}",
+                        addr
+                    ))
                 })?;
         let view = memory::GuestAddressSpaceViewMut::from_vmcs(
             &vcpu.vmcs,
@@ -143,7 +146,10 @@ impl VirtualMachine {
                 .device_map()
                 .device_for_mut(addr)
                 .ok_or_else(|| {
-                    Error::MissingDevice(format!("No device for address {:?}", addr))
+                    Error::MissingDevice(format!(
+                        "No device for address {:?}",
+                        addr
+                    ))
                 })?;
         let view = memory::GuestAddressSpaceViewMut::from_vmcs(
             &vcpu.vmcs,

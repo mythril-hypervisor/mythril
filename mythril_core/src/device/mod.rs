@@ -415,7 +415,7 @@ impl<'a> fmt::Display for PortWriteRequest<'a> {
 
 #[derive(Debug)]
 pub struct MemWriteRequest<'a> {
-    data: &'a [u8]
+    data: &'a [u8],
 }
 
 impl<'a> MemWriteRequest<'a> {
@@ -449,10 +449,9 @@ impl<'a> TryInto<u8> for MemWriteRequest<'a> {
     }
 }
 
-
 #[derive(Debug)]
 pub struct MemReadRequest<'a> {
-    data: &'a mut[u8]
+    data: &'a mut [u8],
 }
 
 impl<'a> MemReadRequest<'a> {

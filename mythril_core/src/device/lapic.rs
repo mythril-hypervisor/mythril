@@ -21,16 +21,14 @@ impl EmulatedDevice for LocalApic {
             DeviceRegion::MemIo(
                 GuestPhysAddr::new(0xfee00000)..=GuestPhysAddr::new(0xfee010f0),
             ),
-
             //FIXME: this is actually the 1st HPET
             DeviceRegion::MemIo(
-                GuestPhysAddr::new(0xfed00000)..=GuestPhysAddr::new(0xfed010f0)
+                GuestPhysAddr::new(0xfed00000)..=GuestPhysAddr::new(0xfed010f0),
             ),
-
             //FIXME: this is actually the io apic
             DeviceRegion::MemIo(
-                GuestPhysAddr::new(0xfec00000)..=GuestPhysAddr::new(0xfec010f0)
-            )
+                GuestPhysAddr::new(0xfec00000)..=GuestPhysAddr::new(0xfec010f0),
+            ),
         ]
     }
 
@@ -40,7 +38,11 @@ impl EmulatedDevice for LocalApic {
         data: MemReadRequest,
         _space: GuestAddressSpaceViewMut,
     ) -> Result<()> {
-        info!("local apic read of addr = {:?} (len=0x{:x})", addr, data.as_slice().len());
+        info!(
+            "local apic read of addr = {:?} (len=0x{:x})",
+            addr,
+            data.as_slice().len()
+        );
         Ok(())
     }
 
