@@ -6,6 +6,8 @@ multiboot2_binary = target/$(MULTIBOOT2_TARGET)/$(BUILD_TYPE)/mythril_multiboot2
 mythril_src = $(shell find . -type f -name '*.rs' -or -name '*.S' -or -name '*.ld' \
 	                   -name 'Cargo.toml')
 seabios = seabios/out/bios.bin
+git_hooks_src = $(wildcard .mythril_githooks/*)
+git_hooks = $(subst .mythril_githooks,.git/hooks,$(git_hooks_src))
 
 ifneq (,$(filter qemu%, $(firstword $(MAKECMDGOALS))))
     QEMU_EXTRA := $(subst :,\:, $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS)))
@@ -61,6 +63,15 @@ test: test_core
 clean:
 	$(CARGO) clean
 	make -C seabios clean
+
+.PHONY: dev-init
+dev-init: install-git-hooks
+
+.PHONY: install-git-hooks
+install-git-hooks: $(git_hooks)
+
+$(git_hooks): $(git_hooks_src)
+	ln -s $(shell realpath --relative-to=.git/hooks $<) $@
 
 .PHONY: help
 help:
