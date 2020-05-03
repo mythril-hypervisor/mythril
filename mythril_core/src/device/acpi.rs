@@ -3,7 +3,7 @@ use crate::device::{
 };
 use crate::error::Result;
 use crate::memory::GuestAddressSpaceViewMut;
-use crate::tsc;
+use crate::time;
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 
@@ -76,9 +76,9 @@ impl EmulatedDevice for AcpiRuntime {
         _space: GuestAddressSpaceViewMut,
     ) -> Result<()> {
         if port == self.pmtimer() {
+            let on_duration = time::now() - time::system_start_time();
             let pm_time =
-                tsc::read_tsc() * PMTIMER_HZ / (tsc::tsc_khz() * 1000);
-            info!("pm_time={}", pm_time);
+                (on_duration.as_nanos() * PMTIMER_HZ as u128) / 1_000_000_000;
             val.copy_from_u32(pm_time as u32);
         }
         Ok(())

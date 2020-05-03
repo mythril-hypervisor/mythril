@@ -1,8 +1,8 @@
 use crate::device::pit;
-use crate::error::Result;
-use x86::io::{inb, outb};
+use crate::error::{Error, Result};
+use crate::time::{Instant, TimeSource};
 
-static mut TSC_KHZ: Option<u64> = None;
+use x86::io::{inb, outb};
 
 const CALIBRATE_COUNT: u16 = 0x800; // Approx 1.7ms
 const PIT_HZ: u64 = 1193182;
@@ -11,7 +11,31 @@ const PPCB_T2GATE: u8 = 1 << 0;
 const PPCB_SPKR: u8 = 1 << 1;
 const PPCB_T2OUT: u8 = 1 << 5;
 
-pub unsafe fn calibrate() -> Result<()> {
+struct TscTimeSource {
+    frequency: u64,
+}
+
+unsafe fn read_tsc() -> u64 {
+    x86::time::rdtsc()
+}
+
+impl TimeSource for TscTimeSource {
+    fn now(&self) -> Instant {
+        Instant(unsafe { read_tsc() })
+    }
+
+    fn frequency(&self) -> u64 {
+        self.frequency
+    }
+}
+
+static mut TSC: Option<TscTimeSource> = None;
+
+pub unsafe fn calibrate_tsc() -> Result<&'static mut dyn TimeSource> {
+    if TSC.is_some() {
+        return Err(Error::InvalidValue("TSC is already calibrated".into()));
+    }
+
     let orig: u8 = inb(pit::Pit8254::PIT_PS2_CTRL_B);
     outb(
         pit::Pit8254::PIT_PS2_CTRL_B,
@@ -41,15 +65,11 @@ pub unsafe fn calibrate() -> Result<()> {
     let tsc_khz = (diff * PIT_HZ) / (CALIBRATE_COUNT as u64 * 1000);
 
     info!("tsc calibrate diff={} (khz={})", diff, tsc_khz);
-    TSC_KHZ = Some(tsc_khz);
 
-    Ok(())
-}
+    let source = TscTimeSource {
+        frequency: tsc_khz * 1000,
+    };
 
-pub fn tsc_khz() -> u64 {
-    unsafe { TSC_KHZ.unwrap() }
-}
-
-pub fn read_tsc() -> u64 {
-    unsafe { x86::time::rdtsc() }
+    TSC = Some(source);
+    Ok(TSC.as_mut().unwrap())
 }
