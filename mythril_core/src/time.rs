@@ -39,6 +39,11 @@ pub fn system_start_time() -> Instant {
     unsafe { START_TIME.expect("Global time source is not started") }
 }
 
+/// Returns whether the global system `TimeSource` has be initialized.
+pub fn is_global_time_ready() -> bool {
+    unsafe { TIME_SRC.is_some() }
+}
+
 fn frequency() -> u64 {
     unsafe {
         TIME_SRC
