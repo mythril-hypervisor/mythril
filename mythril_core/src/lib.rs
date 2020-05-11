@@ -27,6 +27,7 @@ pub mod linux;
 pub mod logger;
 pub mod memory;
 mod registers;
+pub mod time;
 pub mod tsc;
 pub mod vcpu;
 pub mod vm;

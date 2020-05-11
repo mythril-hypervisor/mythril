@@ -220,8 +220,10 @@ pub extern "C" fn kmain(multiboot_info_addr: usize) -> ! {
         .map(|()| log::set_max_level(log::LevelFilter::Info))
         .expect("Failed to set logger");
 
-    // Calibrate the timers
-    unsafe { tsc::calibrate().expect("Failed to calibrate TSC") };
+    // Calibrate the global time source
+    unsafe {
+        time::init_global_time().expect("Failed to init global timesource")
+    }
 
     let multiboot_info = unsafe { multiboot2::load(multiboot_info_addr) };
 

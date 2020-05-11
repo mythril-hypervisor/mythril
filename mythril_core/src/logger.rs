@@ -1,3 +1,5 @@
+use crate::time;
+
 use core::fmt;
 use core::fmt::Write;
 use spin::Mutex;
@@ -36,9 +38,17 @@ impl log::Log for DirectLogger {
     }
 
     fn log(&self, record: &log::Record) {
+        let (stamp_sec, stamp_subsec) = if time::is_global_time_ready() {
+            let diff = time::now() - time::system_start_time();
+            (diff.as_secs(), diff.subsec_micros())
+        } else {
+            (0, 0)
+        };
         writeln!(
             DirectWriter {},
-            "MYTHRIL-{}: {}",
+            "[{:>4}.{:06}] MYTHRIL-{}: {}",
+            stamp_sec,
+            stamp_subsec,
             record.level(),
             *record.args()
         )
