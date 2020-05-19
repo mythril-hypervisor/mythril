@@ -18,7 +18,7 @@ pub unsafe fn raw_write_console(s: impl AsRef<str>) {
     let len = s.as_ref().len();
     let ptr = s.as_ref().as_ptr();
 
-    asm!("cld; rep outsb"
+    llvm_asm!("cld; rep outsb"
          :
          :"{rdx}"(0x3f8), "{rcx}"(len as u64), "{rsi}"(ptr as u64)
          : "rflags", "rsi"

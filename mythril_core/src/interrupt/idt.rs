@@ -79,7 +79,7 @@ macro_rules! interrupt_fn {
              }
 
              let rbp: usize;
-             asm!("" : "={rbp}"(rbp) : : : "volatile");
+             llvm_asm!("" : "={rbp}"(rbp) : : : "volatile");
 
              // Shift by a usize, because the preamble will 'push rbp'.
              let stack = &*((rbp + core::mem::size_of::<usize>()) as *const IretRegisters);

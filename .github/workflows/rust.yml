@@ -1,27 +1,35 @@
 name: Mythril
 
 on: [push]
+env:
+  HOME: /home/mythril
 
 jobs:
   fmt:
     runs-on: ubuntu-18.04
+    container: adamschwalm/hypervisor-build:8
     steps:
     - uses: actions/checkout@v1
     - name: Format
-      run: docker run -v $GITHUB_WORKSPACE:/src adamschwalm/hypervisor-build:6 make fmt
+      run: |
+        make fmt
   test:
     runs-on: ubuntu-18.04
     needs: fmt
+    container: adamschwalm/hypervisor-build:8
     steps:
     - uses: actions/checkout@v1
     - name: Unit Tests
-      run: docker run -v $GITHUB_WORKSPACE:/src adamschwalm/hypervisor-build:6 make test
+      run: |
+        make test
   build:
     runs-on: ubuntu-18.04
     needs: fmt
+    container: adamschwalm/hypervisor-build:8
     steps:
     - uses: actions/checkout@v1
       with:
         submodules: true
     - name: Multiboot2 Image Build
-      run: docker run -v $GITHUB_WORKSPACE:/src -e RUSTFLAGS="-D warnings" adamschwalm/hypervisor-build:6 make
+      run: |
+        RUSTFLAGS="-D warnings" make multiboot2

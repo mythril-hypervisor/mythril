@@ -20,16 +20,16 @@ impl Vmx {
 
         unsafe {
             // Enable NE in CR0, This is fixed bit in VMX CR0
-            asm!("movq %cr0, %rax; orq %rdx, %rax; movq %rax, %cr0;"
-                 :
-                 :"{rdx}"(0x20)
-                 :"rax");
+            llvm_asm!("movq %cr0, %rax; orq %rdx, %rax; movq %rax, %cr0;"
+                      :
+                      : "{rdx}"(0x20)
+                      : "rax");
 
             // Enable vmx in CR4
-            asm!("movq %cr4, %rax; orq %rdx, %rax; movq %rax, %cr4;"
-                 :
-                 :"{rdx}"(VMX_ENABLE_FLAG)
-                 :"rax");
+            llvm_asm!("movq %cr4, %rax; orq %rdx, %rax; movq %rax, %cr4;"
+                      :
+                      : "{rdx}"(VMX_ENABLE_FLAG)
+                      : "rax");
         }
 
         let revision_id = Self::revision();
@@ -45,10 +45,10 @@ impl Vmx {
 
         let rflags = unsafe {
             let rflags: u64;
-            asm!("vmxon $1; pushfq; popq $0"
-                 : "=r"(rflags)
-                 : "m"(vmxon_region_addr)
-                 : "rflags");
+            llvm_asm!("vmxon $1; pushfq; popq $0"
+                      : "=r"(rflags)
+                      : "m"(vmxon_region_addr)
+                      : "rflags");
             rflags
         };
 
@@ -63,10 +63,10 @@ impl Vmx {
         //      was originally activated from
         let rflags = unsafe {
             let rflags: u64;
-            asm!("vmxoff; pushfq; popq $0"
-                 : "=r"(rflags)
-                 :
-                 : "rflags");
+            llvm_asm!("vmxoff; pushfq; popq $0"
+                      : "=r"(rflags)
+                      :
+                      : "rflags");
             rflags
         };
 

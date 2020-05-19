@@ -306,11 +306,11 @@ fn vmcs_write_with_fixed(
 fn vmcs_write(field: VmcsField, value: u64) -> Result<()> {
     let rflags = unsafe {
         let rflags: u64;
-        asm!("vmwrite %rdx, %rax; pushfq; popq $0"
-             : "=r"(rflags)
-             :"{rdx}"(value), "{rax}"(field as u64)
-             :"rflags"
-             : "volatile");
+        llvm_asm!("vmwrite %rdx, %rax; pushfq; popq $0"
+                  : "=r"(rflags)
+                  : "{rdx}"(value), "{rax}"(field as u64)
+                  : "rflags"
+                  : "volatile");
         rflags
     };
 
@@ -323,11 +323,11 @@ fn vmcs_write(field: VmcsField, value: u64) -> Result<()> {
 fn vmcs_read(field: VmcsField) -> Result<u64> {
     let value = unsafe {
         let value: u64;
-        asm!("vmreadq %rdx, %rax"
-             :"={rax}"(value)
-             :"{rdx}"(field as u64)
-             :"rflags"
-             : "volatile");
+        llvm_asm!("vmreadq %rdx, %rax"
+                  : "={rax}"(value)
+                  : "{rdx}"(field as u64)
+                  : "rflags"
+                  : "volatile");
         value
     };
 
@@ -343,10 +343,10 @@ fn vmcs_activate(vmcs: &mut Vmcs, _vmx: &vmx::Vmx) -> Result<()> {
     }
     let rflags = unsafe {
         let rflags: u64;
-        asm!("vmptrld $1; pushfq; popq $0"
-             : "=r"(rflags)
-             : "m"(vmcs_region_addr)
-             : "rflags");
+        llvm_asm!("vmptrld $1; pushfq; popq $0"
+                  : "=r"(rflags)
+                  : "m"(vmcs_region_addr)
+                  : "rflags");
         rflags
     };
 
@@ -356,11 +356,11 @@ fn vmcs_activate(vmcs: &mut Vmcs, _vmx: &vmx::Vmx) -> Result<()> {
 fn vmcs_clear(vmcs_page: &mut Raw4kPage) -> Result<()> {
     let rflags = unsafe {
         let rflags: u64;
-        asm!("vmclear $1; pushfq; popq $0"
-             : "=r"(rflags)
-             : "m"(vmcs_page as *const _ as u64)
-             : "rflags"
-             : "volatile");
+        llvm_asm!("vmclear $1; pushfq; popq $0"
+                  : "=r"(rflags)
+                  : "m"(vmcs_page as *const _ as u64)
+                  : "rflags"
+                  : "volatile");
         rflags
     };
     error::check_vm_insruction(rflags, "Failed to clear VMCS".into())

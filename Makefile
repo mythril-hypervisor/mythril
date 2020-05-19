@@ -1,6 +1,7 @@
 CARGO?=cargo
 MULTIBOOT2_TARGET?=multiboot2_target
 BUILD_TYPE?=release
+DOCKER_IMAGE=adamschwalm/hypervisor-build:8
 
 multiboot2_binary = target/$(MULTIBOOT2_TARGET)/$(BUILD_TYPE)/mythril_multiboot2
 mythril_src = $(shell find . -type f -name '*.rs' -or -name '*.S' -or -name '*.ld' \
@@ -27,6 +28,11 @@ multiboot2: $(multiboot2_binary)
 .PHONY: multiboot2-debug
 multiboot2-debug: BUILD_TYPE=debug
 multiboot2-debug: $(multiboot2_binary)
+
+docker-%:
+	docker run --rm -w $(CURDIR) -v $(CURDIR):$(CURDIR) \
+	   -u $(shell id -u):$(shell id -g) $(DOCKER_IMAGE) \
+	   /bin/bash -c '$(MAKE) $*'
 
 $(seabios):
 	cp scripts/seabios.config seabios/.config
