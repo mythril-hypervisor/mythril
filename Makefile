@@ -1,7 +1,7 @@
 CARGO?=cargo
 MULTIBOOT2_TARGET?=multiboot2_target
 BUILD_TYPE?=release
-DOCKER_IMAGE=adamschwalm/hypervisor-build:8
+DOCKER_IMAGE=adamschwalm/hypervisor-build:9
 
 multiboot2_binary = target/$(MULTIBOOT2_TARGET)/$(BUILD_TYPE)/mythril_multiboot2
 mythril_src = $(shell find . -type f -name '*.rs' -or -name '*.S' -or -name '*.ld' \

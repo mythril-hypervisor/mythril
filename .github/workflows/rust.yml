@@ -1,13 +1,13 @@
 name: Mythril
 
 on: [push]
-env:
-  HOME: /home/mythril
 
 jobs:
   fmt:
     runs-on: ubuntu-18.04
-    container: adamschwalm/hypervisor-build:8
+    container:
+      image: adamschwalm/hypervisor-build:9
+      options: "-u 0:0"
     steps:
     - uses: actions/checkout@v1
     - name: Format
@@ -16,7 +16,9 @@ jobs:
   test:
     runs-on: ubuntu-18.04
     needs: fmt
-    container: adamschwalm/hypervisor-build:8
+    container:
+      image: adamschwalm/hypervisor-build:9
+      options: "-u 0:0"
     steps:
     - uses: actions/checkout@v1
     - name: Unit Tests
@@ -25,7 +27,9 @@ jobs:
   build:
     runs-on: ubuntu-18.04
     needs: fmt
-    container: adamschwalm/hypervisor-build:8
+    container:
+      image: adamschwalm/hypervisor-build:9
+      options: "-u 0:0"
     steps:
     - uses: actions/checkout@v1
       with:
