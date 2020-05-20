@@ -5,18 +5,18 @@ A rust-based hypervisor currently requiring multiboot2 boot (e.g. grub), and VT-
 ## Building and Testing
 
 `mythril` should be built and tested using the provided docker image
-`adamschwalm/hypervisor-build:6`. For example, to build the
-multiboot application, run:
+`adamschwalm/hypervisor-build`. There are convenience `make` rules for
+using this image. For example, to build the multiboot application, run:
 
 ```
-docker run -v $(pwd):/src adamschwalm/hypervisor-build:6 make
+make docker-all
 ```
 
 This will create the multiboot2 application in `target/multiboot2_target/release/mythril_multiboot2`.
 Similarly, unittests can be executed like:
 
 ```
-docker run -v $(pwd):/src adamschwalm/hypervisor-build:6 make test
+make docker-test
 ```
 
 ## Running the Hypervisor

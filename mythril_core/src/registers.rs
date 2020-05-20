@@ -13,11 +13,11 @@ impl IdtrBase {
                 limit: 0,
                 base_addr: 0,
             };
-            asm!("sidt ($0)"
-                 :
-                 : "r"(&mut info)
-                 : "memory"
-                 : "volatile");
+            llvm_asm!("sidt ($0)"
+                        :
+                        : "r"(&mut info)
+                        : "memory"
+                        : "volatile");
             info.base_addr
         }
     }
@@ -35,11 +35,11 @@ impl GdtrBase {
     pub fn read() -> u64 {
         unsafe {
             let mut info = GdtInfo { size: 0, offset: 0 };
-            asm!("sgdtq ($0)"
-                 :
-                 : "r"(&mut info)
-                 : "memory"
-                 : "volatile");
+            llvm_asm!("sgdtq ($0)"
+                      :
+                      : "r"(&mut info)
+                      : "memory"
+                      : "volatile");
             info.offset
         }
     }
