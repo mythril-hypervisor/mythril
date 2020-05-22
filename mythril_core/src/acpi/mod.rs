@@ -9,7 +9,11 @@
 //! [ACPI 6.3]: https://uefi.org/sites/default/files/resources/ACPI_6_3_May16.pdf
 
 use crate::error::{Error, Result};
+use byteorder::{ByteOrder, NativeEndian};
+use derive_try_from_primitive::TryFromPrimitive;
 
+/// Support for the High Precision Event Timer (HPET)
+pub mod hpet;
 /// Support for the Multiple APIC Descriptor Table (MADT).
 pub mod madt;
 /// Support for the Root System Descriptor Pointer (RSDP).
@@ -32,5 +36,121 @@ pub(self) fn verify_checksum(bytes: &[u8], cksum_idx: usize) -> Result<()> {
             bytes[cksum_idx],
             result & 0xff,
         )))
+    }
+}
+
+/// The size of a Generic Address Structure in bytes.
+pub const GAS_SIZE: usize = 12;
+
+/// Generic Address Structure (GAS) used by ACPI for position of registers.
+///
+/// See Table 5-25 in ACPI specification.
+#[derive(Debug)]
+pub struct GenericAddressStructure {
+    /// The address space where the associated address exists.
+    pub address_space: AddressSpaceID,
+    /// The size in bits of the given register.
+    pub bit_width: u8,
+    /// The bit offset of the given register at the given address.
+    pub bit_offset: u8,
+    /// The size of the memory access for the given address.
+    pub access_size: AccessSize,
+    /// The 64-bit address of the register or data structure.
+    pub address: u64,
+}
+
+/// Where a given address pointed to by a GAS resides.
+///
+/// See Table 5-25 of the ACPI specification.
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, PartialEq, TryFromPrimitive)]
+pub enum AddressSpaceID {
+    /// The associated address exists in the System Memory space.
+    SystemMemory = 0x00,
+    /// The associated address exists in the System I/O space.
+    SystemIO = 0x01,
+    /// The associated address exists in the PCI Configuration space.
+    PCIConfiguration = 0x02,
+    /// The associated address exists in an Embedded Controller.
+    EmbeddedController = 0x03,
+    /// The associated address exists in the SMBus.
+    SMBus = 0x04,
+    /// The associated address exists in the SystemCMOS.
+    SystemCMOS = 0x05,
+    /// The associated address exists in a PCI Bar Target.
+    PciBarTarget = 0x06,
+    /// The associated address exists in an IPMI.
+    IPMI = 0x07,
+    /// The associated address exists in General Purpose I/O.
+    GPIO = 0x08,
+    /// The associated address exists in a Generic Serial Bus.
+    GenericSerialBus = 0x09,
+    /// The associated address exists in the Platform Communications Channel (PCC).
+    PlatformCommunicationsChannel = 0x0A,
+    /// The associated address exists in Functional Fixed Hardware.
+    FunctionalFixedHardware = 0x7F,
+}
+
+/// Specifies access size of an address in a GAS.
+///
+/// See Table 5-25 in the ACPI specification.
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, TryFromPrimitive)]
+pub enum AccessSize {
+    /// Undefined (legacy reasons).
+    Undefined = 0x00,
+    /// Byte access.
+    Byte = 0x01,
+    /// Word access.
+    Word = 0x02,
+    /// DWord access.
+    DWord = 0x03,
+    /// QWord access.
+    QWord = 0x04,
+}
+
+impl GenericAddressStructure {
+    /// Create a new GAS from a slice of bytes.
+    pub fn new(bytes: &[u8]) -> Result<GenericAddressStructure> {
+        if bytes.len() != GAS_SIZE {
+            return Err(Error::InvalidValue(format!(
+                "Invalid number of bytes for GAS: {} != {}",
+                bytes.len(),
+                GAS_SIZE
+            )));
+        }
+
+        let address_space = match AddressSpaceID::try_from(bytes[0]) {
+            Some(address_space) => address_space,
+            None => {
+                return Err(Error::InvalidValue(format!(
+                    "Invalid Address Space ID: {}",
+                    bytes[0]
+                )));
+            }
+        };
+
+        let bit_width = bytes[1];
+        let bit_offset = bytes[2];
+
+        let access_size = match AccessSize::try_from(bytes[3]) {
+            Some(access_size) => access_size,
+            None => {
+                return Err(Error::InvalidValue(format!(
+                    "Invalid Access Size: {}",
+                    bytes[3]
+                )));
+            }
+        };
+
+        let address = NativeEndian::read_u64(&bytes[4..12]);
+
+        Ok(Self {
+            address_space,
+            bit_width,
+            bit_offset,
+            access_size,
+            address,
+        })
     }
 }
