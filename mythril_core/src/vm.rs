@@ -1,3 +1,4 @@
+use crate::acpi;
 use crate::device::{
     DeviceMap, MemReadRequest, MemWriteRequest, Port, PortReadRequest,
     PortWriteRequest,
@@ -25,7 +26,7 @@ pub static mut VM_MAP: Option<BTreeMap<usize, Arc<RwLock<VirtualMachine>>>> =
 /// implementation might use the EFI boot-services to support file reading.
 pub trait VmServices {
     fn read_file<'a>(&'a self, path: &str) -> Result<&'a [u8]>;
-    fn acpi_addr(&self) -> Result<HostPhysAddr>;
+    fn rsdp(&self) -> Result<acpi::rsdp::RSDP>;
 }
 
 /// A configuration for a `VirtualMachine`
@@ -300,9 +301,9 @@ mod test {
                 "read_file not implemented for TestVmServices".into(),
             ))
         }
-        fn acpi_addr(&self) -> Result<HostPhysAddr> {
+        fn rsdp(&self) -> Result<acpi::rsdp::RSDP> {
             Err(Error::NotImplemented(
-                "acpi_addr not implemented for TestVmServices".into(),
+                "rsdp fn not implemented for TestVmServices".into(),
             ))
         }
     }
