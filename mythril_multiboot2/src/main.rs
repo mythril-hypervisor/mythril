@@ -16,6 +16,7 @@ mod services;
 use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
+use mythril_core::vm::VmServices;
 use mythril_core::*;
 use spin::RwLock;
 
@@ -237,8 +238,13 @@ pub extern "C" fn kmain(multiboot_info_addr: usize) -> ! {
         allocator::Allocator::allocate_from(alloc_region.0, alloc_region.1)
     }
 
+    let mut multiboot_services =
+        services::Multiboot2Services::new(multiboot_info);
+
     // Locate the RSDP and start ACPI parsing
-    let rsdp = acpi::rsdp::RSDP::find().expect("Failed to find the RSDP");
+    let rsdp = multiboot_services.rsdp().unwrap_or_else(|_| {
+        acpi::rsdp::RSDP::find().expect("Failed to find the RSDP")
+    });
     info!("{:?}", rsdp);
 
     let rsdt = match rsdp.rsdt() {
@@ -253,9 +259,6 @@ pub extern "C" fn kmain(multiboot_info_addr: usize) -> ! {
             Err(e) => info!("Malformed SDT: {:?}", e),
         }
     }
-
-    let mut multiboot_services =
-        services::Multiboot2Services::new(multiboot_info);
 
     let local_apic =
         apic::LocalApic::init().expect("Failed to initialize local APIC");
