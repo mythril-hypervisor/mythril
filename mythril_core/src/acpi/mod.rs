@@ -21,6 +21,16 @@ pub mod rsdp;
 /// Support for the Root System Descriptor Table (RSDT).
 pub mod rsdt;
 
+mod offsets {
+    use core::ops::Range;
+
+    pub const GAS_ADDRESS_SPACE: usize = 0;
+    pub const GAS_BIT_WIDTH: usize = 1;
+    pub const GAS_BIT_OFFSET: usize = 2;
+    pub const GAS_ACCESS_SIZE: usize = 3;
+    pub const GAS_ADDRESS: Range<usize> = 4..12;
+}
+
 /// Verify a one byte checksum for a given slice and length.
 pub(self) fn verify_checksum(bytes: &[u8], cksum_idx: usize) -> Result<()> {
     // Sum up the bytes in the buffer.
@@ -120,30 +130,27 @@ impl GenericAddressStructure {
             )));
         }
 
-        let address_space = match AddressSpaceID::try_from(bytes[0]) {
-            Some(address_space) => address_space,
-            None => {
-                return Err(Error::InvalidValue(format!(
-                    "Invalid Address Space ID: {}",
-                    bytes[0]
-                )));
-            }
-        };
+        let address_space =
+            AddressSpaceID::try_from(bytes[offsets::GAS_ADDRESS_SPACE])
+                .ok_or_else(|| {
+                    Error::InvalidValue(format!(
+                        "Invalid Address Space ID: {}",
+                        bytes[offsets::GAS_ADDRESS_SPACE]
+                    ))
+                })?;
 
-        let bit_width = bytes[1];
-        let bit_offset = bytes[2];
+        let bit_width = bytes[offsets::GAS_BIT_WIDTH];
+        let bit_offset = bytes[offsets::GAS_BIT_OFFSET];
 
-        let access_size = match AccessSize::try_from(bytes[3]) {
-            Some(access_size) => access_size,
-            None => {
-                return Err(Error::InvalidValue(format!(
+        let access_size = AccessSize::try_from(bytes[offsets::GAS_ACCESS_SIZE])
+            .ok_or_else(|| {
+                Error::InvalidValue(format!(
                     "Invalid Access Size: {}",
-                    bytes[3]
-                )));
-            }
-        };
+                    bytes[offsets::GAS_ACCESS_SIZE]
+                ))
+            })?;
 
-        let address = NativeEndian::read_u64(&bytes[4..12]);
+        let address = NativeEndian::read_u64(&bytes[offsets::GAS_ADDRESS]);
 
         Ok(Self {
             address_space,

@@ -68,33 +68,23 @@ impl<'a> HPET<'a> {
         let minimum_tick =
             NativeEndian::read_u16(&sdt.table[offsets::MIN_CLOCK_TICK]);
 
-        let page_protection = match PageProtection::try_from(
-            sdt.table[offsets::PAGE_PROTECTION] & 0xF,
-        ) {
-            Some(page_protection) => page_protection,
-            None => {
-                return Err(Error::InvalidValue(format!(
-                    "Invalid HPET Page Protection type: {}",
-                    sdt.table[offsets::PAGE_PROTECTION] & 0xF
-                )));
-            }
-        };
+        let page_protection =
+            PageProtection::try_from(sdt.table[offsets::PAGE_PROTECTION] & 0xF)
+                .ok_or_else(|| {
+                    Error::InvalidValue(format!(
+                        "Invalid HPET Page Protection type: {}",
+                        sdt.table[offsets::PAGE_PROTECTION] & 0xF
+                    ))
+                })?;
 
         let hardware_rev_id = (event_timer_block_id & 0xFF) as u8;
-        let comparator_count = ((event_timer_block_id & 0x1F00) >> 8) as u8;
-        let counter_cap = ((event_timer_block_id & 0x2000) >> 13) as u8;
-        let legacy_replacement = ((event_timer_block_id & 0x8000) >> 15) as u8;
-        let pci_vendor_id = ((event_timer_block_id & 0xFFFF0000) >> 16) as u16;
+        let comparator_count = ((event_timer_block_id >> 8) & 0x1F) as u8;
+        let counter_cap = ((event_timer_block_id >> 13) & 0x1) as u8;
+        let legacy_replacement = ((event_timer_block_id >> 15) & 0x1) as u8;
+        let pci_vendor_id = ((event_timer_block_id >> 16) & 0xFFFF) as u16;
 
-        let counter_cap = match counter_cap {
-            0 => false,
-            _ => true,
-        };
-
-        let legacy_replacement = match legacy_replacement {
-            0 => false,
-            _ => true,
-        };
+        let counter_cap = counter_cap != 0;
+        let legacy_replacement = legacy_replacement != 0;
 
         Ok(Self {
             sdt,
