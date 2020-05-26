@@ -11,6 +11,7 @@
 use crate::error::{Error, Result};
 use byteorder::{ByteOrder, NativeEndian};
 use derive_try_from_primitive::TryFromPrimitive;
+use raw_cpuid::CpuId;
 
 /// Support for the High Precision Event Timer (HPET)
 pub mod hpet;
@@ -151,6 +152,26 @@ impl GenericAddressStructure {
             })?;
 
         let address = NativeEndian::read_u64(&bytes[offsets::GAS_ADDRESS]);
+
+        if address_space == AddressSpaceID::SystemMemory
+            || address_space == AddressSpaceID::SystemIO
+        {
+            // call CPUID to determine if we need to verify the address. If the
+            // call to CPUID fails, the check is not performed.
+            let cpuid = CpuId::new();
+            let is_64bit = cpuid
+                .get_extended_function_info()
+                .and_then(|x| Some(x.has_64bit_mode()))
+                .ok_or_else(|| Error::NotSupported)?;
+
+            // verify that the address is only 32 bits for 32-bit platforms.
+            if !is_64bit && ((address >> 32) & 0xFFFFFFFF) != 0 {
+                return Err(Error::InvalidValue(format!(
+                    "Invalid address for a 32-bit system: {:x}",
+                    address
+                )));
+            }
+        }
 
         Ok(Self {
             address_space,
