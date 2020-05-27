@@ -266,6 +266,12 @@ pub extern "C" fn kmain(multiboot_info_addr: usize) -> ! {
     let madt_sdt = rsdt.find_entry(b"APIC").expect("No MADT found");
     let madt = acpi::madt::MADT::new(&madt_sdt);
 
+    let hpet_sdt = rsdt.find_entry(b"HPET").expect("No HPET found");
+    let hpet = acpi::hpet::HPET::new(&hpet_sdt)
+        .unwrap_or_else(|e| panic!("Failed to create the HPET: {:?}", e));
+
+    info!("{:?}", hpet);
+
     let apic_ids = madt
         .structures()
         .filter_map(|ics| match ics {
