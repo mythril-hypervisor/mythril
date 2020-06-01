@@ -30,8 +30,6 @@ mod offsets {
     pub const REVISION: usize = 15;
     /// 32-bit physical address of the RSDT.
     pub const RSDT_ADDR: Range<usize> = 16..20;
-    /// Length of the XSDT table in bytes (ACPI 2.0 only).
-    pub const LENGTH: Range<usize> = 20..24;
     /// 64-bit physical address of the XSDT (ACPI 2.0 only).
     pub const XSDT_ADDR: Range<usize> = 24..32;
     /// Checksum of entire structure (ACPI 2.0 only).
@@ -60,12 +58,10 @@ pub enum RSDP {
     V2 {
         /// OEM Supplied string.
         oemid: [u8; 6],
-        /// 32-bit physical address of the RSDT.
-        rsdt_addr: u32,
-        /// Length of the XSDT table in bytes.
-        length: u32,
         /// 64-bit physical address of the XSDT.
         xsdt_addr: u64,
+        //  TODO(ntegan) multiboot2 doesn't give us a length for rsdpv2tag,
+        //      so we can't calculate the rsdp checksum
     },
 }
 
@@ -75,15 +71,9 @@ impl fmt::Debug for RSDP {
             &RSDP::V1 { rsdt_addr, .. } => {
                 write!(f, "RSDP: revision=1.0 rsdt=0x{:x}", rsdt_addr)
             }
-            &RSDP::V2 {
-                rsdt_addr,
-                xsdt_addr,
-                ..
-            } => write!(
-                f,
-                "RSDP: revision=2.0 rsdt=0x{:x} xsdt_addr=0x{:x}",
-                rsdt_addr, xsdt_addr
-            ),
+            &RSDP::V2 { xsdt_addr, .. } => {
+                write!(f, "RSDP: revision=2.0 xsdt_addr=0x{:x}", xsdt_addr)
+            }
         }
     }
 }
@@ -125,8 +115,6 @@ impl RSDP {
             // This is ACPI 2.0. Extract the addrss and length of the XSDT.
             2 => RSDP::V2 {
                 oemid,
-                rsdt_addr,
-                length: NativeEndian::read_u32(&bytes[offsets::LENGTH]),
                 xsdt_addr: NativeEndian::read_u64(&bytes[offsets::XSDT_ADDR]),
             },
             _ => {
@@ -202,8 +190,8 @@ impl RSDP {
     /// Return the RSDT pointed to by this structure.
     pub fn rsdt(&self) -> Result<RSDT> {
         match self {
-            &RSDP::V1 { rsdt_addr, .. } => RSDT::new(rsdt_addr),
-            &RSDP::V2 { .. } => Err(Error::NotSupported),
+            &RSDP::V1 { rsdt_addr, .. } => RSDT::new_rsdt(rsdt_addr as usize),
+            &RSDP::V2 { xsdt_addr, .. } => RSDT::new_xsdt(xsdt_addr as usize),
         }
     }
 }
