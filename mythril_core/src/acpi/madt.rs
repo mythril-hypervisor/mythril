@@ -82,10 +82,21 @@ impl IcsType {
 }
 
 bitflags! {
+    /// Multiple APIC Flags.
+    ///
+    /// See ACPI Table 5-44.
+    pub struct MultipleApicFlags: u32 {
+        /// Indicates that the system has a PC-AT compatible
+        /// dual-8259 setup.
+        const PCAT_COMPAT = 1;
+    }
+}
+
+bitflags! {
     /// Local APIC Flags.
     ///
     /// See ACPI Table 5-47.
-    struct ApicFlags: u32 {
+    pub struct LocalApicFlags: u32 {
         /// The processor is ready for use.
         const ENABLED = 1;
         /// If `ENABLED` bit is 0, the processor supports enabling this
@@ -96,10 +107,10 @@ bitflags! {
 }
 
 bitflags! {
-    /// MPS INI Flags.
+    /// MPS INTI Flags.
     ///
     /// See ACPI Table 5-50
-    struct MpsIniFlags: u16 {
+    pub struct MpsIntiFlags: u16 {
         /// Active High Polarity.
         const ACTIVE_HIGH = 0x0001;
         /// Active Low Polarity.
@@ -122,7 +133,7 @@ pub enum Ics {
         /// The processors local APIC ID.
         apic_id: u8,
         /// Local APIC Flags.
-        flags: u32,
+        flags: LocalApicFlags,
     },
     /// I/O APIC Structure.
     ///
@@ -146,14 +157,14 @@ pub enum Ics {
         /// signal.
         gsi: u32,
         /// MPS INI Flags.
-        flags: u16,
+        flags: MpsIntiFlags,
     },
     /// Non-Maskable Interrupt Source Structure.
     ///
     /// See `ACPI § 5.2.12.6`.
     NmiSource {
         /// MPS INI Flags.
-        flags: u16,
+        flags: MpsIntiFlags,
         /// Global System Interrupt that this NMI will signal.
         gsi: u32,
     },
@@ -164,7 +175,7 @@ pub enum Ics {
         /// Processor Object ID.
         acpi_proc_uid: u8,
         /// MPS INI Flags.
-        flags: u16,
+        flags: MpsIntiFlags,
         /// Local APIC interrupt input LINTn to which NMI is connected.
         local_apic_lint: u8,
     },
@@ -175,7 +186,7 @@ pub enum Ics {
         /// Processor local x2APIC ID.
         x2apic_id: u32,
         /// Local APIC Flags.
-        flags: u32,
+        flags: LocalApicFlags,
         /// Processor Object ID.
         apic_proc_uid: u32,
     },
@@ -189,7 +200,9 @@ impl Ics {
             IcsType::ProcessorLocalApic => Ok(Ics::LocalApic {
                 apic_uid: bytes[0],
                 apic_id: bytes[1],
-                flags: NativeEndian::read_u32(&bytes[2..6]),
+                flags: LocalApicFlags::from_bits_truncate(
+                    NativeEndian::read_u32(&bytes[2..6]),
+                ),
             }),
             IcsType::IoApic => {
                 let ioapic_addr = NativeEndian::read_u32(&bytes[2..6]);
@@ -203,21 +216,29 @@ impl Ics {
                 Ok(Ics::InterruptSourceOverride {
                     source: bytes[1],
                     gsi: NativeEndian::read_u32(&bytes[2..6]),
-                    flags: NativeEndian::read_u16(&bytes[6..8]),
+                    flags: MpsIntiFlags::from_bits_truncate(
+                        NativeEndian::read_u16(&bytes[6..8]),
+                    ),
                 })
             }
             IcsType::NmiSource => Ok(Ics::NmiSource {
-                flags: NativeEndian::read_u16(&bytes[0..2]),
+                flags: MpsIntiFlags::from_bits_truncate(
+                    NativeEndian::read_u16(&bytes[0..2]),
+                ),
                 gsi: NativeEndian::read_u32(&bytes[2..6]),
             }),
             IcsType::LocalApicNmi => Ok(Ics::LocalApicNmi {
                 acpi_proc_uid: bytes[0],
-                flags: NativeEndian::read_u16(&bytes[1..3]),
+                flags: MpsIntiFlags::from_bits_truncate(
+                    NativeEndian::read_u16(&bytes[1..3]),
+                ),
                 local_apic_lint: bytes[3],
             }),
             IcsType::ProcessorLocalX2Apic => Ok(Ics::LocalX2Apic {
                 x2apic_id: NativeEndian::read_u32(&bytes[2..6]),
-                flags: NativeEndian::read_u32(&bytes[6..10]),
+                flags: LocalApicFlags::from_bits_truncate(
+                    NativeEndian::read_u32(&bytes[6..10]),
+                ),
                 apic_proc_uid: NativeEndian::read_u32(&bytes[10..14]),
             }),
             _ => Err(Error::NotImplemented(format!(
@@ -253,7 +274,7 @@ pub struct MADT<'a> {
     pub ica: *const u8,
     /// Multiple APIC Flags. See `ACPI § 5.2.12` Table 5-44
     /// for the flag values and their meaning.
-    pub flags: u32,
+    pub flags: MultipleApicFlags,
     /// A TLV buffer of MADT specific structures.
     ///
     /// From `ACPI § 5.2.12`:
@@ -273,7 +294,9 @@ impl<'a> MADT<'a> {
     pub fn new(sdt: &'a SDT<'a>) -> MADT<'a> {
         let ica =
             NativeEndian::read_u32(&sdt.table[offsets::LOCAL_INT_CTRL_ADDR]);
-        let flags = NativeEndian::read_u32(&sdt.table[offsets::FLAGS]);
+        let flags = MultipleApicFlags::from_bits_truncate(
+            NativeEndian::read_u32(&sdt.table[offsets::FLAGS]),
+        );
         let ics = &sdt.table[offsets::INT_CTRL_STRUCTS..];
         MADT {
             sdt,
