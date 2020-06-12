@@ -123,6 +123,7 @@ bitflags! {
 }
 
 /// Interrupt Controller Structures.
+#[derive(Debug)]
 pub enum Ics {
     /// Processor Local APIC Structure.
     ///
@@ -142,7 +143,7 @@ pub enum Ics {
         /// I/O APIC ID.
         ioapic_id: u8,
         /// 32-bit physical address to access this I/O APIC.
-        ioapic_addr: *const u8,
+        ioapic_addr: *mut u8,
         /// Global System Interrupt number where this I/O APIC's interrupt
         /// input starts.
         gsi_base: u32,
@@ -208,7 +209,7 @@ impl Ics {
                 let ioapic_addr = NativeEndian::read_u32(&bytes[2..6]);
                 Ok(Ics::IoApic {
                     ioapic_id: bytes[0],
-                    ioapic_addr: ioapic_addr as *const u8,
+                    ioapic_addr: ioapic_addr as *mut u8,
                     gsi_base: NativeEndian::read_u32(&bytes[6..10]),
                 })
             }
