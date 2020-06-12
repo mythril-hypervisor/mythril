@@ -5,7 +5,7 @@ use x86::bits64::rflags;
 use x86::bits64::rflags::RFlags;
 
 // See Section 30.4
-#[derive(Debug, TryFromPrimitive)]
+#[derive(Debug, PartialEq, TryFromPrimitive)]
 #[repr(u64)]
 pub enum VmInstructionError {
     // Use to represent any error that is not in the current spec
@@ -65,7 +65,7 @@ pub fn check_vm_insruction(rflags: u64, error: String) -> Result<()> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Error {
     Vmcs(String),
     VmFailInvalid(String),

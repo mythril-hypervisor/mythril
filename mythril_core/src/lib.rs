@@ -22,6 +22,7 @@ pub mod device;
 pub mod emulate;
 pub mod error;
 pub mod interrupt;
+pub mod ioapic;
 pub mod linux;
 pub mod logger;
 pub mod memory;

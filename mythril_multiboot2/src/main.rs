@@ -16,6 +16,7 @@ mod services;
 use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
+use core::convert::TryFrom;
 use mythril_core::vm::VmServices;
 use mythril_core::*;
 use spin::RwLock;
@@ -285,6 +286,17 @@ pub extern "C" fn kmain(multiboot_info_addr: usize) -> ! {
             _ => None,
         })
         .collect::<Vec<_>>();
+
+    let ioapics = madt
+        .structures()
+        .filter_map(|ics| {
+            ics.map_or(None, |val| ioapic::IoApic::try_from(val).ok())
+        })
+        .collect::<Vec<_>>();
+
+    for ioapic in ioapics {
+        info!("{:?}", ioapic);
+    }
 
     let mut map = BTreeMap::new();
     map.insert(local_apic.id(), default_vm(0, 256, &mut multiboot_services));
