@@ -76,7 +76,7 @@ pub struct ExitReason {
 #[derive(Clone, Debug)]
 pub enum ExitInformation {
     NonMaskableInterrupt(VectoredEventInformation),
-    ExternalInterrupt,
+    ExternalInterrupt(VectoredEventInformation),
     TripleFault,
     InitSignal,
     StartUpIpi,
@@ -148,7 +148,9 @@ impl ExitReason {
             0 => ExitInformation::NonMaskableInterrupt(
                 VectoredEventInformation::from_active_vmcs(vmcs)?,
             ),
-            1 => ExitInformation::ExternalInterrupt,
+            1 => ExitInformation::ExternalInterrupt(
+                VectoredEventInformation::from_active_vmcs(vmcs)?,
+            ),
             2 => ExitInformation::TripleFault,
             3 => ExitInformation::InitSignal,
             4 => ExitInformation::StartUpIpi,

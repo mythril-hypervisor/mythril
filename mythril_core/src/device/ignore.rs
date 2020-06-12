@@ -26,6 +26,8 @@ impl EmulatedDevice for IgnoredDevice {
             DeviceRegion::PortIo(240..=240),
             // IO delay port
             DeviceRegion::PortIo(128..=128),
+            //TODO: don't know what this is yet
+            DeviceRegion::PortIo(135..=135),
         ]
     }
 

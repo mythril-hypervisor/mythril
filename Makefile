@@ -44,7 +44,7 @@ qemu: multiboot2 $(seabios)
 
 .PHONY: qemu-debug
 qemu-debug: multiboot2-debug $(seabios)
-	./scripts/mythril-run.sh $(multiboot2_debug_binary) \
+	./scripts/mythril-run.sh $(multiboot2_binary) \
 	    -gdb tcp::1234 -S $(QEMU_EXTRA)
 
 $(multiboot2_binary): $(mythril_src)

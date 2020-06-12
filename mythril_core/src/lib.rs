@@ -7,6 +7,9 @@
 #![feature(panic_info_message)]
 #![feature(alloc_error_handler)]
 #![feature(lang_items)]
+#![feature(stmt_expr_attributes)]
+#![feature(negative_impls)]
+#![feature(map_first_last)]
 
 #[macro_use]
 extern crate alloc;
@@ -16,6 +19,7 @@ extern crate log;
 
 /// Support for ACPI.
 pub mod acpi;
+pub mod ap;
 /// Support for the local APIC.
 pub mod apic;
 pub mod device;
@@ -26,6 +30,8 @@ pub mod ioapic;
 pub mod linux;
 pub mod logger;
 pub mod memory;
+pub mod percore;
+pub mod pit;
 mod registers;
 pub mod time;
 pub mod tsc;
