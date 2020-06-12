@@ -35,19 +35,30 @@ impl VmServices for Multiboot2Services {
     }
 
     fn rsdp(&self) -> Result<acpi::rsdp::RSDP> {
-        // Get a v1 tag if possible
-        self.info
-            .rsdp_v1_tag()
-            .map(|tag| {
-                // use empty string if no OEM id provided
-                let id = tag.oem_id().unwrap_or("      ").as_bytes();
+        let mut arr: [u8; 6] = [0; 6];
+        self.info.rsdp_v2_tag().map_or_else(
+            || {
+                self.info.rsdp_v1_tag().map_or_else(
+                    || Err(Error::NotFound),
+                    move |tag_v1| {
+                        let id = tag_v1.oem_id().unwrap_or("      ").as_bytes();
+                        arr.copy_from_slice(&id[0..6]);
+                        Ok(acpi::rsdp::RSDP::V1 {
+                            oemid: arr,
+                            rsdt_addr: tag_v1.rsdt_address() as u32,
+                        })
+                    },
+                )
+            },
+            move |tag_v2| {
+                let id = tag_v2.oem_id().unwrap_or("      ").as_bytes();
                 let mut arr: [u8; 6] = [0; 6];
                 arr.copy_from_slice(&id[0..6]);
-                acpi::rsdp::RSDP::V1 {
+                Ok(acpi::rsdp::RSDP::V2 {
                     oemid: arr,
-                    rsdt_addr: tag.rsdt_address() as u32,
-                }
-            })
-            .ok_or(Error::NotFound)
+                    xsdt_addr: tag_v2.xsdt_address() as u64,
+                })
+            },
+        )
     }
 }
