@@ -191,7 +191,7 @@ pub enum VmcsField {
 
 bitflags! {
     pub struct PinBasedCtrlFlags: u64 {
-        const EXT_INTR_MASK =        0x00000001;
+        const EXT_INTR_EXIT =        0x00000001;
         const NMI_EXITING =          0x00000008;
         const VIRTUAL_NMIS =         0x00000020;
         const PREEMPT_TIMER =        0x00000040;
@@ -201,7 +201,7 @@ bitflags! {
 
 bitflags! {
     pub struct CpuBasedCtrlFlags: u64 {
-        const VIRTUAL_INTR_PENDING =        0x00000004;
+        const INTERRUPT_WINDOW_EXITING =    0x00000004;
         const USE_TSC_OFFSETING =           0x00000008;
         const HLT_EXITING =                 0x00000080;
         const INVLPG_EXITING =              0x00000200;
@@ -272,6 +272,16 @@ bitflags! {
         const ENABLE_VIRT_EXCEPTIONS =   0x00040000;
         const XSAVES =                   0x00100000;
         const TSC_SCALING =              0x02000000;
+    }
+}
+
+bitflags! {
+    pub struct InterruptibilityState: u64 {
+        const STI_BLOCKING      = 0x00000001;
+        const MOV_SS_BLOCKING   = 0x00000002;
+        const SMI_BLOCKING      = 0x00000004;
+        const NMI_BLOCKING      = 0x00000008;
+        const ENCLAVE_INTERRUPT = 0x00000010;
     }
 }
 

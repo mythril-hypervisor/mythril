@@ -16,6 +16,13 @@ SECTIONS {
         KEEP(*(.multiboot_header))
     }
 
+    PER_CORE_START = .;
+    .per_core :
+    {
+        *(__PER_CORE*)
+    }
+    PER_CORE_END = .;
+
     .text :
     {
         *(.text .text.*)

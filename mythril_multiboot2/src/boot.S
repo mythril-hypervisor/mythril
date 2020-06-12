@@ -6,6 +6,7 @@ DEFAULT REL
 extern kmain
 extern GDT64.pointer
 extern GDT64.code
+extern GDT64.data
 extern BSP_STACK_TOP
 
 %define PAGE_HIERARCHY_SIZE (PAGE_SIZE*7)
@@ -122,4 +123,19 @@ _start:
 
     pop edi                           ; Pop the multiboot2 addr to pass to kmain
 
-    jmp GDT64.code:kmain              ; Load CS with 64 bit segment and flush the instruction cache
+    jmp GDT64.code:trampoline         ; Load CS with 64 bit segment and flush the instruction cache
+
+[BITS 64]
+trampoline:
+    ; Update these after the new CS to avoid issues setting SS
+    mov eax, GDT64.data
+    mov ds, eax
+    mov es, eax
+    mov gs, eax
+    mov ss, eax
+
+    ; FS stores the per-core index, which is always 0 for the BSP
+    mov edx, 0
+    mov fs, edx
+
+    jmp kmain

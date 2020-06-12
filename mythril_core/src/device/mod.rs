@@ -353,12 +353,12 @@ impl<'a> TryFrom<&'a [u8]> for PortWriteRequest<'a> {
     }
 }
 
-impl<'a> TryInto<u8> for PortWriteRequest<'a> {
+impl<'a> TryFrom<PortWriteRequest<'a>> for u8 {
     type Error = Error;
 
-    fn try_into(self) -> Result<u8> {
-        match self {
-            Self::OneByte(val) => Ok(val[0]),
+    fn try_from(value: PortWriteRequest<'a>) -> Result<Self> {
+        match value {
+            PortWriteRequest::OneByte(val) => Ok(val[0]),
             val => Err(Error::InvalidValue(format!(
                 "Value {} cannot be converted to u8",
                 val
@@ -367,12 +367,12 @@ impl<'a> TryInto<u8> for PortWriteRequest<'a> {
     }
 }
 
-impl<'a> TryInto<u16> for PortWriteRequest<'a> {
+impl<'a> TryFrom<PortWriteRequest<'a>> for u16 {
     type Error = Error;
 
-    fn try_into(self) -> Result<u16> {
-        match self {
-            Self::TwoBytes(val) => Ok(u16::from_be_bytes(*val)),
+    fn try_from(value: PortWriteRequest<'a>) -> Result<Self> {
+        match value {
+            PortWriteRequest::TwoBytes(val) => Ok(u16::from_be_bytes(*val)),
             val => Err(Error::InvalidValue(format!(
                 "Value {} cannot be converted to u16",
                 val
@@ -381,12 +381,12 @@ impl<'a> TryInto<u16> for PortWriteRequest<'a> {
     }
 }
 
-impl<'a> TryInto<u32> for PortWriteRequest<'a> {
+impl<'a> TryFrom<PortWriteRequest<'a>> for u32 {
     type Error = Error;
 
-    fn try_into(self) -> Result<u32> {
-        match self {
-            Self::FourBytes(val) => Ok(u32::from_be_bytes(*val)),
+    fn try_from(value: PortWriteRequest<'a>) -> Result<Self> {
+        match value {
+            PortWriteRequest::FourBytes(val) => Ok(u32::from_be_bytes(*val)),
             val => Err(Error::InvalidValue(format!(
                 "Value {} cannot be converted to u32",
                 val

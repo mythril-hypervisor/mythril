@@ -63,48 +63,130 @@ pub static mut IDT: [IdtEntry; 256] = [IdtEntry::new(); 256];
 
 #[allow(dead_code)]
 #[repr(packed)]
-pub struct IretRegisters {
+pub struct InterruptState {
+    pub rip: usize,
+    pub cs: usize,
+    pub rflags: usize,
+}
+
+#[allow(dead_code)]
+#[repr(packed)]
+pub struct FaultState {
     pub error: usize,
     pub rip: usize,
     pub cs: usize,
     pub rflags: usize,
 }
 
-macro_rules! interrupt_fn {
-     ($name:ident, $stack:ident, $func:block) => {
+macro_rules! push_regs {
+    () => (llvm_asm!(
+        "push rax
+         push rbx
+         push rcx
+         push rdx
+         push rdi
+         push rsi
+         push r8
+         push r9
+         push r10
+         push r11
+         push r12
+         push r13
+         push r14
+         push r15"
+        : : : : "intel", "volatile"
+    ));
+}
+
+macro_rules! pop_regs {
+    () => (llvm_asm!(
+        "pop r15
+         pop r14
+         pop r13
+         pop r12
+         pop r11
+         pop r10
+         pop r9
+         pop r8
+         pop rsi
+         pop rdi
+         pop rdx
+         pop rcx
+         pop rbx
+         pop rax"
+        : : : : "intel", "volatile"
+    ));
+}
+
+macro_rules! interrupt_fn_impl {
+     ($name:ident, $stack:ident, $func:block, $type:ty) => {
          pub unsafe extern fn $name () {
              #[inline(never)]
-             unsafe fn inner($stack: &$crate::interrupt::idt::IretRegisters) {
+             unsafe fn inner($stack: &$type) {
                  $func
              }
+
+             push_regs!();
 
              let rbp: usize;
              llvm_asm!("" : "={rbp}"(rbp) : : : "volatile");
 
-             // Shift by a usize, because the preamble will 'push rbp'.
-             let stack = &*((rbp + core::mem::size_of::<usize>()) as *const IretRegisters);
+             // Plus usize to skip the old rpb value pushed in the preamble
+             let stack = &*( (rbp + core::mem::size_of::<usize>()) as *const $type);
              inner(stack);
+
+             pop_regs!();
+
+             // Remove this stack frame before the iretq. This should work
+             // whether the above 'rbp' local variable is stack allocated or not.
+             llvm_asm!("mov rsp, rbp
+                        pop rbp
+                        iretq"
+                       : : : : "intel", "volatile");
          }
      }
 }
 
-interrupt_fn!(nmi_handler, iret_regs, {
-    panic!("Non-maskable interrupt (rip=0x{:x})", iret_regs.rip);
+#[allow(unused_macros)]
+macro_rules! interrupt_fn {
+    ($name:ident, $stack:ident, $func:block) => {
+        interrupt_fn_impl!(
+            $name,
+            $stack,
+            $func,
+            $crate::interrupt::idt::InterruptState
+        );
+    };
+}
+
+macro_rules! fault_fn {
+    ($name:ident, $stack:ident, $func:block) => {
+        interrupt_fn_impl!(
+            $name,
+            $stack,
+            $func,
+            $crate::interrupt::idt::FaultState
+        );
+    };
+}
+
+fault_fn!(nmi_handler, state, {
+    panic!("Non-maskable interrupt (rip=0x{:x})", state.rip);
 });
 
-interrupt_fn!(protection_fault_handler, iret_regs, {
+fault_fn!(protection_fault_handler, state, {
     panic!(
-        "General protection fault handler (rip=0x{:x})",
-        iret_regs.rip
+        "General protection fault handler (rip=0x{:x} error={:x})",
+        state.rip, state.error
     );
 });
 
-interrupt_fn!(page_fault_handler, iret_regs, {
-    panic!("Page fault handler (rip=0x{:x})", iret_regs.rip);
+fault_fn!(page_fault_handler, state, {
+    panic!("Page fault handler (rip=0x{:x})", state.rip);
 });
 
-interrupt_fn!(zero_division_handler, iret_regs, {
-    panic!("Divide by zero handler (rip=0x{:x})", iret_regs.rip);
+fault_fn!(zero_division_handler, state, {
+    panic!("Divide by zero handler (rip=0x{:x})", state.rip);
 });
 
 pub unsafe fn init() {

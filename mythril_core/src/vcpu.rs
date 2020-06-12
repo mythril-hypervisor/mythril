@@ -1,10 +1,14 @@
+use crate::apic;
 use crate::emulate;
 use crate::error::{self, Error, Result};
 use crate::memory::Raw4kPage;
+use crate::percore;
 use crate::registers::{GdtrBase, IdtrBase};
+use crate::time;
 use crate::vm::VirtualMachine;
 use crate::{vm, vmcs, vmexit, vmx};
 use alloc::boxed::Box;
+use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::mem;
@@ -20,19 +24,36 @@ extern "C" {
 }
 
 /// The post-startup point where a core begins executing its statically
-/// assigned VCPU. The `apic_id` must x2 APIC ID for the running core.
-/// Past this point, there is no distinction between BSP and AP.
-pub fn mp_entry_point(apic_id: usize) -> ! {
+/// assigned VCPU. Past this point, there is no distinction between BSP
+/// and AP.
+pub fn mp_entry_point() -> ! {
+    unsafe {
+        time::init_timer_wheel()
+            .expect("Failed to initialize per-core timer wheel");
+    }
+
     let vm = unsafe {
         vm::VM_MAP
             .as_ref()
             .unwrap()
-            .get(&apic_id)
+            .get(&apic::get_local_apic().id())
             .expect("Failed to find VM for core")
             .clone()
     };
     let vcpu = VCpu::new(vm.clone()).expect("Failed to create vcpu");
     vcpu.launch().expect("Failed to launch vm")
+}
+
+#[derive(Clone, Copy, Debug)]
+#[repr(u8)]
+pub enum InjectedInterruptType {
+    ExternalInterrupt = 0,
+    NonMaskableInterrupt = 2,
+    HardwareException = 3,
+    SoftwareInterrupt = 4,
+    PrivilegedSoftwareException = 5,
+    SoftwareException = 6,
+    OtherEvent = 7,
 }
 
 /// A virtual CPU.
@@ -45,6 +66,7 @@ pub fn mp_entry_point(apic_id: usize) -> ! {
 pub struct VCpu {
     pub vm: Arc<RwLock<VirtualMachine>>,
     pub vmcs: vmcs::ActiveVmcs,
+    pending_interrupts: BTreeMap<u8, InjectedInterruptType>,
     stack: Vec<u8>,
 }
 
@@ -65,6 +87,7 @@ impl VCpu {
             vm: vm,
             vmcs: vmcs,
             stack: stack,
+            pending_interrupts: BTreeMap::new(),
         });
 
         // All VCpus in a VM must share the same address space (except for the
@@ -86,6 +109,14 @@ impl VCpu {
         Self::initialize_ctrl_vmcs(&mut vcpu.vmcs)?;
 
         Ok(vcpu)
+    }
+
+    pub fn inject_interrupt(
+        &mut self,
+        vector: u8,
+        kind: InjectedInterruptType,
+    ) {
+        self.pending_interrupts.insert(vector, kind);
     }
 
     /// Begin execution in the guest context for this core
@@ -119,7 +150,6 @@ impl VCpu {
             vmcs.write_field(vmcs::VmcsField::HostSsSelector, GDT64_DATA)?;
             vmcs.write_field(vmcs::VmcsField::HostDsSelector, GDT64_DATA)?;
             vmcs.write_field(vmcs::VmcsField::HostEsSelector, GDT64_DATA)?;
-            vmcs.write_field(vmcs::VmcsField::HostFsSelector, GDT64_DATA)?;
             vmcs.write_field(vmcs::VmcsField::HostGsSelector, GDT64_DATA)?;
             vmcs.write_field(vmcs::VmcsField::HostTrSelector, GDT64_DATA)?;
         }
@@ -131,10 +161,16 @@ impl VCpu {
         vmcs.write_field(vmcs::VmcsField::HostIdtrBase, IdtrBase::read())?;
         vmcs.write_field(vmcs::VmcsField::HostGdtrBase, GdtrBase::read())?;
 
+        vmcs.write_field(
+            vmcs::VmcsField::HostFsSelector,
+            percore::read_core_idx() << 3, // Skip the RPL and TI flags
+        )?;
+
         vmcs.write_field(vmcs::VmcsField::HostFsBase, unsafe {
             msr::rdmsr(msr::IA32_FS_BASE)
         })?;
-        vmcs.write_field(vmcs::VmcsField::HostFsBase, unsafe {
+
+        vmcs.write_field(vmcs::VmcsField::HostGsBase, unsafe {
             msr::rdmsr(msr::IA32_GS_BASE)
         })?;
 
@@ -254,12 +290,20 @@ impl VCpu {
             msr::IA32_VMX_PROCBASED_CTLS2,
         )?;
 
-        //TODO: set unique processor id
-        vmcs.write_field(vmcs::VmcsField::VirtualProcessorId, 1)?;
+        // The value 0 is forbidden for the VPID, so we use the sequential
+        // processor id plus 1.
+        //
+        //   26.2.1.1 VM-Execution Control Fields
+        //   If the “enable VPID” VM-execution control is 1, the value of the VPID
+        //   VM-execution control field must not be 0000H.
+        vmcs.write_field(
+            vmcs::VmcsField::VirtualProcessorId,
+            percore::read_core_idx() + 1,
+        )?;
 
         vmcs.write_with_fixed(
             vmcs::VmcsField::PinBasedVmExecControl,
-            0,
+            vmcs::PinBasedCtrlFlags::EXT_INTR_EXIT.bits(),
             msr::IA32_VMX_PINBASED_CTLS,
         )?;
 
@@ -267,7 +311,8 @@ impl VCpu {
             vmcs::VmcsField::VmExitControls,
             (vmcs::VmExitCtrlFlags::IA32E_MODE
                 | vmcs::VmExitCtrlFlags::LOAD_HOST_EFER
-                | vmcs::VmExitCtrlFlags::SAVE_GUEST_EFER)
+                | vmcs::VmExitCtrlFlags::SAVE_GUEST_EFER
+                | vmcs::VmExitCtrlFlags::ACK_INTR_ON_EXIT)
                 .bits(),
             msr::IA32_VMX_EXIT_CTLS,
         )?;
@@ -307,7 +352,6 @@ impl VCpu {
             .read_field(vmcs::VmcsField::VmExitInstructionLen)?;
         self.vmcs.write_field(vmcs::VmcsField::GuestRip, rip)?;
 
-        //TODO: clear interrupts?
         Ok(())
     }
 
@@ -320,6 +364,97 @@ impl VCpu {
     /// * `guest_cpu` - A structure containing the current register values of the guest
     /// * `exit` - A representation of the VMEXIT reason
     pub fn handle_vmexit(
+        &mut self,
+        guest_cpu: &mut vmexit::GuestCpuState,
+        exit: vmexit::ExitReason,
+    ) -> Result<()> {
+        // Process the exit reason
+        self.handle_vmexit_impl(guest_cpu, exit.clone())?;
+
+        // Always check for expired timers
+        unsafe {
+            for (vec, kind) in
+                time::get_timer_wheel_mut().expire_elapsed_timers()?
+            {
+                self.inject_interrupt(vec, kind);
+            }
+        }
+
+        // If there are no pending interrupts, we're done
+        if self.pending_interrupts.is_empty() {
+            return Ok(());
+        }
+
+        let interruptibility = vmcs::InterruptibilityState::from_bits(
+            self.vmcs
+                .read_field(vmcs::VmcsField::GuestInterruptibilityInfo)?,
+        )
+        .ok_or_else(|| {
+            Error::InvalidValue("Invalid interruptibility state".into())
+        })?;
+
+        let rflags = self.vmcs.read_field(vmcs::VmcsField::GuestRflags)?;
+
+        // If the guest is not currently interruptible, set the interrupt window exiting
+        // and exit. Otherwise, ensure that it is disabled.
+        let field = self
+            .vmcs
+            .read_field(vmcs::VmcsField::CpuBasedVmExecControl)?;
+        if !interruptibility.is_empty() || rflags & 0b1000000000 == 0 {
+            self.vmcs.write_field(
+                vmcs::VmcsField::CpuBasedVmExecControl,
+                field
+                    | vmcs::CpuBasedCtrlFlags::INTERRUPT_WINDOW_EXITING.bits(),
+            )?;
+            return Ok(());
+        } else {
+            self.vmcs.write_field(
+                vmcs::VmcsField::CpuBasedVmExecControl,
+                field
+                    & !vmcs::CpuBasedCtrlFlags::INTERRUPT_WINDOW_EXITING.bits(),
+            )?;
+        }
+
+        // At this point, we must have at least one pending interrupt, and the guest
+        // can accept interrupts, so do the injection.
+        if let Some(pending) = self.pending_interrupts.pop_first() {
+            self.vmcs.write_field(
+                vmcs::VmcsField::VmEntryIntrInfoField,
+                0x80000000 | pending.0 as u64 | ((pending.1 as u64) << 8),
+            )?;
+        }
+
+        // If there are still pending interrupts, we need to exit immediately,
+        // so set the vmx-preemption timer to 0. According to the docs, this will
+        // still do the event injection:
+        //
+        //   26.7.4
+        //   It is possible for the VMX-preemption timer to expire during VM entry
+        //   (e.g., if the value in the VMX-preemption timer-value field is zero).
+        //   If this happens (and if the VM entry was not to the wait-for-SIPI state),
+        //   a VM exit occurs with its normal priority after any event injection and
+        //   before execution of any instruction following VM entry.
+        let field = self
+            .vmcs
+            .read_field(vmcs::VmcsField::PinBasedVmExecControl)?;
+        if !self.pending_interrupts.is_empty() {
+            self.vmcs
+                .write_field(vmcs::VmcsField::VmxPreemptionTimerValue, 0)?;
+            self.vmcs.write_field(
+                vmcs::VmcsField::PinBasedVmExecControl,
+                field | vmcs::PinBasedCtrlFlags::PREEMPT_TIMER.bits(),
+            )?;
+        } else {
+            self.vmcs.write_field(
+                vmcs::VmcsField::PinBasedVmExecControl,
+                field & !(vmcs::PinBasedCtrlFlags::PREEMPT_TIMER.bits()),
+            )?;
+        }
+
+        Ok(())
+    }
+
+    fn handle_vmexit_impl(
         &mut self,
         guest_cpu: &mut vmexit::GuestCpuState,
         exit: vmexit::ExitReason,
@@ -397,6 +532,13 @@ impl VCpu {
                     guest_cpu.rcx as u32
                 );
             }
+            vmexit::ExitInformation::ExternalInterrupt(_info) => unsafe {
+                // FIXME: For now, the only external interrupt would be the
+                // timers we setup in the vPIT, so we can just ack them. In
+                // the future this will not be true.
+                apic::get_local_apic_mut().eoi();
+            },
+            vmexit::ExitInformation::InterruptWindow => {}
             _ => {
                 info!("{}", self.vmcs);
                 panic!("No handler for exit reason: {:?}", exit);

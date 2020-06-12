@@ -88,6 +88,18 @@ ap_startup_64:
     ; Load the stack provided by the bsp
     mov rsp, [AP_STACK_ADDR]
 
+    ; Initialize FS with our per-core index, this will be used for the
+    ; fast per-core access later
+    mov rdx, [AP_IDX]
+    shl rdx, 3          ; Shift the AP_IDX to allow the RPL and TI bits to be 0
+    mov fs, rdx
+
+    ; See ap::ApData
+    push qword [AP_IDX]
+
+    ; Pass the info we've been given by the BSP up to the rust code
+    mov rdi, rsp
+
     ; Acknowledge that the stack has been used
     mov byte [AP_READY], 1
 
@@ -97,6 +109,10 @@ ap_startup_64:
 
 global AP_STACK_ADDR
 AP_STACK_ADDR:
+    dq 0
+
+global AP_IDX
+AP_IDX:
     dq 0
 
 global AP_READY

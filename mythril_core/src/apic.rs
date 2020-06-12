@@ -1,6 +1,8 @@
 #![deny(missing_docs)]
 
 use crate::error::{Error, Result};
+use crate::time;
+use crate::{declare_per_core, get_per_core, get_per_core_mut};
 use raw_cpuid::CpuId;
 use x86::msr;
 
@@ -79,11 +81,35 @@ pub enum DeliveryMode {
     _Reserved2 = 0x07,
 }
 
+declare_per_core! {
+    static mut LOCAL_APIC: Option<LocalApic> = None;
+}
+
+/// Obtain a reference to the current core's LocalApic
+pub fn get_local_apic() -> &'static LocalApic {
+    get_per_core!(LOCAL_APIC)
+        .as_ref()
+        .expect("Attempt to get local APIC before initialization")
+}
+
+/// Obtain a mutable reference to the current core's LocalApic
+///
+/// The caller must ensure that calling this function does not
+/// cause soundness violations such as holding two mutable
+/// references or a mutable and immutable reference.
+pub unsafe fn get_local_apic_mut() -> &'static mut LocalApic {
+    get_per_core_mut!(LOCAL_APIC)
+        .as_mut()
+        .expect("Attempt to get local APIC before initialization")
+}
+
 /// Structure defining the interface for a local x2APIC
 #[derive(Debug)]
 pub struct LocalApic {
     /// The raw value of the `IA32_APIC_BASE_MSR`
     base_reg: u64,
+
+    ticks_per_ms: u64,
 }
 
 impl LocalApic {
@@ -93,7 +119,7 @@ impl LocalApic {
     ///
     ///  - The CPU does not support X2APIC
     ///  - Unable to get the `cpuid`
-    pub fn init() -> Result<LocalApic> {
+    pub fn init() -> Result<&'static mut Self> {
         // Ensure the CPU supports x2apic
         let cpuid = CpuId::new();
         match cpuid.get_feature_info() {
@@ -123,7 +149,10 @@ impl LocalApic {
         // Fetch the new value of the APIC BASE MSR
         let base_reg = unsafe { msr::rdmsr(msr::IA32_APIC_BASE) };
 
-        let apic = LocalApic { base_reg };
+        let mut apic = LocalApic {
+            base_reg,
+            ticks_per_ms: 0,
+        };
 
         // Enable the APIC in the Spurious Interrupt Vector Register
         unsafe {
@@ -149,7 +178,12 @@ impl LocalApic {
         // initial value of the MSR. For now we'll just stick to what the
         // spec says, but this should be investigated a bit further.
         apic.clear_esr();
-        Ok(apic)
+
+        apic.calibrate_timer()
+            .expect("Failed to calibrate APIC timer");
+
+        *get_per_core_mut!(LOCAL_APIC) = Some(apic);
+        Ok(unsafe { get_local_apic_mut() })
     }
 
     /// The APIC ID
@@ -200,7 +234,7 @@ impl LocalApic {
     }
 
     /// Send a End Of Interrupt
-    pub fn eoi(&self) {
+    pub fn eoi(&mut self) {
         unsafe {
             msr::wrmsr(msr::IA32_X2APIC_EOI, 0x00);
         }
@@ -213,7 +247,7 @@ impl LocalApic {
 
     /// Set the Interrupt Command Register
     pub fn send_ipi(
-        &self,
+        &mut self,
         dst: u32,
         dst_short: DstShorthand,
         trigger: TriggerMode,
@@ -236,10 +270,38 @@ impl LocalApic {
     }
 
     /// Send a IPI to yourself
-    pub fn self_ipi(&self, vector: u8) {
+    pub fn self_ipi(&mut self, vector: u8) {
         // TODO(dlrobertson): Should we check for illegal vectors?
         unsafe {
             msr::wrmsr(msr::IA32_X2APIC_SELF_IPI, vector as u64);
+        }
+    }
+
+    fn calibrate_timer(&mut self) -> Result<()> {
+        unsafe {
+            let start_tick = 0xFFFFFFFF;
+            msr::wrmsr(msr::IA32_X2APIC_DIV_CONF, 0x3); // timer divisor = 16
+            msr::wrmsr(msr::IA32_X2APIC_INIT_COUNT, start_tick);
+            time::busy_wait(core::time::Duration::from_millis(1));
+            msr::wrmsr(msr::IA32_X2APIC_LVT_TIMER, 1 << 16); // Disable the timer
+            let curr_tick = msr::rdmsr(msr::IA32_X2APIC_CUR_COUNT);
+            self.ticks_per_ms = start_tick - curr_tick;
+        }
+        Ok(())
+    }
+
+    /// Configure the timer for this local apic to generate an interrupt with
+    /// the requested vector at the requested time. This will clear any outstanding
+    /// apic interrupt.
+    pub fn schedule_interrupt(&mut self, when: time::Instant, vector: u8) {
+        //TODO: always round _up_ here to avoid the timer not actually being
+        // expired when we receive the interrupt
+        let micros = (when - time::now()).as_micros();
+        let ticks = micros * self.ticks_per_ms as u128 / 1000;
+        unsafe {
+            msr::wrmsr(msr::IA32_X2APIC_DIV_CONF, 0x3); // timer divisor = 16
+            msr::wrmsr(msr::IA32_X2APIC_LVT_TIMER, vector as u64);
+            msr::wrmsr(msr::IA32_X2APIC_INIT_COUNT, ticks as u64);
         }
     }
 }
