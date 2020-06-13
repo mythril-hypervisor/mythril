@@ -1,6 +1,7 @@
 use crate::vmcs;
 use alloc::string::String;
-use derive_try_from_primitive::TryFromPrimitive;
+use core::convert::TryFrom;
+use num_enum::{TryFromPrimitive, TryFromPrimitiveError};
 use x86::bits64::rflags;
 use x86::bits64::rflags::RFlags;
 
@@ -81,6 +82,12 @@ pub enum Error {
     InvalidValue(String),
     InvalidDevice(String),
     NotImplemented(String),
+}
+
+impl<T: TryFromPrimitive> From<TryFromPrimitiveError<T>> for Error {
+    fn from(error: TryFromPrimitiveError<T>) -> Error {
+        Error::InvalidValue(format!("{}", error))
+    }
 }
 
 pub type Result<T> = core::result::Result<T, Error>;
