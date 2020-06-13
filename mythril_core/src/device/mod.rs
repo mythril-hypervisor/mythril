@@ -413,9 +413,16 @@ impl<'a> fmt::Display for PortWriteRequest<'a> {
     }
 }
 
-#[derive(Debug)]
 pub struct MemWriteRequest<'a> {
     data: &'a [u8],
+}
+
+impl fmt::Debug for MemWriteRequest<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MemWriteRequest")
+            .field("data", &format_args!("{:02x?}", self.data))
+            .finish()
+    }
 }
 
 impl<'a> MemWriteRequest<'a> {
