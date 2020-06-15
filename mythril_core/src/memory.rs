@@ -5,6 +5,7 @@ use alloc::vec::Vec;
 use bitflags::bitflags;
 use core::borrow::{Borrow, BorrowMut};
 use core::default::Default;
+use core::fmt;
 use core::ops::{Add, Deref, Index, IndexMut};
 use derive_try_from_primitive::TryFromPrimitive;
 use ux;
@@ -142,8 +143,9 @@ impl Add<usize> for Guest4LevelPagingAddr {
     }
 }
 
-#[derive(PartialEq, Eq, PartialOrd, Ord, Copy, Clone, Debug)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Copy, Clone)]
 pub struct GuestPhysAddr(u64);
+
 impl GuestPhysAddr {
     pub fn new(addr: u64) -> Self {
         Self(addr)
@@ -182,8 +184,17 @@ impl Add<usize> for GuestPhysAddr {
     }
 }
 
-#[derive(PartialEq, Eq, PartialOrd, Ord, Copy, Clone, Debug)]
+impl fmt::Debug for GuestPhysAddr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("GuestPhysAddr")
+            .field(&format_args!("0x{:x}", self.0))
+            .finish()
+    }
+}
+
+#[derive(PartialEq, Eq, PartialOrd, Ord, Copy, Clone)]
 pub struct HostPhysAddr(u64);
+
 impl HostPhysAddr {
     pub fn new(addr: u64) -> Self {
         Self(addr)
@@ -195,6 +206,14 @@ impl HostPhysAddr {
 
     pub fn is_frame_aligned(&self) -> bool {
         (self.0 & 0b111111111111) == 0
+    }
+}
+
+impl fmt::Debug for HostPhysAddr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("HostPhysAddr")
+            .field(&format_args!("0x{:x}", self.0))
+            .finish()
     }
 }
 
