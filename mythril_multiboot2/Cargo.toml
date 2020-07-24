@@ -8,7 +8,7 @@ license-file = "LICENSE"
 description = "A intel-focused hypervisor using VT-x/EPT"
 
 [dependencies]
-multiboot2 = "0.8.1"
+multiboot2 = "0.9.0"
 mythril_core = { version = "*", path = "../mythril_core" }
 log = { version = "0.4.8", default-features = false }
 linked_list_allocator = "0.8.1"
