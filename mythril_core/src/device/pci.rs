@@ -7,7 +7,7 @@ use alloc::boxed::Box;
 use alloc::collections::btree_map::BTreeMap;
 use alloc::vec::Vec;
 use core::convert::TryInto;
-use derive_try_from_primitive::TryFromPrimitive;
+use num_enum::TryFromPrimitive;
 use ux;
 
 #[derive(Clone, Copy, Debug, TryFromPrimitive)]

@@ -2,9 +2,10 @@ use super::rsdt::SDT;
 use crate::error::{Error, Result};
 use bitflags::bitflags;
 use byteorder::{ByteOrder, NativeEndian};
+use core::convert::TryFrom;
 use core::fmt;
 use core::ops::Range;
-use derive_try_from_primitive::TryFromPrimitive;
+use num_enum::TryFromPrimitive;
 
 /// See Table 5-43 in the ACPI spcification.
 ///
@@ -334,8 +335,8 @@ impl<'a> Iterator for IcsIterator<'a> {
         }
 
         let ty = match IcsType::try_from(self.bytes[0]) {
-            Some(ty) => ty,
-            None => {
+            Ok(ty) => ty,
+            _ => {
                 return Some(Err(Error::InvalidValue(format!(
                     "Invalid ICS type: {}",
                     self.bytes[0]
