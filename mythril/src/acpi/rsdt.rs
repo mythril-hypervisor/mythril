@@ -1,10 +1,16 @@
-use super::verify_checksum;
+use super::rsdp::offsets as rsdp_offsets;
+use super::seabios::{AllocZone, TableLoaderBuilder, TableLoaderCommand};
+use super::{calc_checksum, verify_checksum};
 use crate::error::{Error, Result};
+use crate::virtdev::qemu_fw_cfg::QemuFwCfgBuilder;
 use byteorder::{ByteOrder, NativeEndian};
 use core::fmt;
 use core::ops::Range;
 use core::slice;
 use core::str;
+
+use arrayvec::{Array, ArrayVec};
+use managed::ManagedMap;
 
 /// Offsets from `ACPI § 5.2.6`
 mod offsets {
@@ -227,5 +233,172 @@ impl<'a> Iterator for RSDTIterator<'a> {
                 }
             }
         }
+    }
+}
+
+fn write_sdt_header(
+    signature: &[u8],
+    revision: u8,
+    creator_revision: u32,
+    sdt_len: usize,
+    buffer: &mut [u8],
+) -> Result<()> {
+    // The SDT length value is the value of the entire SDT including
+    // the header.
+    if buffer.len() < sdt_len {
+        return Err(Error::InvalidValue(format!(
+            "Buffer length should be at least `{}` but was `{}`",
+            sdt_len,
+            buffer.len()
+        )));
+    }
+    // Fill in the SDT header with the implementations values
+    buffer[offsets::SIGNATURE].copy_from_slice(signature);
+    NativeEndian::write_u32(&mut buffer[offsets::LENGTH], sdt_len as u32);
+    buffer[offsets::REVISION] = revision;
+    NativeEndian::write_u32(
+        &mut buffer[offsets::CREATOR_REVISION],
+        creator_revision,
+    );
+
+    // After the SDT header and body have been populated calculate the
+    // table checksum.
+    buffer[offsets::CHECKSUM] = calc_checksum(&buffer);
+    Ok(())
+}
+
+/// Builder trait for System Descriptor Tables
+pub trait SDTBuilder {
+    /// The identifying signature for this table type.
+    const SIGNATURE: [u8; 4];
+
+    /// The revision of the table
+    fn revision(&self) -> u8 {
+        0
+    }
+
+    /// The revision of the table
+    fn creator_revision(&self) -> u32 {
+        0
+    }
+
+    // TODO(dlrobertson): Can we rely on encoding the SDT table
+    // without access to the guest address space? Do we need to
+    // know the address of anything we place in the guest?
+
+    /// Attempt to encode the SDT table
+    fn encode_table<T: Array<Item = u8>>(
+        &mut self,
+        buffer: &mut ArrayVec<T>,
+    ) -> Result<()>;
+
+    /// Encode the entire SDT including the header and body based on the
+    /// implemented methods.
+    fn encode_sdt<T: Array<Item = u8>>(
+        &mut self,
+        buffer: &mut ArrayVec<T>,
+    ) -> Result<usize> {
+        let header = [0x00; offsets::CREATOR_REVISION.end];
+        buffer.try_extend_from_slice(&header[..])?;
+        self.encode_table(buffer)?;
+        write_sdt_header(
+            &Self::SIGNATURE,
+            self.revision(),
+            self.creator_revision(),
+            buffer.len(),
+            buffer,
+        )?;
+        Ok(buffer.len())
+    }
+}
+
+/// Builder structure for the RSDT
+pub(super) struct RSDTBuilder<'a, T: Array<Item = u8>> {
+    map: ManagedMap<'a, [u8; 4], (ArrayVec<T>, usize)>,
+}
+
+impl<'a, T: Array<Item = u8>> RSDTBuilder<'a, T> {
+    /// Create a new XSDT Builder.
+    pub(super) fn new(
+        map: ManagedMap<'a, [u8; 4], (ArrayVec<T>, usize)>,
+    ) -> RSDTBuilder<T> {
+        RSDTBuilder { map }
+    }
+
+    /// Add the given System Descriptor Table to the RSDT.
+    pub(super) fn add_sdt<U: SDTBuilder>(
+        &mut self,
+        mut builder: U,
+    ) -> Result<()> {
+        let mut buffer = ArrayVec::<T>::new();
+        let size = builder.encode_sdt(&mut buffer)?;
+        if self.map.get(&U::SIGNATURE) == None {
+            if self.map.insert(U::SIGNATURE, (buffer, size)).is_err() {
+                Err(Error::Exhausted)
+            } else {
+                Ok(())
+            }
+        } else {
+            Err(Error::InvalidValue(format!(
+                "The key `{}` already exists",
+                str::from_utf8(&U::SIGNATURE).unwrap()
+            )))
+        }
+    }
+
+    /// Create the encoded ACPI table.
+    pub fn build<U: Array<Item = u8>>(
+        &self,
+        fw_cfg_builder: &mut QemuFwCfgBuilder,
+        table_loader: &mut TableLoaderBuilder<U>,
+    ) -> Result<()> {
+        let mut xsdt = [0x00u8; 4096];
+        let xsdt_table_length = self.map.iter().count() * 8;
+        let xsdt_length = xsdt_table_length + offsets::CREATOR_REVISION.end;
+        write_sdt_header(b"XSDT", 0, 0, xsdt_length, &mut xsdt[..])?;
+
+        fw_cfg_builder.add_file("etc/mythril/xsdt", &xsdt[..xsdt_length])?;
+
+        table_loader.add_command(TableLoaderCommand::Allocate {
+            file: "etc/mythril/xsdt",
+            align: 8,
+            zone: AllocZone::Fseg,
+        })?;
+
+        table_loader.add_command(TableLoaderCommand::AddPointer {
+            src: "etc/mythril/xsdt",
+            dst: "etc/mythril/rsdp",
+            offset: rsdp_offsets::XSDT_ADDR.start as u32,
+            size: 8,
+        })?;
+
+        for (i, (name, (sdt, size))) in self.map.iter().enumerate() {
+            let table_name = format!("etc/mythril/{}", str::from_utf8(name)?);
+
+            table_loader.add_command(TableLoaderCommand::Allocate {
+                file: &table_name,
+                align: 8,
+                zone: AllocZone::Fseg,
+            })?;
+
+            table_loader.add_command(TableLoaderCommand::AddPointer {
+                src: &table_name,
+                dst: "etc/mythril/xsdt",
+                offset: ((i * 8) + offsets::CREATOR_REVISION.end) as u32,
+                size: 8,
+            })?;
+
+            fw_cfg_builder.add_file(table_name, &sdt[..*size])?;
+        }
+
+        // Update the XSDT checksum after populating the pointer table.
+        table_loader.add_command(TableLoaderCommand::AddChecksum {
+            file: "etc/mythril/xsdt",
+            offset: offsets::CHECKSUM as u32,
+            start: offsets::CREATOR_REVISION.end as u32,
+            length: xsdt_table_length as u32,
+        })?;
+
+        Ok(())
     }
 }

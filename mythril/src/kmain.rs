@@ -16,9 +16,11 @@ use crate::vcpu;
 use crate::virtdev;
 use crate::vm;
 
+use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use log::{debug, info};
+use managed::ManagedMap;
 use spin::RwLock;
 
 extern "C" {
@@ -53,9 +55,31 @@ fn default_vm(
     let mut config =
         vm::VirtualMachineConfig::new(vec![core], mem, physical_config);
 
+    let mut acpi = acpi::rsdp::RSDPBuilder::<[_; 1024]>::new(
+        ManagedMap::Owned(BTreeMap::new()),
+    );
+
+    let mut madt = acpi::madt::MADTBuilder::<[_; 8]>::new();
+    madt.set_ica(0xfee00000);
+    madt.add_ics(acpi::madt::Ics::LocalApic {
+        apic_id: 0,
+        apic_uid: 0,
+        flags: acpi::madt::LocalApicFlags::ENABLED,
+    })
+    .expect("Failed to add APIC to MADT");
+    madt.add_ics(acpi::madt::Ics::IoApic {
+        ioapic_id: 0,
+        ioapic_addr: 0xfec00000 as *mut u8,
+        gsi_base: 0,
+    })
+    .expect("Failed to add I/O APIC to MADT");
+
+    acpi.add_sdt(madt).unwrap();
+
     let device_map = config.virtual_devices_mut();
+
     device_map
-        .register_device(virtdev::acpi::AcpiRuntime::new(0xb000).unwrap())
+        .register_device(virtdev::acpi::AcpiRuntime::new(0x600).unwrap())
         .unwrap();
     device_map
         .register_device(virtdev::debug::DebugPort::new(0x402))
@@ -113,11 +137,14 @@ fn default_vm(
         )
         .unwrap();
 
+    acpi.build(&mut fw_cfg_builder)
+        .expect("Failed to build ACPI tables");
+
     linux::load_linux(
         "kernel",
         "initramfs",
         core::concat!(
-            "rodata=0 nopti disableapic acpi=off ",
+            "rodata=0 nopti disableapic ",
             "earlyprintk=serial,0x3f8,115200 ",
             "console=ttyS0 debug nokaslr noapic mitigations=off ",
             "root=/dev/ram0 rdinit=/bin/sh\0"
@@ -128,6 +155,7 @@ fn default_vm(
         info,
     )
     .unwrap();
+
     device_map.register_device(fw_cfg_builder.build()).unwrap();
 
     vm::VirtualMachine::new(core.raw, config, info)

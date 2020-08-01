@@ -1,10 +1,16 @@
 use super::rsdt::RSDT;
-use super::verify_checksum;
+use super::rsdt::{RSDTBuilder, SDTBuilder};
+use super::seabios::{AllocZone, TableLoaderBuilder, TableLoaderCommand};
+use super::{calc_checksum, verify_checksum};
 use crate::error::{Error, Result};
+use crate::virtdev::qemu_fw_cfg::QemuFwCfgBuilder;
 use byteorder::{ByteOrder, NativeEndian};
 use core::fmt;
 use core::ops::Range;
 use core::slice;
+
+use arrayvec::{Array, ArrayVec};
+use managed::ManagedMap;
 
 /// Extented BIOS Data Area Start Address
 const EXTENDED_BIOS_DATA_START: usize = 0x000040e;
@@ -15,10 +21,10 @@ const MAIN_BIOS_DATA_START: usize = 0x000e0000;
 /// Main BIOS Data Area End Address
 const MAIN_BIOS_DATA_SIZE: usize = 0x20000;
 /// Well Known RSDP Signature
-const RSDP_SIGNATURE: &[u8; 8] = b"RSD PTR ";
+pub const RSDP_SIGNATURE: &[u8; 8] = b"RSD PTR ";
 
 /// Offsets from `ACPI § 5.2.5.3`
-mod offsets {
+pub mod offsets {
     use super::*;
     /// Well known bytes, "RST PTR ".
     pub const SIGNATURE: Range<usize> = 0..8;
@@ -30,6 +36,8 @@ mod offsets {
     pub const REVISION: usize = 15;
     /// 32-bit physical address of the RSDT.
     pub const RSDT_ADDR: Range<usize> = 16..20;
+    /// 32-bit length of the entire table.
+    pub const LENGTH: Range<usize> = 20..24;
     /// 64-bit physical address of the XSDT (ACPI 2.0 only).
     pub const XSDT_ADDR: Range<usize> = 24..32;
     /// Checksum of entire structure (ACPI 2.0 only).
@@ -42,6 +50,16 @@ mod offsets {
 const RSDP_V1_SIZE: usize = offsets::RSDT_ADDR.end;
 /// Structure size of the RSDP for revision two.
 const RSDP_V2_SIZE: usize = offsets::RESERVED.end;
+
+/// The revision values for the RSDP.
+#[repr(u8)]
+#[derive(Clone, Copy)]
+pub enum RSDPRevision {
+    /// ACPI 1.0 Root System Descriptor Pointer Revision
+    V1 = 0x00,
+    /// ACPI 2.0 Root System Descriptor Pointer Revision
+    V2 = 0x02,
+}
 
 /// Root System Descriptor Pointer (RSDP).
 ///
@@ -198,5 +216,80 @@ impl RSDP {
             &RSDP::V1 { rsdt_addr, .. } => RSDT::new_rsdt(rsdt_addr as usize),
             &RSDP::V2 { xsdt_addr, .. } => RSDT::new_xsdt(xsdt_addr as usize),
         }
+    }
+}
+
+/// Builder structure for the RSDP
+pub struct RSDPBuilder<'a, T: Array<Item = u8>> {
+    builder: RSDTBuilder<'a, T>,
+}
+
+impl<'a, T: Array<Item = u8>> RSDPBuilder<'a, T> {
+    /// Create a new RSDP Builder.
+    pub fn new(
+        map: ManagedMap<'a, [u8; 4], (ArrayVec<T>, usize)>,
+    ) -> RSDPBuilder<T> {
+        RSDPBuilder {
+            builder: RSDTBuilder::new(map),
+        }
+    }
+
+    /// Add the given System Descriptor Table to the RSDT.
+    pub fn add_sdt(&mut self, builder: impl SDTBuilder) -> Result<()> {
+        self.builder.add_sdt(builder)
+    }
+
+    /// Create the encoded ACPI table.
+    pub fn build(&self, fw_cfg_builder: &mut QemuFwCfgBuilder) -> Result<()> {
+        let mut buffer = [0x00; offsets::RESERVED.end];
+
+        // Populate the signature and revision.
+        buffer[offsets::SIGNATURE].copy_from_slice(RSDP_SIGNATURE);
+        buffer[offsets::REVISION] = RSDPRevision::V2 as u8;
+
+        NativeEndian::write_u32(
+            &mut buffer[offsets::LENGTH],
+            offsets::RESERVED.end as u32,
+        );
+
+        // TODO(dlrobertson): Should we support the ACPI 1.0 RSDT in addition
+        // to the XSDT?
+        NativeEndian::write_u64(
+            &mut buffer[offsets::XSDT_ADDR],
+            0x00000000_00000000,
+        );
+
+        // Using the RSDT address from an XSDT is invalid according to the spec
+        NativeEndian::write_u32(&mut buffer[offsets::RSDT_ADDR], 0x00000000);
+
+        // We create a valid 36 byte RSDP regardless of the revision
+        buffer[offsets::CHECKSUM] =
+            calc_checksum(&buffer[..offsets::RSDT_ADDR.end]);
+        buffer[offsets::EXT_CHECKSUM] =
+            calc_checksum(&buffer[..offsets::RESERVED.end]);
+
+        fw_cfg_builder.add_file("etc/mythril/rsdp", &buffer)?;
+
+        // This should be enough for 16 table loader commands.
+        let mut table_loader = TableLoaderBuilder::<[_; 2048]>::new()?;
+
+        table_loader.add_command(TableLoaderCommand::Allocate {
+            file: "etc/mythril/rsdp",
+            align: 0x10,
+            zone: AllocZone::Fseg,
+        })?;
+
+        self.builder.build(fw_cfg_builder, &mut table_loader)?;
+
+        // No nedd to update the ACPI 1.0 checksum, but we do need to update
+        // the ACPI 2.0 checksup after populating the XSDT address.
+        table_loader.add_command(TableLoaderCommand::AddChecksum {
+            file: "etc/mythril/rsdp",
+            offset: offsets::EXT_CHECKSUM as u32,
+            start: offsets::XSDT_ADDR.start as u32,
+            length: 8,
+        })?;
+
+        table_loader.load(fw_cfg_builder)
     }
 }
