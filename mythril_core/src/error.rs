@@ -1,6 +1,4 @@
-use crate::logger;
 use crate::vmcs;
-
 use alloc::string::String;
 use core::convert::TryFrom;
 use num_enum::{TryFromPrimitive, TryFromPrimitiveError};
@@ -98,23 +96,18 @@ pub type Result<T> = core::result::Result<T, Error>;
 #[cfg(not(test))]
 fn eh_personality() {}
 
-//FIXME: this should not call format, as that requires allocation
 #[panic_handler]
 #[cfg(not(test))]
 fn panic_handler(info: &core::panic::PanicInfo) -> ! {
     if let Some(location) = info.location() {
-        let location = format!(
-            "\nERROR: Panic in {} at ({}, {}):\n",
+        error!(
+            "Panic in {} at ({}, {}):",
             location.file(),
             location.line(),
             location.column()
         );
-        unsafe { logger::raw_write_console(location) }
         if let Some(message) = info.message() {
-            let message = format!("ERROR: {}\n", message);
-            unsafe {
-                logger::raw_write_console(message);
-            }
+            error!("{}", message);
         }
     }
 
