@@ -10,6 +10,11 @@ extern crate alloc;
 #[macro_use]
 extern crate log;
 
+// Needed as 'the build-std feature currently provides no
+// way to enable the mem feature of compiler_builtins. You
+// need to add a dependency on the rlibc crate.'
+extern crate rlibc;
+
 mod allocator;
 mod services;
 

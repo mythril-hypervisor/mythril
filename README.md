@@ -13,7 +13,8 @@ make docker-all
 ```
 
 This will create the multiboot2 application in `target/multiboot2_target/release/mythril_multiboot2`.
-Similarly, unittests can be executed like:
+It will also compile the patched versions for seabios and the linux kernel that
+are currently required to use `mythril`. Unittests can be executed like:
 
 ```
 make docker-test
@@ -21,9 +22,9 @@ make docker-test
 
 ## Running the Hypervisor
 
-After building the multiboot2 application as described above, a linux kernel and initramfs
-must be added to the `scripts/` directory. The kernel must be named `vmlinuz` and the
-initramfs must be named `initramfs`. Once in place, the hypervisor can be executed with:
+After running the build steps as described above, an initramfs must be added to the
+`scripts/` directory with the name `initramfs`. Once in place, the hypervisor
+can be executed with:
 
 ```
 make qemu

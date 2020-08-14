@@ -1,10 +1,10 @@
 CARGO?=cargo
 MULTIBOOT2_TARGET?=multiboot2_target
 BUILD_TYPE?=release
-DOCKER_IMAGE=adamschwalm/hypervisor-build:9
+DOCKER_IMAGE=adamschwalm/hypervisor-build:10
 
 multiboot2_binary = target/$(MULTIBOOT2_TARGET)/$(BUILD_TYPE)/mythril_multiboot2
-mythril_src = $(shell find . -type f -name '*.rs' -or -name '*.S' -or -name '*.ld' \
+mythril_src = $(shell find mythril_* -type f -name '*.rs' -or -name '*.S' -or -name '*.ld' \
 	                   -name 'Cargo.toml')
 kernel = linux/arch/x86_64/boot/bzImage
 seabios = seabios/out/bios.bin
@@ -53,7 +53,7 @@ qemu-debug: multiboot2-debug $(seabios) $(kernel)
 	    -gdb tcp::1234 -S $(QEMU_EXTRA)
 
 $(multiboot2_binary): $(mythril_src)
-	$(CARGO) xbuild $(CARGO_FLAGS) \
+	$(CARGO) build $(CARGO_FLAGS) -Z build-std=core,alloc \
 	    --target mythril_multiboot2/$(MULTIBOOT2_TARGET).json \
 	    --manifest-path mythril_multiboot2/Cargo.toml
 
