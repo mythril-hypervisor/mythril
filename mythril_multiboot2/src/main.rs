@@ -113,8 +113,13 @@ fn default_vm(
     linux::load_linux(
         "kernel",
         "initramfs",
-        "rodata=0 nopti disableapic acpi=off earlyprintk=serial,0x3f8,115200 console=ttyS0 debug nokaslr noapic mitigations=off root=/dev/ram0 rdinit=/init\0"
-            .as_bytes(),
+        core::concat!(
+            "rodata=0 nopti disableapic acpi=off ",
+            "earlyprintk=serial,0x3f8,115200 ",
+            "console=ttyS0 debug nokaslr noapic mitigations=off ",
+            "root=/dev/ram0 rdinit=/init\0"
+        )
+        .as_bytes(),
         mem,
         &mut fw_cfg_builder,
         services,
