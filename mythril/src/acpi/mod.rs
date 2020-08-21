@@ -14,6 +14,8 @@ use core::convert::TryFrom;
 use num_enum::TryFromPrimitive;
 use raw_cpuid::CpuId;
 
+/// Support for the Fixed ACPI Descriptor Table (FADT).
+pub mod fadt;
 /// Support for the High Precision Event Timer (HPET)
 pub mod hpet;
 /// Support for the Multiple APIC Descriptor Table (MADT).
@@ -57,7 +59,7 @@ pub const GAS_SIZE: usize = 12;
 /// Generic Address Structure (GAS) used by ACPI for position of registers.
 ///
 /// See Table 5-25 in ACPI specification.
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct GenericAddressStructure {
     /// The address space where the associated address exists.
     pub address_space: AddressSpaceID,
