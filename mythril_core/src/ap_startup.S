@@ -106,7 +106,7 @@ ap_startup_64:
     ; Jump to rust code
     jmp ap_entry
 
-
+ALIGN 16
 global AP_STACK_ADDR
 AP_STACK_ADDR:
     dq 0
