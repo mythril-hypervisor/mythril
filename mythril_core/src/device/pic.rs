@@ -54,7 +54,6 @@ impl EmulatedDevice for Pic8259 {
             Self::PIC_MASTER_DATA => self.master_state.imr,
             Self::PIC_SLAVE_DATA => self.master_state.imr,
             _ => {
-                info!("Read of PIC command port not yet supported");
                 return Ok(());
             }
         };
@@ -70,19 +69,12 @@ impl EmulatedDevice for Pic8259 {
     ) -> Result<()> {
         match port {
             Self::PIC_MASTER_DATA => {
-                info!("Set master PIC data: {}", val);
                 self.master_state.imr = val.try_into()?;
             }
             Self::PIC_SLAVE_DATA => {
-                info!("Set slave PIC data: {}", val);
                 self.master_state.imr = val.try_into()?;
             }
-            port => {
-                info!(
-                    "Write to PIC command port not yet supported (port 0x{:x} = {})",
-                    port, val
-                );
-            }
+            _ => (),
         }
         Ok(())
     }

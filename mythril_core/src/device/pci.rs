@@ -152,6 +152,7 @@ pub struct PciRootComplex {
 
 impl PciRootComplex {
     const PCI_CONFIG_ADDRESS: Port = 0xcf8;
+    const PCI_CONFIG_TYPE: Port = 0xcfb;
     const PCI_CONFIG_DATA: Port = 0xcfc;
     const PCI_CONFIG_DATA_MAX: Port = Self::PCI_CONFIG_DATA + 3;
 
@@ -198,6 +199,7 @@ impl EmulatedDevice for PciRootComplex {
             DeviceRegion::PortIo(
                 Self::PCI_CONFIG_DATA..=Self::PCI_CONFIG_DATA_MAX,
             ),
+            DeviceRegion::PortIo(Self::PCI_CONFIG_TYPE..=Self::PCI_CONFIG_TYPE),
         ]
     }
     fn on_port_read(

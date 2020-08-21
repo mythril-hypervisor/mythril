@@ -14,8 +14,8 @@ mkdir -p _isofiles/boot/grub
 
 cp scripts/grub.cfg _isofiles/boot/grub/
 cp seabios/out/bios.bin _isofiles/boot/seabios.bin
+cp linux/arch/x86_64/boot/bzImage _isofiles/boot/vmlinuz
 cp scripts/linuxboot_dma.bin _isofiles/boot/linuxboot_dma.bin
-cp scripts/vmlinuz _isofiles/boot/vmlinuz
 cp scripts/initramfs _isofiles/boot/initramfs
 cp "$1" _isofiles/boot/mythril.bin
 
@@ -25,7 +25,8 @@ grub-mkrescue -d /usr/lib/grub/i386-pc -o os.iso _isofiles
 qemu-system-x86_64 -enable-kvm \
                    -cpu host \
                    -smp cores=2,threads=1,sockets=1 \
-                   -nographic \
+                   -serial stdio \
+                   -display none \
                    -cdrom os.iso \
                    -net none \
                    -debugcon file:debug.log \

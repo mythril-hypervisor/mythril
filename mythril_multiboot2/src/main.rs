@@ -10,13 +10,17 @@ extern crate alloc;
 #[macro_use]
 extern crate log;
 
+// Needed as 'the build-std feature currently provides no
+// way to enable the mem feature of compiler_builtins. You
+// need to add a dependency on the rlibc crate.'
+extern crate rlibc;
+
 mod allocator;
 mod services;
 
 use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-use core::convert::TryFrom;
 use mythril_core::vm::VmServices;
 use mythril_core::*;
 use spin::RwLock;
@@ -24,6 +28,7 @@ use spin::RwLock;
 extern "C" {
     static AP_STARTUP_ADDR: u16;
     static mut AP_STACK_ADDR: u64;
+    static mut AP_IDX: u64;
     static mut AP_READY: u8;
 }
 
@@ -113,8 +118,13 @@ fn default_vm(
     linux::load_linux(
         "kernel",
         "initramfs",
-        "earlyprintk=serial,0x3f8,115200 console=ttyS0 debug nokaslr noapic mitigations=off\0"
-            .as_bytes(),
+        core::concat!(
+            "rodata=0 nopti disableapic acpi=off ",
+            "earlyprintk=serial,0x3f8,115200 ",
+            "console=ttyS0 debug nokaslr noapic mitigations=off ",
+            "root=/dev/ram0 rdinit=/init\0"
+        )
+        .as_bytes(),
         mem,
         &mut fw_cfg_builder,
         services,
@@ -193,28 +203,28 @@ fn global_alloc_region(info: &multiboot2::BootInformation) -> (u64, u64) {
 }
 
 #[no_mangle]
-pub extern "C" fn ap_entry() -> ! {
+pub extern "C" fn ap_entry(_ap_data: &ap::ApData) -> ! {
     unsafe { interrupt::idt::ap_init() };
 
     let local_apic =
         apic::LocalApic::init().expect("Failed to initialize local APIC");
 
     info!(
-        "X2APIC:\tid={}\tbase=0x{:x}\tversion=0x{:x}",
+        "X2APIC:\tid={}\tbase=0x{:x}\tversion=0x{:x})",
         local_apic.id(),
         local_apic.raw_base(),
         local_apic.version()
     );
 
-    vcpu::mp_entry_point(local_apic.id())
+    vcpu::mp_entry_point()
 }
 
 static LOGGER: logger::DirectLogger = logger::DirectLogger::new();
 
 #[no_mangle]
-pub extern "C" fn kmain(multiboot_info_addr: usize) -> ! {
+pub unsafe extern "C" fn kmain(multiboot_info_addr: usize) -> ! {
     // Setup the actual interrupt handlers
-    unsafe { interrupt::idt::init() };
+    interrupt::idt::init();
 
     // Setup our (com0) logger
     log::set_logger(&LOGGER)
@@ -222,11 +232,9 @@ pub extern "C" fn kmain(multiboot_info_addr: usize) -> ! {
         .expect("Failed to set logger");
 
     // Calibrate the global time source
-    unsafe {
-        time::init_global_time().expect("Failed to init global timesource")
-    }
+    time::init_global_time().expect("Failed to init global timesource");
 
-    let multiboot_info = unsafe { multiboot2::load(multiboot_info_addr) };
+    let multiboot_info = multiboot2::load(multiboot_info_addr);
 
     let alloc_region = global_alloc_region(&multiboot_info);
 
@@ -235,9 +243,7 @@ pub extern "C" fn kmain(multiboot_info_addr: usize) -> ! {
         alloc_region.0, alloc_region.1
     );
 
-    unsafe {
-        allocator::Allocator::allocate_from(alloc_region.0, alloc_region.1)
-    }
+    allocator::Allocator::allocate_from(alloc_region.0, alloc_region.1);
 
     let mut multiboot_services =
         services::Multiboot2Services::new(multiboot_info);
@@ -246,95 +252,71 @@ pub extern "C" fn kmain(multiboot_info_addr: usize) -> ! {
     let rsdp = multiboot_services.rsdp().unwrap_or_else(|_| {
         acpi::rsdp::RSDP::find().expect("Failed to find the RSDP")
     });
-    info!("{:?}", rsdp);
 
     let rsdt = match rsdp.rsdt() {
         Ok(rsdt) => rsdt,
         Err(e) => panic!("Failed to create the RSDT: {:?}", e),
     };
-    info!("{:?}", rsdt);
 
-    for entry in rsdt.entries() {
-        match entry {
-            Ok(sdt) => info!("{:?}", sdt),
-            Err(e) => info!("Malformed SDT: {:?}", e),
-        }
-    }
-
+    // Initialize the BSP local APIC
     let local_apic =
         apic::LocalApic::init().expect("Failed to initialize local APIC");
 
     let madt_sdt = rsdt.find_entry(b"APIC").expect("No MADT found");
     let madt = acpi::madt::MADT::new(&madt_sdt);
 
-    let hpet_sdt = rsdt.find_entry(b"HPET").expect("No HPET found");
-    let hpet = acpi::hpet::HPET::new(&hpet_sdt)
-        .unwrap_or_else(|e| panic!("Failed to create the HPET: {:?}", e));
-
-    info!("{:?}", hpet);
-
     let apic_ids = madt
         .structures()
         .filter_map(|ics| match ics {
             // TODO(dlrobertson): Check the flags to ensure we can acutally
             // use this APIC.
-            Ok(acpi::madt::Ics::LocalApic { apic_id, .. })
-                if apic_id != local_apic.id() as u8 =>
-            {
+            Ok(acpi::madt::Ics::LocalApic { apic_id, .. }) => {
                 Some(apic_id as u32)
             }
             _ => None,
         })
         .collect::<Vec<_>>();
 
-    let ioapics = madt
-        .structures()
-        .filter_map(|ics| {
-            ics.map_or(None, |val| ioapic::IoApic::try_from(val).ok())
-        })
-        .collect::<Vec<_>>();
-
-    for ioapic in ioapics {
-        info!("{:?}", ioapic);
-    }
+    percore::init_sections(apic_ids.len())
+        .expect("Failed to initialize per-core sections");
 
     let mut map = BTreeMap::new();
-    map.insert(local_apic.id(), default_vm(0, 256, &mut multiboot_services));
     for apic_id in apic_ids.iter() {
         map.insert(
             *apic_id as usize,
             default_vm(*apic_id as usize, 256, &mut multiboot_services),
         );
     }
-    unsafe {
-        vm::VM_MAP = Some(map);
-    }
 
-    debug!("AP_STARTUP address: 0x{:x}", unsafe { AP_STARTUP_ADDR });
+    vm::VM_MAP = Some(map);
 
-    for ap_apic_id in apic_ids.into_iter() {
-        unsafe {
-            // Allocate a stack for the AP
-            let stack = vec![0u8; 100 * 1024];
+    debug!("AP_STARTUP address: 0x{:x}", AP_STARTUP_ADDR);
 
-            // Get the the bottom of the stack and align
-            let stack_bottom = (stack.as_ptr() as u64 + stack.len() as u64)
-                & 0xFFFFFFFFFFFFFFF0;
-
-            core::mem::forget(stack);
-
-            core::ptr::write_volatile(
-                &mut AP_STACK_ADDR as *mut u64,
-                stack_bottom,
-            );
+    for (idx, apic_id) in apic_ids.into_iter().enumerate() {
+        if apic_id == local_apic.id() as u32 {
+            continue;
         }
+
+        // Allocate a stack for the AP
+        let stack = vec![0u8; 100 * 1024];
+
+        // Get the the bottom of the stack and align
+        let stack_bottom =
+            (stack.as_ptr() as u64 + stack.len() as u64) & 0xFFFFFFFFFFFFFFF0;
+
+        core::mem::forget(stack);
+
+        core::ptr::write_volatile(&mut AP_STACK_ADDR as *mut u64, stack_bottom);
+
+        // Map the APIC ids to a sequential list and pass it to the AP
+        core::ptr::write_volatile(&mut AP_IDX as *mut u64, idx as u64);
 
         // mfence to ensure that the APs see the new stack address
         core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
 
-        debug!("Send INIT to AP id={}", ap_apic_id);
+        debug!("Send INIT to AP id={}", apic_id);
         local_apic.send_ipi(
-            ap_apic_id,
+            apic_id,
             apic::DstShorthand::NoShorthand,
             apic::TriggerMode::Edge,
             apic::Level::Assert,
@@ -343,26 +325,23 @@ pub extern "C" fn kmain(multiboot_info_addr: usize) -> ! {
             0,
         );
 
-        debug!("Send SIPI to AP id={}", ap_apic_id);
+        debug!("Send SIPI to AP id={}", apic_id);
         local_apic.send_ipi(
-            ap_apic_id,
+            apic_id,
             apic::DstShorthand::NoShorthand,
             apic::TriggerMode::Edge,
             apic::Level::Assert,
             apic::DstMode::Physical,
             apic::DeliveryMode::StartUp,
-            unsafe { (AP_STARTUP_ADDR >> 12) as u8 },
+            (AP_STARTUP_ADDR >> 12) as u8,
         );
 
         // Wait until the AP reports that it is done with startup
-        while unsafe { core::ptr::read_volatile(&AP_READY as *const u8) != 1 } {
-        }
+        while core::ptr::read_volatile(&AP_READY as *const u8) != 1 {}
 
         // Once the AP is done, clear the ready flag
-        unsafe {
-            core::ptr::write_volatile(&mut AP_READY as *mut u8, 0);
-        }
+        core::ptr::write_volatile(&mut AP_READY as *mut u8, 0);
     }
 
-    vcpu::mp_entry_point(local_apic.id())
+    vcpu::mp_entry_point()
 }

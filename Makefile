@@ -1,11 +1,12 @@
 CARGO?=cargo
 MULTIBOOT2_TARGET?=multiboot2_target
 BUILD_TYPE?=release
-DOCKER_IMAGE=adamschwalm/hypervisor-build:9
+DOCKER_IMAGE=adamschwalm/hypervisor-build:10
 
 multiboot2_binary = target/$(MULTIBOOT2_TARGET)/$(BUILD_TYPE)/mythril_multiboot2
-mythril_src = $(shell find . -type f -name '*.rs' -or -name '*.S' -or -name '*.ld' \
+mythril_src = $(shell find mythril_* -type f -name '*.rs' -or -name '*.S' -or -name '*.ld' \
 	                   -name 'Cargo.toml')
+kernel = linux/arch/x86_64/boot/bzImage
 seabios = seabios/out/bios.bin
 git_hooks_src = $(wildcard .mythril_githooks/*)
 git_hooks = $(subst .mythril_githooks,.git/hooks,$(git_hooks_src))
@@ -20,7 +21,7 @@ ifeq ($(BUILD_TYPE), release)
 endif
 
 .PHONY: all
-all: multiboot2 $(seabios)
+all: multiboot2 $(seabios) $(kernel)
 
 .PHONY: multiboot2
 multiboot2: $(multiboot2_binary)
@@ -38,17 +39,21 @@ $(seabios):
 	cp scripts/seabios.config seabios/.config
 	make -C seabios
 
+$(kernel):
+	cp scripts/kernel.config linux/.config
+	make -C linux bzImage
+
 .PHONY: qemu
-qemu: multiboot2 $(seabios)
+qemu: multiboot2 $(seabios) $(kernel)
 	./scripts/mythril-run.sh $(multiboot2_binary) $(QEMU_EXTRA)
 
 .PHONY: qemu-debug
-qemu-debug: multiboot2-debug $(seabios)
-	./scripts/mythril-run.sh $(multiboot2_debug_binary) \
+qemu-debug: multiboot2-debug $(seabios) $(kernel)
+	./scripts/mythril-run.sh $(multiboot2_binary) \
 	    -gdb tcp::1234 -S $(QEMU_EXTRA)
 
 $(multiboot2_binary): $(mythril_src)
-	$(CARGO) xbuild $(CARGO_FLAGS) \
+	$(CARGO) build $(CARGO_FLAGS) -Z build-std=core,alloc \
 	    --target mythril_multiboot2/$(MULTIBOOT2_TARGET).json \
 	    --manifest-path mythril_multiboot2/Cargo.toml
 
@@ -69,6 +74,7 @@ test: test_core
 clean:
 	$(CARGO) clean
 	make -C seabios clean
+	make -C linux clean
 
 .PHONY: dev-init
 dev-init: install-git-hooks
