@@ -13,7 +13,7 @@ use bitflags::bitflags;
 use core::convert::TryInto;
 
 // This is _almost_ an enum, but there are 'file' selectors
-// between 0x20 and 0x7fff that make it impractical to actually
+// between 0x20 and 0x7fff inclusive that make it impractical to actually
 // enumerate the selectors.
 #[allow(non_snake_case)]
 pub mod FwCfgSelector {
@@ -174,12 +174,14 @@ impl QemuFwCfgBuilder {
     }
 
     fn next_file_selector(&self) -> u16 {
-        //TODO: this should only consider keys below 0x8000
         self.data
             .keys()
             .copied()
+            .filter(|&s| {
+                s >= FwCfgSelector::FILE_FIRST && s <= FwCfgSelector::FILE_LAST
+            })
             .max()
-            .unwrap_or(FwCfgSelector::FILE_FIRST)
+            .unwrap_or(FwCfgSelector::FILE_FIRST - 1)
             + 1
     }
 
@@ -394,5 +396,27 @@ impl EmulatedDevice for QemuFwCfg {
             _ => unreachable!(),
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_next_file_selector_first() {
+        let builder = QemuFwCfgBuilder::new();
+        let selector = builder.next_file_selector();
+        assert!(selector >= FwCfgSelector::FILE_FIRST);
+        assert!(selector <= FwCfgSelector::FILE_LAST);
+    }
+
+    #[test]
+    fn test_next_file_selector_last() {
+        let mut builder = QemuFwCfgBuilder::new();
+        builder.add_i32(FwCfgSelector::FILE_LAST + 1, 0x0);
+        let selector = builder.next_file_selector();
+        assert!(selector >= FwCfgSelector::FILE_FIRST);
+        assert!(selector <= FwCfgSelector::FILE_LAST);
     }
 }
