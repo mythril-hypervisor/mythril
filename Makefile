@@ -1,10 +1,9 @@
 CARGO?=cargo
-MULTIBOOT2_TARGET?=multiboot2_target
 BUILD_TYPE?=release
-DOCKER_IMAGE=adamschwalm/hypervisor-build:10
+DOCKER_IMAGE=adamschwalm/hypervisor-build:12
 
-multiboot2_binary = target/$(MULTIBOOT2_TARGET)/$(BUILD_TYPE)/mythril_multiboot2
-mythril_src = $(shell find mythril_* -type f -name '*.rs' -or -name '*.S' -or -name '*.ld' \
+mythril_binary = mythril/target/mythril_target/$(BUILD_TYPE)/mythril
+mythril_src = $(shell find mythril* -type f -name '*.rs' -or -name '*.S' -or -name '*.ld' \
 	                   -name 'Cargo.toml')
 kernel = linux/arch/x86_64/boot/bzImage
 seabios = seabios/out/bios.bin
@@ -16,22 +15,24 @@ ifneq (,$(filter qemu%, $(firstword $(MAKECMDGOALS))))
     $(eval $(QEMU_EXTRA):;@:)
 endif
 
+CARGO_MANIFEST?=--manifest-path mythril/Cargo.toml
+
 ifeq ($(BUILD_TYPE), release)
-    CARGO_FLAGS := --release
+    CARGO_BUILD_FLAGS := --release
 endif
 
 .PHONY: all
-all: multiboot2 $(seabios) $(kernel)
+all: mythril $(seabios) $(kernel)
 
-.PHONY: multiboot2
-multiboot2: $(multiboot2_binary)
+.PHONY: mythril
+mythril: $(mythril_binary)
 
-.PHONY: multiboot2-debug
-multiboot2-debug: BUILD_TYPE=debug
-multiboot2-debug: $(multiboot2_binary)
+.PHONY: mythril-debug
+mythril-debug: BUILD_TYPE=debug
+mythril-debug: $(mythril_binary)
 
 docker-%:
-	docker run --rm -w $(CURDIR) -v $(CURDIR):$(CURDIR) \
+	docker run --privileged -it --rm -w $(CURDIR) -v $(CURDIR):$(CURDIR) \
 	   -u $(shell id -u):$(shell id -g) $(DOCKER_IMAGE) \
 	   /bin/bash -c '$(MAKE) $*'
 
@@ -44,35 +45,38 @@ $(kernel):
 	make -C linux bzImage
 
 .PHONY: qemu
-qemu: multiboot2 $(seabios) $(kernel)
-	./scripts/mythril-run.sh $(multiboot2_binary) $(QEMU_EXTRA)
+qemu: mythril $(seabios) $(kernel)
+	./scripts/mythril-run.sh $(mythril_binary) $(QEMU_EXTRA)
 
 .PHONY: qemu-debug
-qemu-debug: multiboot2-debug $(seabios) $(kernel)
-	./scripts/mythril-run.sh $(multiboot2_binary) \
+qemu-debug: mythril-debug $(seabios) $(kernel)
+	./scripts/mythril-run.sh $(mythril_binary) \
 	    -gdb tcp::1234 -S $(QEMU_EXTRA)
 
-$(multiboot2_binary): $(mythril_src)
-	$(CARGO) build $(CARGO_FLAGS) -Z build-std=core,alloc \
-	    --target mythril_multiboot2/$(MULTIBOOT2_TARGET).json \
-	    --manifest-path mythril_multiboot2/Cargo.toml
+$(mythril_binary): $(mythril_src)
+	$(CARGO) build $(CARGO_BUILD_FLAGS) $(CARGO_MANIFEST) \
+	    -Z build-std=core,alloc \
+	    --target mythril/mythril_target.json \
+
+.PHONY: check-fmt
+check-fmt:
+	$(CARGO) fmt $(CARGO_MANIFEST) --all -- --check
 
 .PHONY: fmt
 fmt:
-	$(CARGO) fmt --all -- --check
+	$(CARGO) fmt $(CARGO_MANIFEST) --all
 
 .PHONY: test_core
-test_core:
-	$(CARGO) test \
-	    --manifest-path mythril_core/Cargo.toml \
-	    --lib
+test_common:
+	$(CARGO) test $(CARGO_MANIFEST) --lib \
+	    --features=test \
 
 .PHONY: test
-test: test_core
+test: test_common
 
 .PHONY: clean
 clean:
-	$(CARGO) clean
+	$(CARGO) clean $(CARGO_MANIFEST)
 	make -C seabios clean
 	make -C linux clean
 
@@ -89,7 +93,8 @@ $(git_hooks): $(git_hooks_src)
 help:
 	@echo " Make Targets:"
 	@echo "   all            build everything to run mythril, but do not start qemu"
-	@echo "   fmt            run rustfmt"
+	@echo "   check-fmt      run cargo fmt --check"
+	@echo "   fmt            run cargo fmt"
 	@echo "   qemu           run mythril in a VM"
 	@echo "   qemu-debug     run mythril in a VM, but halt for a debugger connection"
 	@echo "   test           run the mythril tests"

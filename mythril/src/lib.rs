@@ -17,19 +17,28 @@ extern crate alloc;
 #[macro_use]
 extern crate log;
 
+// Needed as 'the build-std feature currently provides no
+// way to enable the mem feature of compiler_builtins. You
+// need to add a dependency on the rlibc crate.'
+extern crate rlibc;
+
 /// Support for ACPI.
 pub mod acpi;
 pub mod ap;
 /// Support for the local APIC.
 pub mod apic;
+pub mod boot_info;
 pub mod device;
 pub mod emulate;
 pub mod error;
+mod global_alloc;
 pub mod interrupt;
 pub mod ioapic;
+pub mod kmain;
 pub mod linux;
 pub mod logger;
 pub mod memory;
+pub mod multiboot2;
 pub mod percore;
 pub mod pit;
 mod registers;

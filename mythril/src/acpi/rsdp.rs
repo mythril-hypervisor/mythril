@@ -46,6 +46,7 @@ const RSDP_V2_SIZE: usize = offsets::RESERVED.end;
 /// Root System Descriptor Pointer (RSDP).
 ///
 /// See `ACPI § 5.2.7`
+#[derive(Clone)]
 pub enum RSDP {
     /// RSDP structure variant for version 1 (`revision == 0`).
     V1 {
@@ -79,29 +80,8 @@ impl fmt::Debug for RSDP {
 }
 
 impl RSDP {
-    /// Find the RSDP in the Extended BIOS Data Area or the
-    /// Main BIOS area.
-    ///
-    /// This is described in `ACPI § 5.2.5.1`
-    pub fn find() -> Result<RSDP> {
-        let bytes = unsafe {
-            // Try to find the RSDP in the Extended BIOS Data Area (EBDA).
-            let range = slice::from_raw_parts(
-                MAIN_BIOS_DATA_START as *const u8,
-                MAIN_BIOS_DATA_SIZE,
-            );
-            Self::search_range(range).or_else(|_| {
-                let range = slice::from_raw_parts(
-                    EXTENDED_BIOS_DATA_START as *const u8,
-                    EXTENDED_BIOS_DATA_SIZE,
-                );
-                // If we didn't find the RSDP in the EBDA, try to find it in
-                // the Main BIOS Data.
-                Self::search_range(range)
-            })?
-        };
-        info!("RSDP: {:p}", bytes.as_ptr());
-
+    /// Make an RSDP from a given collection of bytes
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
         // Extract the OEMID, revision, and RSDT address from the address
         // found regardless of the ACPI version.
         let mut oemid = [0u8; offsets::OEMID.end - offsets::OEMID.start];
@@ -129,6 +109,31 @@ impl RSDP {
         // Now that we know this is a version we support, validate the checksum.
         Self::verify_rsdp_checksum(bytes)?;
         Ok(rsdp)
+    }
+
+    /// Find the RSDP in the Extended BIOS Data Area or the
+    /// Main BIOS area.
+    ///
+    /// This is described in `ACPI § 5.2.5.1`
+    pub fn find() -> Result<Self> {
+        let bytes = unsafe {
+            // Try to find the RSDP in the Extended BIOS Data Area (EBDA).
+            let range = slice::from_raw_parts(
+                MAIN_BIOS_DATA_START as *const u8,
+                MAIN_BIOS_DATA_SIZE,
+            );
+            Self::search_range(range).or_else(|_| {
+                let range = slice::from_raw_parts(
+                    EXTENDED_BIOS_DATA_START as *const u8,
+                    EXTENDED_BIOS_DATA_SIZE,
+                );
+                // If we didn't find the RSDP in the EBDA, try to find it in
+                // the Main BIOS Data.
+                Self::search_range(range)
+            })?
+        };
+
+        Self::from_bytes(bytes)
     }
 
     /// Search a given address range for the RSDP.

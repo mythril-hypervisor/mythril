@@ -1,4 +1,4 @@
-use crate::acpi;
+use crate::boot_info::BootInfo;
 use crate::device::{
     DeviceMap, MemReadRequest, MemWriteRequest, Port, PortReadRequest,
     PortWriteRequest,
@@ -18,16 +18,6 @@ use spin::RwLock;
 
 pub static mut VM_MAP: Option<BTreeMap<usize, Arc<RwLock<VirtualMachine>>>> =
     None;
-
-/// The abstract 'services' required for a given platform to support Mythril
-///
-/// For example, if implementing BIOS boot support for Mythril, `read_path`,
-/// might use a filesystem driver in conjunction with INT 13. A UEFI-based
-/// implementation might use the EFI boot-services to support file reading.
-pub trait VmServices {
-    fn read_file<'a>(&'a self, path: &str) -> Result<&'a [u8]>;
-    fn rsdp(&self) -> Result<acpi::rsdp::RSDP>;
-}
 
 /// A configuration for a `VirtualMachine`
 pub struct VirtualMachineConfig {
@@ -104,9 +94,9 @@ impl VirtualMachine {
     /// and maps in the requested images.
     pub fn new(
         config: VirtualMachineConfig,
-        services: &mut impl VmServices,
+        info: &BootInfo,
     ) -> Result<Arc<RwLock<Self>>> {
-        let guest_space = Self::setup_ept(&config, services)?;
+        let guest_space = Self::setup_ept(&config, info)?;
         Ok(Arc::new(RwLock::new(Self {
             config: config,
             guest_space: guest_space,
@@ -234,18 +224,28 @@ impl VirtualMachine {
         image: &str,
         addr: &GuestPhysAddr,
         space: &mut GuestAddressSpace,
-        services: &mut impl VmServices,
+        info: &BootInfo,
     ) -> Result<()> {
-        let data = services.read_file(image)?;
+        let data = info
+            .find_module(image)
+            .ok_or_else(|| {
+                Error::InvalidValue(format!("No such module '{}'", image))
+            })?
+            .data();
         Self::map_data(data, addr, space)
     }
 
     fn map_bios(
         bios: &str,
         space: &mut GuestAddressSpace,
-        services: &mut impl VmServices,
+        info: &BootInfo,
     ) -> Result<()> {
-        let data = services.read_file(bios)?;
+        let data = info
+            .find_module(bios)
+            .ok_or_else(|| {
+                Error::InvalidValue(format!("No such bios '{}'", bios))
+            })?
+            .data();
         let bios_size = data.len() as u64;
         Self::map_data(
             data,
@@ -261,18 +261,18 @@ impl VirtualMachine {
 
     fn setup_ept(
         config: &VirtualMachineConfig,
-        services: &mut impl VmServices,
+        info: &BootInfo,
     ) -> Result<GuestAddressSpace> {
         let mut guest_space = GuestAddressSpace::new()?;
 
         // First map the bios
         if let Some(ref bios) = config.bios {
-            Self::map_bios(&bios, &mut guest_space, services)?;
+            Self::map_bios(&bios, &mut guest_space, info)?;
         }
 
         // Now map any guest iamges
         for image in config.images.iter() {
-            Self::map_image(&image.0, &image.1, &mut guest_space, services)?;
+            Self::map_image(&image.0, &image.1, &mut guest_space, info)?;
         }
 
         // Iterate over each page
@@ -294,24 +294,11 @@ impl VirtualMachine {
 mod test {
     use super::*;
 
-    struct TestVmServices;
-    impl VmServices for TestVmServices {
-        fn read_file<'a>(&'a self, _path: &str) -> Result<&'a [u8]> {
-            Err(Error::NotImplemented(
-                "read_file not implemented for TestVmServices".into(),
-            ))
-        }
-        fn rsdp(&self) -> Result<acpi::rsdp::RSDP> {
-            Err(Error::NotImplemented(
-                "rsdp fn not implemented for TestVmServices".into(),
-            ))
-        }
-    }
-
     #[test]
     fn test_vm_creation() {
+        let info = BootInfo::default();
+
         let config = VirtualMachineConfig::new(vec![1], 0);
-        VirtualMachine::new(config, Box::leak(Box::new(TestVmServices)))
-            .unwrap();
+        VirtualMachine::new(config, &info).unwrap();
     }
 }

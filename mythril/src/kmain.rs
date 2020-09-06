@@ -1,28 +1,22 @@
-#![no_std]
-#![no_main]
-#![feature(llvm_asm)]
-#![feature(never_type)]
-#![feature(const_fn)]
-
-#[macro_use]
-extern crate alloc;
-
-#[macro_use]
-extern crate log;
-
-// Needed as 'the build-std feature currently provides no
-// way to enable the mem feature of compiler_builtins. You
-// need to add a dependency on the rlibc crate.'
-extern crate rlibc;
-
-mod allocator;
-mod services;
+use crate::acpi;
+use crate::ap;
+use crate::apic;
+use crate::boot_info::BootInfo;
+use crate::device;
+use crate::interrupt;
+use crate::linux;
+use crate::logger;
+use crate::memory;
+use crate::multiboot2;
+use crate::percore;
+use crate::time;
+use crate::vcpu;
+use crate::vm;
 
 use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-use mythril_core::vm::VmServices;
-use mythril_core::*;
+use log::{debug, info};
 use spin::RwLock;
 
 extern "C" {
@@ -36,7 +30,7 @@ extern "C" {
 fn default_vm(
     core: usize,
     mem: u64,
-    services: &mut impl vm::VmServices,
+    info: &BootInfo,
 ) -> Arc<RwLock<vm::VirtualMachine>> {
     let mut config = vm::VirtualMachineConfig::new(vec![core as u8], mem);
 
@@ -102,7 +96,7 @@ fn default_vm(
     fw_cfg_builder
         .add_file(
             "genroms/linuxboot_dma.bin",
-            services.read_file("linuxboot_dma.bin").unwrap(),
+            info.find_module("linuxboot_dma.bin").unwrap().data(),
         )
         .unwrap();
 
@@ -127,79 +121,12 @@ fn default_vm(
         .as_bytes(),
         mem,
         &mut fw_cfg_builder,
-        services,
+        info,
     )
     .unwrap();
     device_map.register_device(fw_cfg_builder.build()).unwrap();
 
-    vm::VirtualMachine::new(config, services).expect("Failed to create vm")
-}
-
-fn global_alloc_region(info: &multiboot2::BootInformation) -> (u64, u64) {
-    let mem_tag = info
-        .memory_map_tag()
-        .expect("Missing multiboot memory map tag");
-
-    let available = mem_tag
-        .memory_areas()
-        .map(|area| (area.start_address(), area.end_address()));
-
-    debug!("Modules:");
-    let modules = info.module_tags().map(|module| {
-        debug!(
-            "  0x{:x}-0x{:x}",
-            module.start_address(),
-            module.end_address()
-        );
-        (module.start_address() as u64, module.end_address() as u64)
-    });
-
-    let sections_tag = info
-        .elf_sections_tag()
-        .expect("Missing multiboot elf sections tag");
-
-    debug!("Elf sections:");
-    let sections = sections_tag.sections().map(|section| {
-        debug!(
-            "  0x{:x}-0x{:x}",
-            section.start_address(),
-            section.end_address()
-        );
-        (section.start_address(), section.end_address())
-    });
-
-    // Avoid allocating over the BootInformation structure itself
-    let multiboot_info =
-        [(info.start_address() as u64, info.end_address() as u64)];
-    debug!(
-        "Multiboot Info: 0x{:x}-0x{:x}",
-        info.start_address(),
-        info.end_address()
-    );
-
-    let excluded = modules
-        .chain(sections)
-        .chain(multiboot_info.iter().copied());
-
-    // TODO: For now, we just use the portion of the largest available
-    // region that is above the highest excluded region.
-    let max_excluded = excluded
-        .max_by(|left, right| left.1.cmp(&right.1))
-        .expect("No max excluded region");
-
-    let largest_region = available
-        .max_by(|left, right| (left.1 - left.0).cmp(&(right.1 - right.0)))
-        .expect("No largest region");
-
-    if largest_region.0 > max_excluded.1 {
-        largest_region
-    } else if max_excluded.1 > largest_region.0
-        && max_excluded.1 < largest_region.1
-    {
-        (max_excluded.1, largest_region.1)
-    } else {
-        panic!("Unable to find suitable global alloc region")
-    }
+    vm::VirtualMachine::new(config, info).expect("Failed to create vm")
 }
 
 #[no_mangle]
@@ -222,7 +149,14 @@ pub extern "C" fn ap_entry(_ap_data: &ap::ApData) -> ! {
 static LOGGER: logger::DirectLogger = logger::DirectLogger::new();
 
 #[no_mangle]
-pub unsafe extern "C" fn kmain(multiboot_info_addr: usize) -> ! {
+pub unsafe extern "C" fn kmain_multiboot2(multiboot_info_addr: usize) -> ! {
+    let boot_info = multiboot2::early_init_multiboot2(
+        memory::HostPhysAddr::new(multiboot_info_addr as u64),
+    );
+    kmain(boot_info)
+}
+
+unsafe fn kmain(mut boot_info: BootInfo) -> ! {
     // Setup the actual interrupt handlers
     interrupt::idt::init();
 
@@ -234,29 +168,15 @@ pub unsafe extern "C" fn kmain(multiboot_info_addr: usize) -> ! {
     // Calibrate the global time source
     time::init_global_time().expect("Failed to init global timesource");
 
-    let multiboot_info = multiboot2::load(multiboot_info_addr);
-
-    let alloc_region = global_alloc_region(&multiboot_info);
-
-    info!(
-        "Allocating from 0x{:x}-{:x}",
-        alloc_region.0, alloc_region.1
-    );
-
-    allocator::Allocator::allocate_from(alloc_region.0, alloc_region.1);
-
-    let mut multiboot_services =
-        services::Multiboot2Services::new(multiboot_info);
-
-    // Locate the RSDP and start ACPI parsing
-    let rsdp = multiboot_services.rsdp().unwrap_or_else(|_| {
-        acpi::rsdp::RSDP::find().expect("Failed to find the RSDP")
-    });
-
-    let rsdt = match rsdp.rsdt() {
-        Ok(rsdt) => rsdt,
-        Err(e) => panic!("Failed to create the RSDT: {:?}", e),
-    };
+    // If the boot method provided an RSDT, use that one. Otherwise, search the
+    // BIOS areas for it.
+    let rsdt = boot_info
+        .rsdp
+        .get_or_insert_with(|| {
+            acpi::rsdp::RSDP::find().expect("Failed to find the RSDP")
+        })
+        .rsdt()
+        .expect("Failed to read RSDT");
 
     // Initialize the BSP local APIC
     let local_apic =
@@ -284,7 +204,7 @@ pub unsafe extern "C" fn kmain(multiboot_info_addr: usize) -> ! {
     for apic_id in apic_ids.iter() {
         map.insert(
             *apic_id as usize,
-            default_vm(*apic_id as usize, 256, &mut multiboot_services),
+            default_vm(*apic_id as usize, 256, &boot_info),
         );
     }
 

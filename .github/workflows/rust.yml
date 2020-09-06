@@ -36,4 +36,4 @@ jobs:
         submodules: true
     - name: Multiboot2 Image Build
       run: |
-        RUSTFLAGS="-D warnings" make multiboot2
+        RUSTFLAGS="-D warnings" make mythril
