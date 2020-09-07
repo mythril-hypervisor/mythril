@@ -12,7 +12,7 @@ using this image. For example, to build the multiboot application, run:
 make docker-all
 ```
 
-This will create the multiboot2 application in `target/multiboot2_target/release/mythril_multiboot2`.
+This will create the hypervisor in `mythril/target/mythril_target/release/mythril`.
 It will also compile the patched versions for seabios and the linux kernel that
 are currently required to use `mythril`. Unittests can be executed like:
 
@@ -27,7 +27,7 @@ After running the build steps as described above, an initramfs must be added to 
 can be executed with:
 
 ```
-make qemu
+make docker-qemu
 ```
 
 Note that this has only been tested on relatively recent versions of QEMU (v4.1.0+).
@@ -35,18 +35,18 @@ Older versions may contain bugs that could cause issues running the image.
 
 ## Debugging
 
-To debug mythril, first build the multiboot application as described above. Then
-run `make qemu-debug`. This will start start QEMU but not launch mythril. You can
-then run `gdb target/multiboot2_target/debug/mythril_multiboot2` to launch gdb with
-the debug info from the application. You can then attach to the qemu instance with
-`target remote localhost:1234`.
+To debug mythril, run `BUILD_TYPE=debug make qemu-debug`. This will build a debug version
+of the hypervisor then start start QEMU in a paused state. You can then run
+`gdb mythril/target/mythril_target/debug/mythril` to launch gdb with the debug info from
+the application. You can attach to the qemu instance with `target remote :1234`. Note that
+debugging the hypervisor is generally not supported under docker.
 
 Because the virtualization is hardware accelerated, remember to use `hbreak` instead
 of `break` in gdb. For example, to put a breakpoint at the start of `kmain` and start
 mythril, run:
 
 ```
-(gdb) target remote localhost:1234
+(gdb) target remote :1234
 Remote debugging using localhost:1234
 0x000000000000fff0 in ?? ()
 (gdb) hbreak kmain
