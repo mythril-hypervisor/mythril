@@ -1,5 +1,6 @@
 use crate::device::{
-    DeviceRegion, EmulatedDevice, Port, PortReadRequest, PortWriteRequest,
+    DeviceRegion, EmulatedDevice, InterruptArray, Port, PortReadRequest,
+    PortWriteRequest,
 };
 use crate::error::{Error, Result};
 use crate::memory::{
@@ -332,7 +333,7 @@ impl EmulatedDevice for QemuFwCfg {
         port: Port,
         mut val: PortReadRequest,
         _space: GuestAddressSpaceViewMut,
-    ) -> Result<()> {
+    ) -> Result<InterruptArray> {
         let len = val.len();
         match port {
             Self::FW_CFG_PORT_SEL => {
@@ -363,7 +364,7 @@ impl EmulatedDevice for QemuFwCfg {
             }
             _ => unreachable!(),
         }
-        Ok(())
+        Ok(InterruptArray::default())
     }
 
     fn on_port_write(
@@ -371,7 +372,7 @@ impl EmulatedDevice for QemuFwCfg {
         port: Port,
         val: PortWriteRequest,
         space: GuestAddressSpaceViewMut,
-    ) -> Result<()> {
+    ) -> Result<InterruptArray> {
         match port {
             Self::FW_CFG_PORT_SEL => {
                 self.selector = val.try_into()?;
@@ -395,7 +396,7 @@ impl EmulatedDevice for QemuFwCfg {
             }
             _ => unreachable!(),
         }
-        Ok(())
+        Ok(InterruptArray::default())
     }
 }
 

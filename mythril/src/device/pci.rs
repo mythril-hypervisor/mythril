@@ -1,5 +1,6 @@
 use crate::device::{
-    DeviceRegion, EmulatedDevice, Port, PortReadRequest, PortWriteRequest,
+    DeviceRegion, EmulatedDevice, InterruptArray, Port, PortReadRequest,
+    PortWriteRequest,
 };
 use crate::error::{Error, Result};
 use crate::memory::GuestAddressSpaceViewMut;
@@ -207,7 +208,7 @@ impl EmulatedDevice for PciRootComplex {
         port: Port,
         mut val: PortReadRequest,
         _space: GuestAddressSpaceViewMut,
-    ) -> Result<()> {
+    ) -> Result<InterruptArray> {
         match port {
             Self::PCI_CONFIG_ADDRESS => {
                 // For now, always set the enable bit
@@ -243,7 +244,7 @@ impl EmulatedDevice for PciRootComplex {
                 )))
             }
         }
-        Ok(())
+        Ok(InterruptArray::default())
     }
 
     fn on_port_write(
@@ -251,7 +252,7 @@ impl EmulatedDevice for PciRootComplex {
         port: Port,
         val: PortWriteRequest,
         _space: GuestAddressSpaceViewMut,
-    ) -> Result<()> {
+    ) -> Result<InterruptArray> {
         match port {
             Self::PCI_CONFIG_ADDRESS => {
                 let addr: u32 = val.try_into()?;
@@ -264,7 +265,7 @@ impl EmulatedDevice for PciRootComplex {
                 );
             }
         }
-        Ok(())
+        Ok(InterruptArray::default())
     }
 }
 

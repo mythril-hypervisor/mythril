@@ -4,6 +4,7 @@ use alloc::boxed::Box;
 use alloc::collections::btree_map::BTreeMap;
 use alloc::rc::Rc;
 use alloc::vec::Vec;
+use arrayvec::ArrayVec;
 use core::cmp::Ordering;
 use core::convert::{TryFrom, TryInto};
 use core::fmt;
@@ -24,6 +25,8 @@ pub mod qemu_fw_cfg;
 pub mod rtc;
 pub mod vga;
 
+const MAX_EVENT_INTERRUPTS: usize = 8;
+pub type InterruptArray = ArrayVec<[u8; MAX_EVENT_INTERRUPTS]>;
 pub type Port = u16;
 
 #[derive(Eq, PartialEq)]
@@ -191,7 +194,7 @@ pub trait EmulatedDevice {
         _addr: GuestPhysAddr,
         _data: MemReadRequest,
         _space: GuestAddressSpaceViewMut,
-    ) -> Result<()> {
+    ) -> Result<InterruptArray> {
         Err(Error::NotImplemented(
             "MemoryMapped device does not support reading".into(),
         ))
@@ -201,7 +204,7 @@ pub trait EmulatedDevice {
         _addr: GuestPhysAddr,
         _data: MemWriteRequest,
         _space: GuestAddressSpaceViewMut,
-    ) -> Result<()> {
+    ) -> Result<InterruptArray> {
         Err(Error::NotImplemented(
             "MemoryMapped device does not support writing".into(),
         ))
@@ -211,7 +214,7 @@ pub trait EmulatedDevice {
         _port: Port,
         _val: PortReadRequest,
         _space: GuestAddressSpaceViewMut,
-    ) -> Result<()> {
+    ) -> Result<InterruptArray> {
         Err(Error::NotImplemented(
             "PortIo device does not support reading".into(),
         ))
@@ -221,7 +224,7 @@ pub trait EmulatedDevice {
         _port: Port,
         _val: PortWriteRequest,
         _space: GuestAddressSpaceViewMut,
-    ) -> Result<()> {
+    ) -> Result<InterruptArray> {
         Err(Error::NotImplemented(
             "PortIo device does not support writing".into(),
         ))

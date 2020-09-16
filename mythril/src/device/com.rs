@@ -1,5 +1,6 @@
 use crate::device::{
-    DeviceRegion, EmulatedDevice, Port, PortReadRequest, PortWriteRequest,
+    DeviceRegion, EmulatedDevice, InterruptArray, Port, PortReadRequest,
+    PortWriteRequest,
 };
 use crate::error::Result;
 use crate::logger;
@@ -44,8 +45,7 @@ impl ComDevice {
             base_port,
             buff: vec![],
 
-            // For now, transmitter holding register is always empty
-            interrupt_identification_register: 0x02,
+            interrupt_identification_register: 0x01,
 
             ..Default::default()
         })
@@ -66,7 +66,7 @@ impl EmulatedDevice for ComDevice {
         port: Port,
         mut val: PortReadRequest,
         _space: GuestAddressSpaceViewMut,
-    ) -> Result<()> {
+    ) -> Result<InterruptArray> {
         if port - self.base_port == SerialOffset::DATA
             && self.divisor_latch_bit_set()
         {
@@ -79,15 +79,18 @@ impl EmulatedDevice for ComDevice {
 
         if port - self.base_port == SerialOffset::IIR {
             val.copy_from_u32(self.interrupt_identification_register as u32);
+
+            // Reading the IIR clears it (the LSB = 1 indicates there is _not_ a
+            // pending interrupt)
+            self.interrupt_identification_register = 1;
         } else if port - self.base_port == SerialOffset::IER {
             val.copy_from_u32(self.interrupt_enable_register as u32);
         }
 
         if port - self.base_port == SerialOffset::LSR {
-            val.copy_from_u32(0x20);
+            val.copy_from_u32(0x60);
         }
-
-        Ok(())
+        Ok(InterruptArray::default())
     }
 
     fn on_port_write(
@@ -95,7 +98,7 @@ impl EmulatedDevice for ComDevice {
         port: Port,
         val: PortWriteRequest,
         _space: GuestAddressSpaceViewMut,
-    ) -> Result<()> {
+    ) -> Result<InterruptArray> {
         let val: u8 = val.try_into()?;
         if port - self.base_port == SerialOffset::DATA {
             if self.divisor_latch_bit_set() {
@@ -107,6 +110,12 @@ impl EmulatedDevice for ComDevice {
                     logger::write_console(&format!("GUEST{}: {}", self.id, s));
                     self.buff.clear();
                 }
+                let mut arr = InterruptArray::default();
+                if self.interrupt_enable_register & 0b00000010 == 0b10 {
+                    arr.push(52);
+                }
+                self.interrupt_identification_register = 0b10;
+                return Ok(arr);
             }
         } else if port - self.base_port == SerialOffset::DLL
             && self.divisor_latch_bit_set()
@@ -120,6 +129,6 @@ impl EmulatedDevice for ComDevice {
             self.interrupt_enable_register = val;
         }
 
-        Ok(())
+        Ok(InterruptArray::default())
     }
 }

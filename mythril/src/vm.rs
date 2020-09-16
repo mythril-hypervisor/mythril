@@ -1,7 +1,7 @@
 use crate::boot_info::BootInfo;
 use crate::device::{
-    DeviceMap, MemReadRequest, MemWriteRequest, Port, PortReadRequest,
-    PortWriteRequest,
+    DeviceMap, InterruptArray, MemReadRequest, MemWriteRequest, Port,
+    PortReadRequest, PortWriteRequest,
 };
 use crate::error::{Error, Result};
 use crate::memory::{
@@ -108,7 +108,7 @@ impl VirtualMachine {
         vcpu: &vcpu::VCpu,
         addr: GuestPhysAddr,
         val: MemReadRequest,
-    ) -> Result<()> {
+    ) -> Result<InterruptArray> {
         let dev =
             self.config
                 .device_map()
@@ -131,7 +131,7 @@ impl VirtualMachine {
         vcpu: &vcpu::VCpu,
         addr: GuestPhysAddr,
         val: MemWriteRequest,
-    ) -> Result<()> {
+    ) -> Result<InterruptArray> {
         let dev =
             self.config
                 .device_map()
@@ -154,7 +154,7 @@ impl VirtualMachine {
         vcpu: &vcpu::VCpu,
         port: Port,
         val: PortReadRequest,
-    ) -> Result<()> {
+    ) -> Result<InterruptArray> {
         let dev =
             self.config
                 .device_map()
@@ -174,7 +174,7 @@ impl VirtualMachine {
         vcpu: &vcpu::VCpu,
         port: Port,
         val: PortWriteRequest,
-    ) -> Result<()> {
+    ) -> Result<InterruptArray> {
         let dev =
             self.config
                 .device_map()

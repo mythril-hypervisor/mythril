@@ -1,5 +1,6 @@
 use crate::device::{
-    DeviceRegion, EmulatedDevice, Port, PortReadRequest, PortWriteRequest,
+    DeviceRegion, EmulatedDevice, InterruptArray, Port, PortReadRequest,
+    PortWriteRequest,
 };
 use crate::error::Result;
 use crate::memory::GuestAddressSpaceViewMut;
@@ -74,14 +75,14 @@ impl EmulatedDevice for AcpiRuntime {
         port: Port,
         mut val: PortReadRequest,
         _space: GuestAddressSpaceViewMut,
-    ) -> Result<()> {
+    ) -> Result<InterruptArray> {
         if port == self.pmtimer() {
             let on_duration = time::now() - time::system_start_time();
             let pm_time =
                 (on_duration.as_nanos() * PMTIMER_HZ as u128) / 1_000_000_000;
             val.copy_from_u32(pm_time as u32);
         }
-        Ok(())
+        Ok(InterruptArray::default())
     }
 
     fn on_port_write(
@@ -89,11 +90,11 @@ impl EmulatedDevice for AcpiRuntime {
         port: Port,
         val: PortWriteRequest,
         _space: GuestAddressSpaceViewMut,
-    ) -> Result<()> {
+    ) -> Result<InterruptArray> {
         info!(
             "Attempt to write to AcpiRuntime port=0x{:x}, val={}. Ignoring",
             port, val
         );
-        Ok(())
+        Ok(InterruptArray::default())
     }
 }

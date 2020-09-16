@@ -1,5 +1,6 @@
 use crate::device::{
-    DeviceRegion, EmulatedDevice, Port, PortReadRequest, PortWriteRequest,
+    DeviceRegion, EmulatedDevice, InterruptArray, Port, PortReadRequest,
+    PortWriteRequest,
 };
 use crate::error::Result;
 use crate::memory::GuestAddressSpaceViewMut;
@@ -36,8 +37,8 @@ impl EmulatedDevice for IgnoredDevice {
         _port: Port,
         _val: PortReadRequest,
         _space: GuestAddressSpaceViewMut,
-    ) -> Result<()> {
-        Ok(())
+    ) -> Result<InterruptArray> {
+        Ok(InterruptArray::default())
     }
 
     fn on_port_write(
@@ -45,7 +46,7 @@ impl EmulatedDevice for IgnoredDevice {
         _port: Port,
         _val: PortWriteRequest,
         _space: GuestAddressSpaceViewMut,
-    ) -> Result<()> {
-        Ok(())
+    ) -> Result<InterruptArray> {
+        Ok(InterruptArray::default())
     }
 }

@@ -1,5 +1,6 @@
 use crate::device::{
-    DeviceRegion, EmulatedDevice, Port, PortReadRequest, PortWriteRequest,
+    DeviceRegion, EmulatedDevice, InterruptArray, Port, PortReadRequest,
+    PortWriteRequest,
 };
 use crate::error::Result;
 use crate::logger;
@@ -34,10 +35,10 @@ impl EmulatedDevice for DebugPort {
         _port: Port,
         mut val: PortReadRequest,
         _space: GuestAddressSpaceViewMut,
-    ) -> Result<()> {
+    ) -> Result<InterruptArray> {
         // This is a magical value (called BOCHS_DEBUG_PORT_MAGIC by edk2)
         val.copy_from_u32(0xe9);
-        Ok(())
+        Ok(InterruptArray::default())
     }
 
     fn on_port_write(
@@ -45,7 +46,7 @@ impl EmulatedDevice for DebugPort {
         _port: Port,
         val: PortWriteRequest,
         _space: GuestAddressSpaceViewMut,
-    ) -> Result<()> {
+    ) -> Result<InterruptArray> {
         self.buff.extend_from_slice(val.as_slice());
 
         // Flush on newlines
@@ -55,6 +56,6 @@ impl EmulatedDevice for DebugPort {
             logger::write_console(&format!("GUEST{}: {}", self.id, s));
             self.buff.clear();
         }
-        Ok(())
+        Ok(InterruptArray::default())
     }
 }

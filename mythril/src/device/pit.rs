@@ -1,5 +1,6 @@
 use crate::device::{
-    DeviceRegion, EmulatedDevice, Port, PortReadRequest, PortWriteRequest,
+    DeviceRegion, EmulatedDevice, InterruptArray, Port, PortReadRequest,
+    PortWriteRequest,
 };
 use crate::error::{Error, Result};
 use crate::memory::GuestAddressSpaceViewMut;
@@ -77,7 +78,7 @@ impl EmulatedDevice for Pit8254 {
         port: Port,
         mut val: PortReadRequest,
         _space: GuestAddressSpaceViewMut,
-    ) -> Result<()> {
+    ) -> Result<InterruptArray> {
         match port {
             //FIXME: much of this 'PS2' handling is a hack. I'm not aware of
             // a good source for exactly what's supposed to happen here.
@@ -105,7 +106,7 @@ impl EmulatedDevice for Pit8254 {
                 info!("PIT read from unsupported port");
             }
         }
-        Ok(())
+        Ok(InterruptArray::default())
     }
 
     fn on_port_write(
@@ -113,7 +114,7 @@ impl EmulatedDevice for Pit8254 {
         port: Port,
         val: PortWriteRequest,
         _space: GuestAddressSpaceViewMut,
-    ) -> Result<()> {
+    ) -> Result<InterruptArray> {
         match port {
             PIT_MODE_CONTROL => {
                 let val = u8::try_from(val)?;
@@ -209,7 +210,7 @@ impl EmulatedDevice for Pit8254 {
                             // We are just setting the low byte in word access mode.
                             // There is nothing else to do, so return.
                             *lo_byte = Some(val);
-                            return Ok(());
+                            return Ok(InterruptArray::default());
                         }
                     }
                     _ => unreachable!(),
@@ -217,7 +218,7 @@ impl EmulatedDevice for Pit8254 {
 
                 if counter == 0 {
                     warn!("PIT: ignoring counter set to 0");
-                    return Ok(());
+                    return Ok(InterruptArray::default());
                 }
 
                 let duration = core::time::Duration::from_nanos(
@@ -264,6 +265,6 @@ impl EmulatedDevice for Pit8254 {
             }
         }
 
-        Ok(())
+        Ok(InterruptArray::default())
     }
 }

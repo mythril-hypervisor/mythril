@@ -1,5 +1,6 @@
 use crate::device::{
-    DeviceRegion, EmulatedDevice, Port, PortReadRequest, PortWriteRequest,
+    DeviceRegion, EmulatedDevice, InterruptArray, Port, PortReadRequest,
+    PortWriteRequest,
 };
 use crate::error::Result;
 use crate::memory::GuestAddressSpaceViewMut;
@@ -31,10 +32,10 @@ impl EmulatedDevice for Keyboard8042 {
         _port: Port,
         mut val: PortReadRequest,
         _space: GuestAddressSpaceViewMut,
-    ) -> Result<()> {
+    ) -> Result<InterruptArray> {
         //FIXME: For now just return 0xff for everything
         val.copy_from_u32(0xff);
-        Ok(())
+        Ok(InterruptArray::default())
     }
 
     fn on_port_write(
@@ -42,7 +43,7 @@ impl EmulatedDevice for Keyboard8042 {
         _port: Port,
         _val: PortWriteRequest,
         _space: GuestAddressSpaceViewMut,
-    ) -> Result<()> {
-        Ok(())
+    ) -> Result<InterruptArray> {
+        Ok(InterruptArray::default())
     }
 }

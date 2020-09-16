@@ -424,30 +424,20 @@ impl VCpu {
             )?;
         }
 
-        // If there are still pending interrupts, we need to exit immediately,
-        // so set the vmx-preemption timer to 0. According to the docs, this will
-        // still do the event injection:
-        //
-        //   26.7.4
-        //   It is possible for the VMX-preemption timer to expire during VM entry
-        //   (e.g., if the value in the VMX-preemption timer-value field is zero).
-        //   If this happens (and if the VM entry was not to the wait-for-SIPI state),
-        //   a VM exit occurs with its normal priority after any event injection and
-        //   before execution of any instruction following VM entry.
-        let field = self
-            .vmcs
-            .read_field(vmcs::VmcsField::PinBasedVmExecControl)?;
+        // If there are still pending interrupts, set the interrupt window so
+        // we should get a chance to do the injection once the guest is finished
+        // handling the one we just injected.
         if !self.pending_interrupts.is_empty() {
-            self.vmcs
-                .write_field(vmcs::VmcsField::VmxPreemptionTimerValue, 0)?;
             self.vmcs.write_field(
-                vmcs::VmcsField::PinBasedVmExecControl,
-                field | vmcs::PinBasedCtrlFlags::PREEMPT_TIMER.bits(),
+                vmcs::VmcsField::CpuBasedVmExecControl,
+                field
+                    | vmcs::CpuBasedCtrlFlags::INTERRUPT_WINDOW_EXITING.bits(),
             )?;
         } else {
             self.vmcs.write_field(
-                vmcs::VmcsField::PinBasedVmExecControl,
-                field & !(vmcs::PinBasedCtrlFlags::PREEMPT_TIMER.bits()),
+                vmcs::VmcsField::CpuBasedVmExecControl,
+                field
+                    & !vmcs::CpuBasedCtrlFlags::INTERRUPT_WINDOW_EXITING.bits(),
             )?;
         }
 
@@ -532,13 +522,22 @@ impl VCpu {
                     guest_cpu.rcx as u32
                 );
             }
-            vmexit::ExitInformation::ExternalInterrupt(_info) => unsafe {
+            vmexit::ExitInformation::InterruptWindow => {
+                // if self.pending_interrupts.contains_key(&52) {
+                //     info!("InterruptWindow with serial interrupt");
+                // }
+            }
+            vmexit::ExitInformation::VmxPreemptionTimerExpired => {
+                // if self.pending_interrupts.contains_key(&52) {
+                //     info!("Preepmption with serial interrupt");
+                // }
+            }
+            vmexit::ExitInformation::ExternalInterrupt(_) => unsafe {
                 // FIXME: For now, the only external interrupt would be the
                 // timers we setup in the vPIT, so we can just ack them. In
                 // the future this will not be true.
                 apic::get_local_apic_mut().eoi();
             },
-            vmexit::ExitInformation::InterruptWindow => {}
             _ => {
                 info!("{}", self.vmcs);
                 panic!("No handler for exit reason: {:?}", exit);

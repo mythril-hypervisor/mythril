@@ -1,5 +1,6 @@
 use crate::device::{
-    DeviceRegion, EmulatedDevice, MemReadRequest, MemWriteRequest,
+    DeviceRegion, EmulatedDevice, InterruptArray, MemReadRequest,
+    MemWriteRequest,
 };
 use crate::error::Result;
 use crate::memory::{GuestAddressSpaceViewMut, GuestPhysAddr};
@@ -37,13 +38,13 @@ impl EmulatedDevice for LocalApic {
         addr: GuestPhysAddr,
         data: MemReadRequest,
         _space: GuestAddressSpaceViewMut,
-    ) -> Result<()> {
+    ) -> Result<InterruptArray> {
         info!(
             "local apic read of addr = {:?} (len=0x{:x})",
             addr,
             data.as_slice().len()
         );
-        Ok(())
+        Ok(InterruptArray::default())
     }
 
     fn on_mem_write(
@@ -51,8 +52,8 @@ impl EmulatedDevice for LocalApic {
         addr: GuestPhysAddr,
         data: MemWriteRequest,
         _space: GuestAddressSpaceViewMut,
-    ) -> Result<()> {
+    ) -> Result<InterruptArray> {
         info!("local apic write of addr = {:?} (data={:?})", addr, data);
-        Ok(())
+        Ok(InterruptArray::default())
     }
 }

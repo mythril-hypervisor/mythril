@@ -1,5 +1,6 @@
 use crate::device::{
-    DeviceRegion, EmulatedDevice, Port, PortReadRequest, PortWriteRequest,
+    DeviceRegion, EmulatedDevice, InterruptArray, Port, PortReadRequest,
+    PortWriteRequest,
 };
 use crate::error::Result;
 use crate::memory::GuestAddressSpaceViewMut;
@@ -119,7 +120,7 @@ impl EmulatedDevice for CmosRtc {
         port: Port,
         mut val: PortReadRequest,
         _space: GuestAddressSpaceViewMut,
-    ) -> Result<()> {
+    ) -> Result<InterruptArray> {
         match port {
             Self::RTC_ADDRESS => val.copy_from_u32(self.addr as u8 as u32),
             Self::RTC_DATA => match self.addr {
@@ -130,7 +131,7 @@ impl EmulatedDevice for CmosRtc {
             _ => unreachable!(),
         }
 
-        Ok(())
+        Ok(InterruptArray::default())
     }
 
     fn on_port_write(
@@ -138,7 +139,7 @@ impl EmulatedDevice for CmosRtc {
         port: Port,
         val: PortWriteRequest,
         _space: GuestAddressSpaceViewMut,
-    ) -> Result<()> {
+    ) -> Result<InterruptArray> {
         // For now, just ignore the NMI masking
         let val: u8 = val.try_into()?;
         let val = val & 0x7f;
@@ -169,6 +170,6 @@ impl EmulatedDevice for CmosRtc {
             }
             _ => unreachable!(),
         }
-        Ok(())
+        Ok(InterruptArray::default())
     }
 }

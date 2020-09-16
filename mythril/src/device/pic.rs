@@ -1,5 +1,6 @@
 use crate::device::{
-    DeviceRegion, EmulatedDevice, Port, PortReadRequest, PortWriteRequest,
+    DeviceRegion, EmulatedDevice, InterruptArray, Port, PortReadRequest,
+    PortWriteRequest,
 };
 use crate::error::Result;
 use crate::memory::GuestAddressSpaceViewMut;
@@ -49,16 +50,16 @@ impl EmulatedDevice for Pic8259 {
         port: Port,
         mut val: PortReadRequest,
         _space: GuestAddressSpaceViewMut,
-    ) -> Result<()> {
+    ) -> Result<InterruptArray> {
         let data = match port {
             Self::PIC_MASTER_DATA => self.master_state.imr,
             Self::PIC_SLAVE_DATA => self.master_state.imr,
             _ => {
-                return Ok(());
+                return Ok(InterruptArray::default());
             }
         };
         val.copy_from_u32(data as u32);
-        Ok(())
+        Ok(InterruptArray::default())
     }
 
     fn on_port_write(
@@ -66,7 +67,7 @@ impl EmulatedDevice for Pic8259 {
         port: Port,
         val: PortWriteRequest,
         _space: GuestAddressSpaceViewMut,
-    ) -> Result<()> {
+    ) -> Result<InterruptArray> {
         match port {
             Self::PIC_MASTER_DATA => {
                 self.master_state.imr = val.try_into()?;
@@ -76,6 +77,6 @@ impl EmulatedDevice for Pic8259 {
             }
             _ => (),
         }
-        Ok(())
+        Ok(InterruptArray::default())
     }
 }

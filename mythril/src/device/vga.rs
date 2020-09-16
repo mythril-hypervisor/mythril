@@ -1,5 +1,6 @@
 use crate::device::{
-    DeviceRegion, EmulatedDevice, Port, PortReadRequest, PortWriteRequest,
+    DeviceRegion, EmulatedDevice, InterruptArray, Port, PortReadRequest,
+    PortWriteRequest,
 };
 use crate::error::{Error, Result};
 use crate::memory::GuestAddressSpaceViewMut;
@@ -80,7 +81,7 @@ impl EmulatedDevice for VgaController {
         port: Port,
         mut val: PortReadRequest,
         _space: GuestAddressSpaceViewMut,
-    ) -> Result<()> {
+    ) -> Result<InterruptArray> {
         match port {
             Self::VGA_DATA => {
                 val.copy_from_u32(self.registers[self.index as usize] as u32);
@@ -92,7 +93,7 @@ impl EmulatedDevice for VgaController {
                 )))
             }
         }
-        Ok(())
+        Ok(InterruptArray::default())
     }
 
     fn on_port_write(
@@ -100,7 +101,7 @@ impl EmulatedDevice for VgaController {
         port: Port,
         val: PortWriteRequest,
         _space: GuestAddressSpaceViewMut,
-    ) -> Result<()> {
+    ) -> Result<InterruptArray> {
         match port {
             Self::VGA_INDEX => match val {
                 PortWriteRequest::OneByte(b) => {
@@ -133,6 +134,6 @@ impl EmulatedDevice for VgaController {
                 )))
             }
         }
-        Ok(())
+        Ok(InterruptArray::default())
     }
 }
