@@ -1,5 +1,5 @@
-use crate::device::Port;
 use crate::error::{Error, Result};
+use crate::virtdev::Port;
 
 use core::convert::TryFrom;
 use num_enum::TryFromPrimitive;

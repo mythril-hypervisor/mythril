@@ -1,13 +1,14 @@
-use crate::device::{
-    DeviceRegion, EmulatedDevice, InterruptArray, Port, PortReadRequest,
-    PortWriteRequest,
-};
 use crate::error::Result;
 use crate::logger;
 use crate::memory::GuestAddressSpaceViewMut;
-use alloc::boxed::Box;
+use crate::virtdev::{
+    DeviceRegion, EmulatedDevice, InterruptArray, Port, PortReadRequest,
+    PortWriteRequest,
+};
 use alloc::string::String;
+use alloc::sync::Arc;
 use alloc::vec::Vec;
+use spin::Mutex;
 
 pub struct DebugPort {
     id: u64,
@@ -16,12 +17,12 @@ pub struct DebugPort {
 }
 
 impl DebugPort {
-    pub fn new(vmid: u64, port: Port) -> Box<dyn EmulatedDevice> {
-        Box::new(Self {
+    pub fn new(vmid: u64, port: Port) -> Arc<Mutex<Self>> {
+        Arc::new(Mutex::new(Self {
             port,
             buff: vec![],
             id: vmid,
-        })
+        }))
     }
 }
 

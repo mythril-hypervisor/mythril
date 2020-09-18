@@ -1,62 +1,63 @@
-use crate::device::{
-    DeviceRegion, EmulatedDevice, InterruptArray, Port, PortReadRequest,
-    PortWriteRequest,
-};
 use crate::error::Result;
 use crate::logger;
 use crate::memory::GuestAddressSpaceViewMut;
-use alloc::boxed::Box;
+use crate::physdev::com::*;
+use crate::virtdev::{
+    DeviceRegion, EmulatedDevice, InterruptArray, Port, PortReadRequest,
+    PortWriteRequest,
+};
 use alloc::string::String;
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::convert::TryInto;
+use spin::Mutex;
 
-#[derive(Default)]
-pub struct ComDevice {
+pub struct Uart8250 {
     id: u64,
     base_port: Port,
-    buff: Vec<u8>,
+    is_newline: bool,
     divisor: u16,
-    interrupt_enable_register: u8,
+    receive_buffer: Option<u8>,
+    interrupt_enable_register: IerFlags,
     interrupt_identification_register: u8,
     _line_control_register: u8,
     _modem_control_register: u8,
-    line_status_register: u8,
+    line_status_register: LsrFlags,
     _modem_status_register: u8,
     _scratch_register: u8,
 }
 
-#[allow(non_snake_case)]
-#[allow(dead_code)]
-mod SerialOffset {
-    pub const DATA: u16 = 0;
-    pub const DLL: u16 = 0;
-    pub const IER: u16 = 1;
-    pub const DLH: u16 = 1;
-    pub const IIR: u16 = 2;
-    pub const LCR: u16 = 3;
-    pub const LSR: u16 = 5;
-    pub const MSR: u16 = 6;
-}
-
-impl ComDevice {
-    pub fn new(vmid: u64, base_port: Port) -> Box<dyn EmulatedDevice> {
-        Box::new(Self {
+impl Uart8250 {
+    pub fn new(vmid: u64, base_port: Port) -> Arc<Mutex<Self>> {
+        Arc::new(Mutex::new(Self {
             id: vmid,
-            base_port,
-            buff: vec![],
-
+            base_port: base_port,
+            divisor: 0,
+            is_newline: true,
+            receive_buffer: None,
             interrupt_identification_register: 0x01,
-
-            ..Default::default()
-        })
+            interrupt_enable_register: IerFlags::empty(),
+            _line_control_register: 0,
+            _modem_control_register: 0,
+            line_status_register: LsrFlags::empty(),
+            _modem_status_register: 0,
+            _scratch_register: 0,
+        }))
     }
 
     fn divisor_latch_bit_set(&self) -> bool {
-        self.line_status_register & (1 << 7) != 0
+        self._line_control_register & (1 << 7) != 0
+    }
+
+    /// Insert a byte to the receive buffer of the UART. This will be
+    /// _read_ by the VM.
+    pub fn write(&mut self, data: u8) {
+        self.receive_buffer = Some(data);
+        self.interrupt_identification_register = 0b100;
     }
 }
 
-impl EmulatedDevice for ComDevice {
+impl EmulatedDevice for Uart8250 {
     fn services(&self) -> Vec<DeviceRegion> {
         vec![DeviceRegion::PortIo(self.base_port..=self.base_port + 7)]
     }
@@ -68,6 +69,14 @@ impl EmulatedDevice for ComDevice {
         _space: GuestAddressSpaceViewMut,
     ) -> Result<InterruptArray> {
         if port - self.base_port == SerialOffset::DATA
+            && !self.divisor_latch_bit_set()
+        {
+            if let Some(receive_buffer) = self.receive_buffer {
+                val.copy_from_u32(receive_buffer.into());
+                self.receive_buffer = None;
+                self.interrupt_identification_register = 1;
+            }
+        } else if port - self.base_port == SerialOffset::DATA
             && self.divisor_latch_bit_set()
         {
             val.copy_from_u32((self.divisor & 0xff).into());
@@ -84,11 +93,18 @@ impl EmulatedDevice for ComDevice {
             // pending interrupt)
             self.interrupt_identification_register = 1;
         } else if port - self.base_port == SerialOffset::IER {
-            val.copy_from_u32(self.interrupt_enable_register as u32);
+            val.copy_from_u32(self.interrupt_enable_register.bits() as u32);
         }
 
         if port - self.base_port == SerialOffset::LSR {
-            val.copy_from_u32(0x60);
+            let mut flags = LsrFlags::EMPTY_TRANSMIT_HOLDING_REGISTER
+                | LsrFlags::EMPTY_DATA_HOLDING_REGISTER;
+
+            if self.receive_buffer.is_some() {
+                flags.insert(LsrFlags::DATA_READY);
+            }
+
+            val.copy_from_u32(flags.bits() as u32);
         }
         Ok(InterruptArray::default())
     }
@@ -104,14 +120,21 @@ impl EmulatedDevice for ComDevice {
             if self.divisor_latch_bit_set() {
                 self.divisor &= 0xff00 | val as u16;
             } else {
-                self.buff.push(val);
-                if val == 10 {
-                    let s = String::from_utf8_lossy(&self.buff);
-                    logger::write_console(&format!("GUEST{}: {}", self.id, s));
-                    self.buff.clear();
+                if self.is_newline {
+                    logger::write_console(&format!("GUEST{}: ", self.id));
                 }
+
+                let buff = &[val];
+                let s = String::from_utf8_lossy(buff);
+                logger::write_console(&s);
+
+                self.is_newline = val == 10;
+
                 let mut arr = InterruptArray::default();
-                if self.interrupt_enable_register & 0b00000010 == 0b10 {
+                if self
+                    .interrupt_enable_register
+                    .contains(IerFlags::THR_EMPTY_INTERRUPT)
+                {
                     arr.push(52);
                 }
                 self.interrupt_identification_register = 0b10;
@@ -123,10 +146,8 @@ impl EmulatedDevice for ComDevice {
             self.divisor = (self.divisor & 0xff) | (val as u16) << 8;
         }
 
-        if port - self.base_port == SerialOffset::IIR {
-            self.interrupt_identification_register = val;
-        } else if port - self.base_port == SerialOffset::IER {
-            self.interrupt_enable_register = val;
+        if port - self.base_port == SerialOffset::IER {
+            self.interrupt_enable_register = IerFlags::from_bits_truncate(val);
         }
 
         Ok(InterruptArray::default())

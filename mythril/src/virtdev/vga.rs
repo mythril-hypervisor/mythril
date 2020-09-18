@@ -1,13 +1,14 @@
-use crate::device::{
+use crate::error::{Error, Result};
+use crate::memory::GuestAddressSpaceViewMut;
+use crate::virtdev::{
     DeviceRegion, EmulatedDevice, InterruptArray, Port, PortReadRequest,
     PortWriteRequest,
 };
-use crate::error::{Error, Result};
-use crate::memory::GuestAddressSpaceViewMut;
-use alloc::boxed::Box;
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::convert::{TryFrom, TryInto};
 use num_enum::TryFromPrimitive;
+use spin::Mutex;
 
 #[derive(Clone, Copy, Debug, TryFromPrimitive)]
 #[repr(u8)]
@@ -42,8 +43,8 @@ impl VgaController {
     const VGA_INDEX: Port = 0x03D4;
     const VGA_DATA: Port = 0x03D5;
 
-    pub fn new() -> Box<Self> {
-        Box::new(Self {
+    pub fn new() -> Arc<Mutex<Self>> {
+        Arc::new(Mutex::new(Self {
             index: VgaRegister::HorizontalTotalChars,
 
             registers: [
@@ -64,7 +65,7 @@ impl VgaController {
                 0x00, // CursorAddrMsb
                 0x00, // CursorAddrLsb
             ],
-        })
+        }))
     }
 }
 

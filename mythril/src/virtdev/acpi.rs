@@ -1,12 +1,13 @@
-use crate::device::{
-    DeviceRegion, EmulatedDevice, InterruptArray, Port, PortReadRequest,
-    PortWriteRequest,
-};
 use crate::error::Result;
 use crate::memory::GuestAddressSpaceViewMut;
 use crate::time;
-use alloc::boxed::Box;
+use crate::virtdev::{
+    DeviceRegion, EmulatedDevice, InterruptArray, Port, PortReadRequest,
+    PortWriteRequest,
+};
+use alloc::sync::Arc;
 use alloc::vec::Vec;
+use spin::Mutex;
 
 const PMTIMER_HZ: u64 = 3579545;
 
@@ -31,8 +32,8 @@ impl AcpiRuntime {
     const PCI_REMOVABILITY_STATUS_START: Port = 0xae0c;
     const PCI_REMOVABILITY_STATUS_END: Port = 0xae0f;
 
-    pub fn new(pm_base: Port) -> Result<Box<Self>> {
-        Ok(Box::new(AcpiRuntime { pm_base }))
+    pub fn new(pm_base: Port) -> Result<Arc<Mutex<Self>>> {
+        Ok(Arc::new(Mutex::new(AcpiRuntime { pm_base })))
     }
 
     fn pm1a_cnt(&self) -> Port {

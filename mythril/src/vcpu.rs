@@ -444,6 +444,17 @@ impl VCpu {
         Ok(())
     }
 
+    fn handle_uart_keypress(&mut self) {
+        let vm = self.vm.write();
+
+        if let Some(serial) = vm.serial.as_ref() {
+            let keypress = serial.read();
+            vm.virt_uart.lock().write(keypress);
+        }
+        drop(vm);
+        self.inject_interrupt(52, InjectedInterruptType::ExternalInterrupt);
+    }
+
     fn handle_vmexit_impl(
         &mut self,
         guest_cpu: &mut vmexit::GuestCpuState,
@@ -522,21 +533,20 @@ impl VCpu {
                     guest_cpu.rcx as u32
                 );
             }
-            vmexit::ExitInformation::InterruptWindow => {
-                // if self.pending_interrupts.contains_key(&52) {
-                //     info!("InterruptWindow with serial interrupt");
-                // }
-            }
-            vmexit::ExitInformation::VmxPreemptionTimerExpired => {
-                // if self.pending_interrupts.contains_key(&52) {
-                //     info!("Preepmption with serial interrupt");
-                // }
-            }
-            vmexit::ExitInformation::ExternalInterrupt(_) => unsafe {
-                // FIXME: For now, the only external interrupt would be the
-                // timers we setup in the vPIT, so we can just ack them. In
-                // the future this will not be true.
-                apic::get_local_apic_mut().eoi();
+            vmexit::ExitInformation::InterruptWindow => {}
+            vmexit::ExitInformation::ExternalInterrupt(info) => unsafe {
+                match info.vector {
+                    0x24 => self.handle_uart_keypress(),
+                    _ => (),
+                }
+
+                // Ack the interrupt via PIC or APIC based on the vector
+                if info.vector < 48 {
+                    //TODO: this should be a call to the physical PIC
+                    x86::io::outb(0x20, 0x20);
+                } else {
+                    apic::get_local_apic_mut().eoi();
+                }
             },
             _ => {
                 info!("{}", self.vmcs);

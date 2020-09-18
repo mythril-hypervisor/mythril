@@ -1,6 +1,6 @@
-use crate::device::{InterruptArray, Port, PortReadRequest, PortWriteRequest};
 use crate::error::Result;
 use crate::memory;
+use crate::virtdev::{InterruptArray, Port, PortReadRequest, PortWriteRequest};
 use crate::{vcpu, vmcs, vmexit};
 use core::convert::TryFrom;
 

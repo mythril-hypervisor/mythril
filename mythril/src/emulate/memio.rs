@@ -1,6 +1,6 @@
-use crate::device::{MemReadRequest, MemWriteRequest};
 use crate::error::{Error, Result};
 use crate::memory;
+use crate::virtdev::{MemReadRequest, MemWriteRequest};
 use crate::{vcpu, vmcs, vmexit};
 use arrayvec::ArrayVec;
 use iced_x86;

@@ -2,15 +2,16 @@ use crate::acpi;
 use crate::ap;
 use crate::apic;
 use crate::boot_info::BootInfo;
-use crate::device;
 use crate::interrupt;
 use crate::linux;
 use crate::logger;
 use crate::memory;
 use crate::multiboot2;
 use crate::percore;
+use crate::physdev;
 use crate::time;
 use crate::vcpu;
+use crate::virtdev;
 use crate::vm;
 
 use alloc::collections::BTreeMap;
@@ -39,57 +40,45 @@ fn default_vm(
 
     let device_map = config.device_map();
     device_map
-        .register_device(device::acpi::AcpiRuntime::new(0xb000).unwrap())
+        .register_device(virtdev::acpi::AcpiRuntime::new(0xb000).unwrap())
         .unwrap();
     device_map
-        .register_device(device::com::ComDevice::new(core as u64, 0x3F8))
+        .register_device(virtdev::debug::DebugPort::new(core as u64, 0x402))
         .unwrap();
     device_map
-        .register_device(device::com::ComDevice::new(core as u64, 0x2F8))
+        .register_device(virtdev::vga::VgaController::new())
         .unwrap();
     device_map
-        .register_device(device::com::ComDevice::new(core as u64, 0x3E8))
+        .register_device(virtdev::dma::Dma8237::new())
         .unwrap();
     device_map
-        .register_device(device::com::ComDevice::new(core as u64, 0x2E8))
+        .register_device(virtdev::ignore::IgnoredDevice::new())
         .unwrap();
     device_map
-        .register_device(device::debug::DebugPort::new(core as u64, 0x402))
+        .register_device(virtdev::pci::PciRootComplex::new())
         .unwrap();
     device_map
-        .register_device(device::vga::VgaController::new())
+        .register_device(virtdev::pic::Pic8259::new())
         .unwrap();
     device_map
-        .register_device(device::dma::Dma8237::new())
+        .register_device(virtdev::keyboard::Keyboard8042::new())
         .unwrap();
     device_map
-        .register_device(device::ignore::IgnoredDevice::new())
+        .register_device(virtdev::pit::Pit8254::new())
         .unwrap();
     device_map
-        .register_device(device::pci::PciRootComplex::new())
+        .register_device(virtdev::pos::ProgrammableOptionSelect::new())
         .unwrap();
     device_map
-        .register_device(device::pic::Pic8259::new())
-        .unwrap();
-    device_map
-        .register_device(device::keyboard::Keyboard8042::new())
-        .unwrap();
-    device_map
-        .register_device(device::pit::Pit8254::new())
-        .unwrap();
-    device_map
-        .register_device(device::pos::ProgrammableOptionSelect::new())
-        .unwrap();
-    device_map
-        .register_device(device::rtc::CmosRtc::new(mem))
+        .register_device(virtdev::rtc::CmosRtc::new(mem))
         .unwrap();
 
     //TODO: this should actually be per-vcpu
     device_map
-        .register_device(device::lapic::LocalApic::new())
+        .register_device(virtdev::lapic::LocalApic::new())
         .unwrap();
 
-    let mut fw_cfg_builder = device::qemu_fw_cfg::QemuFwCfgBuilder::new();
+    let mut fw_cfg_builder = virtdev::qemu_fw_cfg::QemuFwCfgBuilder::new();
 
     // The 'linuxboot' file is an option rom that loads the linux kernel
     // via qemu_fw_cfg
@@ -116,7 +105,7 @@ fn default_vm(
             "rodata=0 nopti disableapic acpi=off ",
             "earlyprintk=serial,0x3f8,115200 ",
             "console=ttyS0 debug nokaslr noapic mitigations=off ",
-            "root=/dev/ram0 rdinit=/init\0"
+            "root=/dev/ram0 rdinit=/bin/sh\0"
         )
         .as_bytes(),
         mem,
@@ -143,6 +132,8 @@ pub extern "C" fn ap_entry(_ap_data: &ap::ApData) -> ! {
         local_apic.version()
     );
 
+    unsafe { interrupt::enable_interrupts() };
+
     vcpu::mp_entry_point()
 }
 
@@ -167,6 +158,13 @@ unsafe fn kmain(mut boot_info: BootInfo) -> ! {
 
     // Calibrate the global time source
     time::init_global_time().expect("Failed to init global timesource");
+
+    // physdev::keyboard::Ps2Controller::init().expect("Failed to init ps2 controller");
+
+    // let uart = physdev::com::Uart8250::new(0x3f8);
+    // unsafe {interrupt::enable_interrupts()};
+
+    // loop {}
 
     // If the boot method provided an RSDT, use that one. Otherwise, search the
     // BIOS areas for it.
@@ -212,56 +210,56 @@ unsafe fn kmain(mut boot_info: BootInfo) -> ! {
 
     debug!("AP_STARTUP address: 0x{:x}", AP_STARTUP_ADDR);
 
-    for (idx, apic_id) in apic_ids.into_iter().enumerate() {
-        if apic_id == local_apic.id() as u32 {
-            continue;
-        }
+    // for (idx, apic_id) in apic_ids.into_iter().enumerate() {
+    //     if apic_id == local_apic.id() as u32 {
+    //         continue;
+    //     }
 
-        // Allocate a stack for the AP
-        let stack = vec![0u8; 100 * 1024];
+    //     // Allocate a stack for the AP
+    //     let stack = vec![0u8; 100 * 1024];
 
-        // Get the the bottom of the stack and align
-        let stack_bottom =
-            (stack.as_ptr() as u64 + stack.len() as u64) & 0xFFFFFFFFFFFFFFF0;
+    //     // Get the the bottom of the stack and align
+    //     let stack_bottom =
+    //         (stack.as_ptr() as u64 + stack.len() as u64) & 0xFFFFFFFFFFFFFFF0;
 
-        core::mem::forget(stack);
+    //     core::mem::forget(stack);
 
-        core::ptr::write_volatile(&mut AP_STACK_ADDR as *mut u64, stack_bottom);
+    //     core::ptr::write_volatile(&mut AP_STACK_ADDR as *mut u64, stack_bottom);
 
-        // Map the APIC ids to a sequential list and pass it to the AP
-        core::ptr::write_volatile(&mut AP_IDX as *mut u64, idx as u64);
+    //     // Map the APIC ids to a sequential list and pass it to the AP
+    //     core::ptr::write_volatile(&mut AP_IDX as *mut u64, idx as u64);
 
-        // mfence to ensure that the APs see the new stack address
-        core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
+    //     // mfence to ensure that the APs see the new stack address
+    //     core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
 
-        debug!("Send INIT to AP id={}", apic_id);
-        local_apic.send_ipi(
-            apic_id,
-            apic::DstShorthand::NoShorthand,
-            apic::TriggerMode::Edge,
-            apic::Level::Assert,
-            apic::DstMode::Physical,
-            apic::DeliveryMode::Init,
-            0,
-        );
+    //     debug!("Send INIT to AP id={}", apic_id);
+    //     local_apic.send_ipi(
+    //         apic_id,
+    //         apic::DstShorthand::NoShorthand,
+    //         apic::TriggerMode::Edge,
+    //         apic::Level::Assert,
+    //         apic::DstMode::Physical,
+    //         apic::DeliveryMode::Init,
+    //         0,
+    //     );
 
-        debug!("Send SIPI to AP id={}", apic_id);
-        local_apic.send_ipi(
-            apic_id,
-            apic::DstShorthand::NoShorthand,
-            apic::TriggerMode::Edge,
-            apic::Level::Assert,
-            apic::DstMode::Physical,
-            apic::DeliveryMode::StartUp,
-            (AP_STARTUP_ADDR >> 12) as u8,
-        );
+    //     debug!("Send SIPI to AP id={}", apic_id);
+    //     local_apic.send_ipi(
+    //         apic_id,
+    //         apic::DstShorthand::NoShorthand,
+    //         apic::TriggerMode::Edge,
+    //         apic::Level::Assert,
+    //         apic::DstMode::Physical,
+    //         apic::DeliveryMode::StartUp,
+    //         (AP_STARTUP_ADDR >> 12) as u8,
+    //     );
 
-        // Wait until the AP reports that it is done with startup
-        while core::ptr::read_volatile(&AP_READY as *const u8) != 1 {}
+    //     // Wait until the AP reports that it is done with startup
+    //     while core::ptr::read_volatile(&AP_READY as *const u8) != 1 {}
 
-        // Once the AP is done, clear the ready flag
-        core::ptr::write_volatile(&mut AP_READY as *mut u8, 0);
-    }
+    //     // Once the AP is done, clear the ready flag
+    //     core::ptr::write_volatile(&mut AP_READY as *mut u8, 0);
+    // }
 
     vcpu::mp_entry_point()
 }

@@ -1,20 +1,21 @@
 use crate::boot_info::BootInfo;
-use crate::device::{
-    DeviceMap, InterruptArray, MemReadRequest, MemWriteRequest, Port,
-    PortReadRequest, PortWriteRequest,
-};
 use crate::error::{Error, Result};
 use crate::memory::{
     self, GuestAddressSpace, GuestPhysAddr, HostPhysAddr, HostPhysFrame,
     Raw4kPage,
 };
+use crate::physdev;
 use crate::vcpu;
+use crate::virtdev::{
+    self, DeviceMap, InterruptArray, MemReadRequest, MemWriteRequest, Port,
+    PortReadRequest, PortWriteRequest,
+};
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-use spin::RwLock;
+use spin::{Mutex, RwLock};
 
 pub static mut VM_MAP: Option<BTreeMap<usize, Arc<RwLock<VirtualMachine>>>> =
     None;
@@ -85,6 +86,11 @@ pub struct VirtualMachine {
     ///
     /// This will be shared by all `VCpu`s associated with this VM.
     pub guest_space: GuestAddressSpace,
+
+    /// The physical serial connection for this VM (if any).
+    pub serial: Option<physdev::com::Uart8250>,
+
+    pub virt_uart: Arc<Mutex<virtdev::com::Uart8250>>,
 }
 
 impl VirtualMachine {
@@ -93,13 +99,19 @@ impl VirtualMachine {
     /// This creates the guest address space (allocating the needed memory),
     /// and maps in the requested images.
     pub fn new(
-        config: VirtualMachineConfig,
+        mut config: VirtualMachineConfig,
         info: &BootInfo,
     ) -> Result<Arc<RwLock<Self>>> {
         let guest_space = Self::setup_ept(&config, info)?;
+
+        let uart = virtdev::com::Uart8250::new(0, 0x3F8);
+        config.device_map().register_device(uart.clone()).unwrap();
+
         Ok(Arc::new(RwLock::new(Self {
             config: config,
             guest_space: guest_space,
+            serial: physdev::com::Uart8250::new(0x3f8).ok(),
+            virt_uart: uart,
         })))
     }
 
@@ -123,7 +135,7 @@ impl VirtualMachine {
             &vcpu.vmcs,
             &mut self.guest_space,
         )?;
-        dev.on_mem_read(addr, val, view)
+        dev.lock().on_mem_read(addr, val, view)
     }
 
     pub fn on_mem_write(
@@ -146,7 +158,7 @@ impl VirtualMachine {
             &vcpu.vmcs,
             &mut self.guest_space,
         )?;
-        dev.on_mem_write(addr, val, view)
+        dev.lock().on_mem_write(addr, val, view)
     }
 
     pub fn on_port_read(
@@ -166,7 +178,7 @@ impl VirtualMachine {
             &vcpu.vmcs,
             &mut self.guest_space,
         )?;
-        dev.on_port_read(port, val, view)
+        dev.lock().on_port_read(port, val, view)
     }
 
     pub fn on_port_write(
@@ -186,7 +198,7 @@ impl VirtualMachine {
             &vcpu.vmcs,
             &mut self.guest_space,
         )?;
-        dev.on_port_write(port, val, view)
+        dev.lock().on_port_write(port, val, view)
     }
 
     fn map_data(

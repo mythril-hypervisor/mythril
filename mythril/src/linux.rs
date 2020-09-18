@@ -1,6 +1,6 @@
 use crate::boot_info::BootInfo;
-use crate::device::qemu_fw_cfg::{FwCfgSelector, QemuFwCfgBuilder};
 use crate::error::{Error, Result};
+use crate::virtdev::qemu_fw_cfg::{FwCfgSelector, QemuFwCfgBuilder};
 use bitflags::bitflags;
 use byteorder::{ByteOrder, LittleEndian};
 

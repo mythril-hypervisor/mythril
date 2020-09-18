@@ -1,5 +1,5 @@
 use crate::error::{Error, Result};
-use crate::pit;
+use crate::physdev::pit;
 use crate::time::{Instant, TimeSource};
 
 use x86::io::{inb, outb};

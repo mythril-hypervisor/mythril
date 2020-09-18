@@ -1,14 +1,15 @@
-use crate::device::{
+use crate::error::{Error, Result};
+use crate::memory::GuestAddressSpaceViewMut;
+use crate::virtdev::{
     DeviceRegion, EmulatedDevice, InterruptArray, Port, PortReadRequest,
     PortWriteRequest,
 };
-use crate::error::{Error, Result};
-use crate::memory::GuestAddressSpaceViewMut;
-use alloc::boxed::Box;
 use alloc::collections::btree_map::BTreeMap;
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::convert::TryInto;
 use num_enum::TryFromPrimitive;
+use spin::Mutex;
 use ux;
 
 #[derive(Clone, Copy, Debug, TryFromPrimitive)]
@@ -157,7 +158,7 @@ impl PciRootComplex {
     const PCI_CONFIG_DATA: Port = 0xcfc;
     const PCI_CONFIG_DATA_MAX: Port = Self::PCI_CONFIG_DATA + 3;
 
-    pub fn new() -> Box<Self> {
+    pub fn new() -> Arc<Mutex<Self>> {
         let mut devices = BTreeMap::new();
 
         let host_bridge = PciDevice {
@@ -184,10 +185,10 @@ impl PciRootComplex {
         };
         devices.insert(ich9.bdf.into(), ich9);
 
-        Box::new(Self {
+        Arc::new(Mutex::new(Self {
             current_address: 0,
             devices: devices,
-        })
+        }))
     }
 }
 

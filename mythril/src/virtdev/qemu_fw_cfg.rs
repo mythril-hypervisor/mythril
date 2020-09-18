@@ -1,17 +1,18 @@
-use crate::device::{
-    DeviceRegion, EmulatedDevice, InterruptArray, Port, PortReadRequest,
-    PortWriteRequest,
-};
 use crate::error::{Error, Result};
 use crate::memory::{
     GuestAccess, GuestAddressSpaceViewMut, GuestPhysAddr, GuestVirtAddr,
     PrivilegeLevel,
 };
-use alloc::boxed::Box;
+use crate::virtdev::{
+    DeviceRegion, EmulatedDevice, InterruptArray, Port, PortReadRequest,
+    PortWriteRequest,
+};
 use alloc::collections::BTreeMap;
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 use bitflags::bitflags;
 use core::convert::TryInto;
+use spin::Mutex;
 
 // This is _almost_ an enum, but there are 'file' selectors
 // between 0x20 and 0x7fff inclusive that make it impractical to actually
@@ -135,7 +136,7 @@ impl QemuFwCfgBuilder {
         s
     }
 
-    pub fn build(mut self) -> Box<QemuFwCfg> {
+    pub fn build(mut self) -> Arc<Mutex<QemuFwCfg>> {
         // Now that we are done building the fwcfg device, we need to make the
         // FileDir buffer, which has the following structure:
         //
@@ -166,12 +167,12 @@ impl QemuFwCfgBuilder {
 
         self.data.insert(FwCfgSelector::FILE_DIR, buffer);
 
-        Box::new(QemuFwCfg {
+        Arc::new(Mutex::new(QemuFwCfg {
             selector: FwCfgSelector::SIGNATURE,
             data: self.data,
             data_idx: 0,
             dma_addr: 0,
-        })
+        }))
     }
 
     fn next_file_selector(&self) -> u16 {

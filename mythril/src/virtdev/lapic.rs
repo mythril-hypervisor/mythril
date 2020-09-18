@@ -1,18 +1,19 @@
-use crate::device::{
+use crate::error::Result;
+use crate::memory::{GuestAddressSpaceViewMut, GuestPhysAddr};
+use crate::virtdev::{
     DeviceRegion, EmulatedDevice, InterruptArray, MemReadRequest,
     MemWriteRequest,
 };
-use crate::error::Result;
-use crate::memory::{GuestAddressSpaceViewMut, GuestPhysAddr};
-use alloc::boxed::Box;
+use alloc::sync::Arc;
 use alloc::vec::Vec;
+use spin::Mutex;
 
 #[derive(Default)]
 pub struct LocalApic;
 
 impl LocalApic {
-    pub fn new() -> Box<Self> {
-        Box::new(LocalApic::default())
+    pub fn new() -> Arc<Mutex<Self>> {
+        Arc::new(Mutex::new(LocalApic::default()))
     }
 }
 

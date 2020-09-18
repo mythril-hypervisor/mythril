@@ -2,13 +2,14 @@ use crate::error::{Error, Result};
 use crate::memory::{GuestAddressSpaceViewMut, GuestPhysAddr};
 use alloc::boxed::Box;
 use alloc::collections::btree_map::BTreeMap;
-use alloc::rc::Rc;
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 use arrayvec::ArrayVec;
 use core::cmp::Ordering;
 use core::convert::{TryFrom, TryInto};
 use core::fmt;
 use core::ops::RangeInclusive;
+use spin::Mutex;
 
 pub mod acpi;
 pub mod com;
@@ -77,52 +78,55 @@ pub enum DeviceRegion {
 }
 
 pub trait DeviceInteraction {
-    fn find_device(self, map: &DeviceMap) -> Option<&Box<dyn EmulatedDevice>>;
+    fn find_device(
+        self,
+        map: &DeviceMap,
+    ) -> Option<&Arc<Mutex<dyn EmulatedDevice>>>;
     fn find_device_mut(
         self,
         map: &mut DeviceMap,
-    ) -> Option<&mut Box<dyn EmulatedDevice>>;
+    ) -> Option<&mut Arc<Mutex<dyn EmulatedDevice>>>;
 }
 
 impl DeviceInteraction for u16 {
-    fn find_device(self, map: &DeviceMap) -> Option<&Box<dyn EmulatedDevice>> {
+    fn find_device(
+        self,
+        map: &DeviceMap,
+    ) -> Option<&Arc<Mutex<dyn EmulatedDevice>>> {
         let range = PortIoRegion(RangeInclusive::new(self, self));
-        map.portio_map.get(&range).map(|v| &**v)
+        map.portio_map.get(&range)
     }
     fn find_device_mut(
         self,
         map: &mut DeviceMap,
-    ) -> Option<&mut Box<dyn EmulatedDevice>> {
+    ) -> Option<&mut Arc<Mutex<dyn EmulatedDevice>>> {
         let range = PortIoRegion(RangeInclusive::new(self, self));
-        //NOTE: This is safe because all of the clones will exist in the same DeviceMap,
-        //      so there cannot be other outstanding references
-        map.portio_map
-            .get_mut(&range)
-            .map(|v| unsafe { Rc::get_mut_unchecked(v) })
+        map.portio_map.get_mut(&range)
     }
 }
 
 impl DeviceInteraction for GuestPhysAddr {
-    fn find_device(self, map: &DeviceMap) -> Option<&Box<dyn EmulatedDevice>> {
+    fn find_device(
+        self,
+        map: &DeviceMap,
+    ) -> Option<&Arc<Mutex<dyn EmulatedDevice>>> {
         let range = MemIoRegion(RangeInclusive::new(self, self));
-        map.memio_map.get(&range).map(|v| &**v)
+        map.memio_map.get(&range)
     }
     fn find_device_mut(
         self,
         map: &mut DeviceMap,
-    ) -> Option<&mut Box<dyn EmulatedDevice>> {
+    ) -> Option<&mut Arc<Mutex<dyn EmulatedDevice>>> {
         let range = MemIoRegion(RangeInclusive::new(self, self));
-        map.memio_map
-            .get_mut(&range)
-            .map(|v| unsafe { Rc::get_mut_unchecked(v) })
+        map.memio_map.get_mut(&range)
     }
 }
 
 /// A structure for looking up `EmulatedDevice`s by port or address
 #[derive(Default)]
 pub struct DeviceMap {
-    portio_map: BTreeMap<PortIoRegion, Rc<Box<dyn EmulatedDevice>>>,
-    memio_map: BTreeMap<MemIoRegion, Rc<Box<dyn EmulatedDevice>>>,
+    portio_map: BTreeMap<PortIoRegion, Arc<Mutex<dyn EmulatedDevice>>>,
+    memio_map: BTreeMap<MemIoRegion, Arc<Mutex<dyn EmulatedDevice>>>,
 }
 
 impl DeviceMap {
@@ -130,23 +134,22 @@ impl DeviceMap {
     pub fn device_for(
         &self,
         op: impl DeviceInteraction,
-    ) -> Option<&Box<dyn EmulatedDevice>> {
+    ) -> Option<&Arc<Mutex<dyn EmulatedDevice>>> {
         op.find_device(self)
     }
 
     pub fn device_for_mut(
         &mut self,
         op: impl DeviceInteraction,
-    ) -> Option<&mut Box<dyn EmulatedDevice>> {
+    ) -> Option<&mut Arc<Mutex<dyn EmulatedDevice>>> {
         op.find_device_mut(self)
     }
 
     pub fn register_device(
         &mut self,
-        dev: Box<dyn EmulatedDevice>,
+        dev: Arc<Mutex<dyn EmulatedDevice>>,
     ) -> Result<()> {
-        let services = dev.services();
-        let dev = Rc::new(dev);
+        let services = dev.lock().services();
         for region in services.into_iter() {
             match region {
                 DeviceRegion::PortIo(val) => {
@@ -163,7 +166,7 @@ impl DeviceMap {
                             key.0.start(), key.0.end(), conflict.0.start(), conflict.0.end()
                         )));
                     }
-                    self.portio_map.insert(key, Rc::clone(&dev));
+                    self.portio_map.insert(key, dev.clone());
                 }
                 DeviceRegion::MemIo(val) => {
                     let key = MemIoRegion(val);
@@ -178,7 +181,7 @@ impl DeviceMap {
                             key.0.start().as_u64(), key.0.end().as_u64(), conflict.0.start().as_u64(), conflict.0.end().as_u64()
                         )));
                     }
-                    self.memio_map.insert(key, Rc::clone(&dev));
+                    self.memio_map.insert(key, dev.clone());
                 }
             }
         }

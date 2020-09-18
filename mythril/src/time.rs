@@ -16,7 +16,7 @@ use alloc::{collections::BTreeMap, vec};
 use core::ops::{Add, AddAssign, Sub, SubAssign};
 use core::time::Duration;
 
-const TIMER_VECTOR: u8 = 32;
+const TIMER_VECTOR: u8 = 48;
 
 //TODO: should this just be stored as a VCPU member?
 declare_per_core! {

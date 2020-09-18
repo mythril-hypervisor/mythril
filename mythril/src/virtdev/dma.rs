@@ -1,11 +1,12 @@
-use crate::device::{
+use crate::error::Result;
+use crate::memory::GuestAddressSpaceViewMut;
+use crate::virtdev::{
     DeviceRegion, EmulatedDevice, InterruptArray, Port, PortReadRequest,
     PortWriteRequest,
 };
-use crate::error::Result;
-use crate::memory::GuestAddressSpaceViewMut;
-use alloc::boxed::Box;
+use alloc::sync::Arc;
 use alloc::vec::Vec;
+use spin::Mutex;
 
 #[derive(Default, Debug)]
 pub struct Dma8237;
@@ -28,8 +29,8 @@ impl Dma8237 {
     const DMA2_MODE: Port = 0x00d6;
     const DMA2_MASTER_CLEAR: Port = 0x00da;
 
-    pub fn new() -> Box<Self> {
-        Box::new(Dma8237::default())
+    pub fn new() -> Arc<Mutex<Self>> {
+        Arc::new(Mutex::new(Dma8237::default()))
     }
 }
 

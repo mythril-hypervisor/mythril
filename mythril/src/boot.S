@@ -148,10 +148,36 @@ _start:
     call map_page_directory
     pop edi
 
-    ; Disable IRQs (probably not necessary)
-    mov al, 0xFF                      ; Out 0xFF to 0xA1 and 0x21 to disable all IRQs.
-    out 0xA1, al
+    ; Setup PIC
+    mov al, 0x11
+    out 0x20, al
+    out 0xa0, al
+
+    ; Setup offsets
+    mov al, 0x20
     out 0x21, al
+    mov al, 0x28
+    out 0xa1, al
+
+    mov al, 0x4
+    out 0x21, al
+    mov al, 0x2
+    out 0xa1, al
+
+    mov al, 0x1
+    out 0x21, al
+    out 0xa1, al
+
+    ; Set IRQ masks
+    mov al, 0xED                ; Unmask IRQ1 (ps2) and IRQ4 (COM1)
+    out 0x21, al
+    mov al, 0xFF
+    out 0xA1, al
+
+    ; ACK any pending interrupts
+    mov al, 0x20
+    out 0x20, al
+    out 0xa0, al
 
     ; Enter long mode.
     mov eax, 10100000b                ; Set the PAE and PGE bit.

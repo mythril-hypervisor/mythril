@@ -1,15 +1,16 @@
-use crate::device::{
+use crate::error::{Error, Result};
+use crate::memory::GuestAddressSpaceViewMut;
+use crate::physdev::pit::*;
+use crate::time;
+use crate::virtdev::{
     DeviceRegion, EmulatedDevice, InterruptArray, Port, PortReadRequest,
     PortWriteRequest,
 };
-use crate::error::{Error, Result};
-use crate::memory::GuestAddressSpaceViewMut;
-use crate::pit::*;
-use crate::time;
 
-use alloc::boxed::Box;
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::convert::TryFrom;
+use spin::Mutex;
 
 #[derive(Debug)]
 enum OperatingModeState {
@@ -60,8 +61,8 @@ pub struct Pit8254 {
 }
 
 impl Pit8254 {
-    pub fn new() -> Box<Self> {
-        Box::new(Pit8254::default())
+    pub fn new() -> Arc<Mutex<Self>> {
+        Arc::new(Mutex::new(Pit8254::default()))
     }
 }
 

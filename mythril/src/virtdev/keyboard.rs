@@ -1,11 +1,12 @@
-use crate::device::{
+use crate::error::Result;
+use crate::memory::GuestAddressSpaceViewMut;
+use crate::virtdev::{
     DeviceRegion, EmulatedDevice, InterruptArray, Port, PortReadRequest,
     PortWriteRequest,
 };
-use crate::error::Result;
-use crate::memory::GuestAddressSpaceViewMut;
-use alloc::boxed::Box;
+use alloc::sync::Arc;
 use alloc::vec::Vec;
+use spin::Mutex;
 
 #[derive(Default, Debug)]
 pub struct Keyboard8042;
@@ -14,8 +15,8 @@ impl Keyboard8042 {
     const PS2_DATA: Port = 0x0060;
     const PS2_STATUS: Port = 0x0064;
 
-    pub fn new() -> Box<Self> {
-        Box::new(Self::default())
+    pub fn new() -> Arc<Mutex<Self>> {
+        Arc::new(Mutex::new(Self::default()))
     }
 }
 

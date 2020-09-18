@@ -1,11 +1,12 @@
-use crate::device::{
+use crate::error::Result;
+use crate::memory::GuestAddressSpaceViewMut;
+use crate::virtdev::{
     DeviceRegion, EmulatedDevice, InterruptArray, Port, PortReadRequest,
     PortWriteRequest,
 };
-use crate::error::Result;
-use crate::memory::GuestAddressSpaceViewMut;
-use alloc::boxed::Box;
+use alloc::sync::Arc;
 use alloc::vec::Vec;
+use spin::Mutex;
 
 // In the future, we will just ignore all ports not associated with mapped devices,
 // but for now, it is useful to explicitly ignore devices we don't need to emulate
@@ -14,8 +15,8 @@ use alloc::vec::Vec;
 pub struct IgnoredDevice;
 
 impl IgnoredDevice {
-    pub fn new() -> Box<Self> {
-        Box::new(Self::default())
+    pub fn new() -> Arc<Mutex<Self>> {
+        Arc::new(Mutex::new(Self::default()))
     }
 }
 
@@ -29,6 +30,10 @@ impl EmulatedDevice for IgnoredDevice {
             DeviceRegion::PortIo(128..=128),
             //TODO: don't know what this is yet
             DeviceRegion::PortIo(135..=135),
+            // Unused UART interfaces
+            DeviceRegion::PortIo(0x2F8..=0x2F8 + 7),
+            DeviceRegion::PortIo(0x3E8..=0x3E8 + 7),
+            DeviceRegion::PortIo(0x2E8..=0x2E8 + 7),
         ]
     }
 
