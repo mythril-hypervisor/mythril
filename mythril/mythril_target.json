@@ -4,7 +4,7 @@
     "linker-flavor": "gcc",
     "pre-link-args": {
         "gcc": [
-	    "-Tmythril_multiboot2/linker.ld",
+	    "-Tlinker.ld",
             "-nostartfiles"
 	]
     },

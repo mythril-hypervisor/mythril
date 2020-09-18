@@ -1,7 +1,7 @@
 ENTRY(_start)
 
 SECTIONS {
-    . = 0x7E00;
+    . = 0x8000;
 
     .ap_startup ALIGN(4K) : ALIGN(4K)
     {

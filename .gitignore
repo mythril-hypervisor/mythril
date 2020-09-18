@@ -1,5 +1,6 @@
 /boot
 /target
+mythril/target
 _boot.img
 **/*.rs.bk
 debug.log

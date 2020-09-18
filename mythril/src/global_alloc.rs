@@ -4,35 +4,20 @@ use linked_list_allocator::{self, LockedHeap};
 
 pub enum Allocator {
     Unavailable,
-    Available(MultibootAllocator),
+    Available(LockedHeap),
 }
 
 impl Allocator {
     pub unsafe fn allocate_from(start: u64, end: u64) {
         match ALLOCATOR {
             Allocator::Unavailable => {
-                ALLOCATOR =
-                    Allocator::Available(MultibootAllocator::new(start, end));
+                ALLOCATOR = Allocator::Available(LockedHeap::new(
+                    start as usize,
+                    end as usize,
+                ));
             }
             _ => panic!("Allocator has already been initialized"),
         }
-    }
-}
-
-pub struct MultibootAllocator(LockedHeap);
-impl MultibootAllocator {
-    fn new(start: u64, end: u64) -> Self {
-        Self(unsafe { LockedHeap::new(start as usize, end as usize) })
-    }
-}
-
-unsafe impl GlobalAlloc for MultibootAllocator {
-    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        self.0.alloc(layout)
-    }
-
-    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        self.0.dealloc(ptr, layout)
     }
 }
 
@@ -52,5 +37,12 @@ unsafe impl GlobalAlloc for Allocator {
     }
 }
 
+// Tests use the std global allocator, but this symbol must still be defined
+// for the library to compile, so define it here but do not set it as the
+// global allocator.
+#[cfg(test)]
+static mut ALLOCATOR: Allocator = Allocator::Unavailable;
+
+#[cfg(not(test))]
 #[global_allocator]
 static mut ALLOCATOR: Allocator = Allocator::Unavailable;

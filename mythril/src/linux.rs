@@ -1,6 +1,6 @@
+use crate::boot_info::BootInfo;
 use crate::device::qemu_fw_cfg::{FwCfgSelector, QemuFwCfgBuilder};
 use crate::error::{Error, Result};
-use crate::vm::VmServices;
 use bitflags::bitflags;
 use byteorder::{ByteOrder, LittleEndian};
 
@@ -22,10 +22,27 @@ pub fn load_linux(
     cmdline: &[u8],
     memory: u64,
     builder: &mut QemuFwCfgBuilder,
-    services: &mut impl VmServices,
+    info: &BootInfo,
 ) -> Result<()> {
-    let mut kernel = services.read_file(kernel_name.as_ref())?.to_vec();
-    let initramfs = services.read_file(initramfs_name.as_ref())?;
+    let mut kernel = info
+        .find_module(kernel_name.as_ref())
+        .ok_or_else(|| {
+            Error::InvalidValue(format!(
+                "No such kernel '{}'",
+                kernel_name.as_ref()
+            ))
+        })?
+        .data()
+        .to_vec();
+    let initramfs = info
+        .find_module(initramfs_name.as_ref())
+        .ok_or_else(|| {
+            Error::InvalidValue(format!(
+                "No such initramfs '{}'",
+                initramfs_name.as_ref()
+            ))
+        })?
+        .data();
 
     if kernel.len() < 8192 {
         return Err(Error::InvalidValue(format!(

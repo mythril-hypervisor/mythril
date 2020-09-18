@@ -1,5 +1,7 @@
 DEFAULT REL
 
+[BITS 32]
+
 section .multiboot_header
 header_start:
     dd 0xe85250d6                ; magic number (multiboot 2)
@@ -15,4 +17,11 @@ header_start:
     dw 0    ; flags
     dd 8    ; size
 header_end:
-        
+
+global MULTIBOOT2_HEADER_START
+MULTIBOOT2_HEADER_START:
+    dd header_start
+
+global MULTIBOOT2_HEADER_END
+MULTIBOOT2_HEADER_END:
+    dd header_end
