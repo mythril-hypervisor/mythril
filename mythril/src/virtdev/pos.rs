@@ -6,7 +6,7 @@ use crate::virtdev::{
 };
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-use spin::Mutex;
+use spin::RwLock;
 
 #[derive(Default, Debug)]
 pub struct ProgrammableOptionSelect;
@@ -20,8 +20,8 @@ impl ProgrammableOptionSelect {
     const _POS_RESERVED_2: Port = 0x95;
     const POS_ADAPTER_ENABLE_SETUP: Port = 0x96;
 
-    pub fn new() -> Arc<Mutex<Self>> {
-        Arc::new(Mutex::new(ProgrammableOptionSelect::default()))
+    pub fn new() -> Arc<RwLock<Self>> {
+        Arc::new(RwLock::new(ProgrammableOptionSelect::default()))
     }
 }
 
@@ -39,9 +39,10 @@ impl EmulatedDevice for ProgrammableOptionSelect {
         _port: Port,
         mut val: PortReadRequest,
         _space: GuestAddressSpaceViewMut,
-    ) -> Result<InterruptArray> {
+        _interrupts: &mut InterruptArray,
+    ) -> Result<()> {
         val.copy_from_u32(0);
-        Ok(InterruptArray::default())
+        Ok(())
     }
 
     fn on_port_write(
@@ -49,7 +50,8 @@ impl EmulatedDevice for ProgrammableOptionSelect {
         _port: Port,
         _val: PortWriteRequest,
         _space: GuestAddressSpaceViewMut,
-    ) -> Result<InterruptArray> {
-        Ok(InterruptArray::default())
+        _interrupts: &mut InterruptArray,
+    ) -> Result<()> {
+        Ok(())
     }
 }

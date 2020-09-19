@@ -6,7 +6,7 @@ use crate::virtdev::{
 };
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-use spin::Mutex;
+use spin::RwLock;
 
 // In the future, we will just ignore all ports not associated with mapped devices,
 // but for now, it is useful to explicitly ignore devices we don't need to emulate
@@ -15,8 +15,8 @@ use spin::Mutex;
 pub struct IgnoredDevice;
 
 impl IgnoredDevice {
-    pub fn new() -> Arc<Mutex<Self>> {
-        Arc::new(Mutex::new(Self::default()))
+    pub fn new() -> Arc<RwLock<Self>> {
+        Arc::new(RwLock::new(Self::default()))
     }
 }
 
@@ -42,8 +42,9 @@ impl EmulatedDevice for IgnoredDevice {
         _port: Port,
         _val: PortReadRequest,
         _space: GuestAddressSpaceViewMut,
-    ) -> Result<InterruptArray> {
-        Ok(InterruptArray::default())
+        _interrupts: &mut InterruptArray,
+    ) -> Result<()> {
+        Ok(())
     }
 
     fn on_port_write(
@@ -51,7 +52,8 @@ impl EmulatedDevice for IgnoredDevice {
         _port: Port,
         _val: PortWriteRequest,
         _space: GuestAddressSpaceViewMut,
-    ) -> Result<InterruptArray> {
-        Ok(InterruptArray::default())
+        _interrupts: &mut InterruptArray,
+    ) -> Result<()> {
+        Ok(())
     }
 }

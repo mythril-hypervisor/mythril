@@ -1,6 +1,5 @@
 use crate::error::{Error, Result};
 use crate::memory::{GuestAddressSpaceViewMut, GuestPhysAddr};
-use alloc::boxed::Box;
 use alloc::collections::btree_map::BTreeMap;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
@@ -9,7 +8,7 @@ use core::cmp::Ordering;
 use core::convert::{TryFrom, TryInto};
 use core::fmt;
 use core::ops::RangeInclusive;
-use spin::Mutex;
+use spin::RwLock;
 
 pub mod acpi;
 pub mod com;
@@ -25,6 +24,12 @@ pub mod pos;
 pub mod qemu_fw_cfg;
 pub mod rtc;
 pub mod vga;
+
+#[derive(Eq, PartialEq, Debug)]
+#[non_exhaustive]
+pub enum DeviceMessage {
+    UartKeyPressed(u8),
+}
 
 const MAX_EVENT_INTERRUPTS: usize = 8;
 pub type InterruptArray = ArrayVec<[u8; MAX_EVENT_INTERRUPTS]>;
@@ -81,25 +86,25 @@ pub trait DeviceInteraction {
     fn find_device(
         self,
         map: &DeviceMap,
-    ) -> Option<&Arc<Mutex<dyn EmulatedDevice>>>;
+    ) -> Option<&Arc<RwLock<dyn EmulatedDevice>>>;
     fn find_device_mut(
         self,
         map: &mut DeviceMap,
-    ) -> Option<&mut Arc<Mutex<dyn EmulatedDevice>>>;
+    ) -> Option<&mut Arc<RwLock<dyn EmulatedDevice>>>;
 }
 
 impl DeviceInteraction for u16 {
     fn find_device(
         self,
         map: &DeviceMap,
-    ) -> Option<&Arc<Mutex<dyn EmulatedDevice>>> {
+    ) -> Option<&Arc<RwLock<dyn EmulatedDevice>>> {
         let range = PortIoRegion(RangeInclusive::new(self, self));
         map.portio_map.get(&range)
     }
     fn find_device_mut(
         self,
         map: &mut DeviceMap,
-    ) -> Option<&mut Arc<Mutex<dyn EmulatedDevice>>> {
+    ) -> Option<&mut Arc<RwLock<dyn EmulatedDevice>>> {
         let range = PortIoRegion(RangeInclusive::new(self, self));
         map.portio_map.get_mut(&range)
     }
@@ -109,14 +114,14 @@ impl DeviceInteraction for GuestPhysAddr {
     fn find_device(
         self,
         map: &DeviceMap,
-    ) -> Option<&Arc<Mutex<dyn EmulatedDevice>>> {
+    ) -> Option<&Arc<RwLock<dyn EmulatedDevice>>> {
         let range = MemIoRegion(RangeInclusive::new(self, self));
         map.memio_map.get(&range)
     }
     fn find_device_mut(
         self,
         map: &mut DeviceMap,
-    ) -> Option<&mut Arc<Mutex<dyn EmulatedDevice>>> {
+    ) -> Option<&mut Arc<RwLock<dyn EmulatedDevice>>> {
         let range = MemIoRegion(RangeInclusive::new(self, self));
         map.memio_map.get_mut(&range)
     }
@@ -125,31 +130,24 @@ impl DeviceInteraction for GuestPhysAddr {
 /// A structure for looking up `EmulatedDevice`s by port or address
 #[derive(Default)]
 pub struct DeviceMap {
-    portio_map: BTreeMap<PortIoRegion, Arc<Mutex<dyn EmulatedDevice>>>,
-    memio_map: BTreeMap<MemIoRegion, Arc<Mutex<dyn EmulatedDevice>>>,
+    portio_map: BTreeMap<PortIoRegion, Arc<RwLock<dyn EmulatedDevice>>>,
+    memio_map: BTreeMap<MemIoRegion, Arc<RwLock<dyn EmulatedDevice>>>,
 }
 
 impl DeviceMap {
     /// Find the device that is responsible for handling an interaction
-    pub fn device_for(
+    pub fn find_device(
         &self,
         op: impl DeviceInteraction,
-    ) -> Option<&Arc<Mutex<dyn EmulatedDevice>>> {
+    ) -> Option<&Arc<RwLock<dyn EmulatedDevice>>> {
         op.find_device(self)
-    }
-
-    pub fn device_for_mut(
-        &mut self,
-        op: impl DeviceInteraction,
-    ) -> Option<&mut Arc<Mutex<dyn EmulatedDevice>>> {
-        op.find_device_mut(self)
     }
 
     pub fn register_device(
         &mut self,
-        dev: Arc<Mutex<dyn EmulatedDevice>>,
+        dev: Arc<RwLock<dyn EmulatedDevice>>,
     ) -> Result<()> {
-        let services = dev.lock().services();
+        let services = dev.read().services();
         for region in services.into_iter() {
             match region {
                 DeviceRegion::PortIo(val) => {
@@ -192,12 +190,22 @@ impl DeviceMap {
 pub trait EmulatedDevice {
     fn services(&self) -> Vec<DeviceRegion>;
 
+    fn on_event(
+        &mut self,
+        _event: &DeviceMessage,
+        _space: GuestAddressSpaceViewMut,
+        _interrupts: &mut InterruptArray,
+    ) -> Result<()> {
+        Ok(())
+    }
+
     fn on_mem_read(
         &mut self,
         _addr: GuestPhysAddr,
         _data: MemReadRequest,
         _space: GuestAddressSpaceViewMut,
-    ) -> Result<InterruptArray> {
+        _interrupts: &mut InterruptArray,
+    ) -> Result<()> {
         Err(Error::NotImplemented(
             "MemoryMapped device does not support reading".into(),
         ))
@@ -207,7 +215,8 @@ pub trait EmulatedDevice {
         _addr: GuestPhysAddr,
         _data: MemWriteRequest,
         _space: GuestAddressSpaceViewMut,
-    ) -> Result<InterruptArray> {
+        _interrupts: &mut InterruptArray,
+    ) -> Result<()> {
         Err(Error::NotImplemented(
             "MemoryMapped device does not support writing".into(),
         ))
@@ -217,7 +226,8 @@ pub trait EmulatedDevice {
         _port: Port,
         _val: PortReadRequest,
         _space: GuestAddressSpaceViewMut,
-    ) -> Result<InterruptArray> {
+        _interrupts: &mut InterruptArray,
+    ) -> Result<()> {
         Err(Error::NotImplemented(
             "PortIo device does not support reading".into(),
         ))
@@ -227,7 +237,8 @@ pub trait EmulatedDevice {
         _port: Port,
         _val: PortWriteRequest,
         _space: GuestAddressSpaceViewMut,
-    ) -> Result<InterruptArray> {
+        _interrupts: &mut InterruptArray,
+    ) -> Result<()> {
         Err(Error::NotImplemented(
             "PortIo device does not support writing".into(),
         ))
@@ -486,10 +497,11 @@ impl<'a> fmt::Display for MemReadRequest<'a> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::device::com::*;
     use crate::memory::{
         GuestAddressSpace, GuestAddressSpaceViewMut, GuestPhysAddr,
     };
+    use crate::virtdev::com::*;
+    use alloc::boxed::Box;
     use core::convert::TryInto;
 
     fn define_test_view() -> GuestAddressSpaceViewMut<'static> {
@@ -505,8 +517,10 @@ mod test {
     }
 
     impl DummyDevice {
-        fn new(services: Vec<RangeInclusive<Port>>) -> Box<dyn EmulatedDevice> {
-            Box::new(Self { services })
+        fn new(
+            services: Vec<RangeInclusive<Port>>,
+        ) -> Arc<RwLock<dyn EmulatedDevice>> {
+            Arc::new(RwLock::new(Self { services }))
         }
     }
 
@@ -522,21 +536,26 @@ mod test {
     #[test]
     fn test_memmap_write_to_portio_fails() {
         let view = define_test_view();
-        let mut com = ComDevice::new(0, 0);
+        let mut interrupts = InterruptArray::default();
+        let com = Uart8250::new(0, 0);
         let addr = GuestPhysAddr::new(0);
         let data = [0u8; 4];
         let req = MemWriteRequest::new(&data);
-        assert_eq!(com.on_mem_write(addr, req, view).is_err(), true);
+        let mut com = com.write();
+        assert_eq!(
+            com.on_mem_write(addr, req, view, &mut interrupts).is_err(),
+            true
+        );
     }
 
     #[test]
     fn test_device_map() {
         let mut map = DeviceMap::default();
-        let com = ComDevice::new(0, 0);
+        let com = Uart8250::new(0, 0);
         map.register_device(com).unwrap();
-        let _dev = map.device_for(0u16).unwrap();
+        let _dev = map.find_device(0u16).unwrap();
 
-        assert_eq!(map.device_for(10u16).is_none(), true);
+        assert_eq!(map.find_device(10u16).is_none(), true);
     }
 
     #[test]
@@ -568,9 +587,9 @@ mod test {
     #[test]
     fn test_conflicting_portio_device() {
         let mut map = DeviceMap::default();
-        let com = ComDevice::new(0, 0);
+        let com = Uart8250::new(0, 0);
         map.register_device(com).unwrap();
-        let com = ComDevice::new(0, 0);
+        let com = Uart8250::new(0, 0);
 
         assert!(map.register_device(com).is_err());
     }

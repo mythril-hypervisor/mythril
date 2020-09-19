@@ -6,7 +6,7 @@ use crate::virtdev::{
 };
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-use spin::Mutex;
+use spin::RwLock;
 
 #[derive(Default, Debug)]
 pub struct Dma8237;
@@ -29,8 +29,8 @@ impl Dma8237 {
     const DMA2_MODE: Port = 0x00d6;
     const DMA2_MASTER_CLEAR: Port = 0x00da;
 
-    pub fn new() -> Arc<Mutex<Self>> {
-        Arc::new(Mutex::new(Dma8237::default()))
+    pub fn new() -> Arc<RwLock<Self>> {
+        Arc::new(RwLock::new(Dma8237::default()))
     }
 }
 
@@ -52,8 +52,9 @@ impl EmulatedDevice for Dma8237 {
         _port: Port,
         _val: PortReadRequest,
         _space: GuestAddressSpaceViewMut,
-    ) -> Result<InterruptArray> {
-        Ok(InterruptArray::default())
+        _interrupts: &mut InterruptArray,
+    ) -> Result<()> {
+        Ok(())
     }
 
     fn on_port_write(
@@ -61,7 +62,8 @@ impl EmulatedDevice for Dma8237 {
         _port: Port,
         _val: PortWriteRequest,
         _space: GuestAddressSpaceViewMut,
-    ) -> Result<InterruptArray> {
-        Ok(InterruptArray::default())
+        _interrupts: &mut InterruptArray,
+    ) -> Result<()> {
+        Ok(())
     }
 }

@@ -6,14 +6,14 @@ use crate::virtdev::{
 };
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-use spin::Mutex;
+use spin::RwLock;
 
 #[derive(Default)]
 pub struct LocalApic;
 
 impl LocalApic {
-    pub fn new() -> Arc<Mutex<Self>> {
-        Arc::new(Mutex::new(LocalApic::default()))
+    pub fn new() -> Arc<RwLock<Self>> {
+        Arc::new(RwLock::new(LocalApic::default()))
     }
 }
 
@@ -39,13 +39,14 @@ impl EmulatedDevice for LocalApic {
         addr: GuestPhysAddr,
         data: MemReadRequest,
         _space: GuestAddressSpaceViewMut,
-    ) -> Result<InterruptArray> {
+        _interrupts: &mut InterruptArray,
+    ) -> Result<()> {
         info!(
             "local apic read of addr = {:?} (len=0x{:x})",
             addr,
             data.as_slice().len()
         );
-        Ok(InterruptArray::default())
+        Ok(())
     }
 
     fn on_mem_write(
@@ -53,8 +54,9 @@ impl EmulatedDevice for LocalApic {
         addr: GuestPhysAddr,
         data: MemWriteRequest,
         _space: GuestAddressSpaceViewMut,
-    ) -> Result<InterruptArray> {
+        _interrupts: &mut InterruptArray,
+    ) -> Result<()> {
         info!("local apic write of addr = {:?} (data={:?})", addr, data);
-        Ok(InterruptArray::default())
+        Ok(())
     }
 }

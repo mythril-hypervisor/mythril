@@ -8,7 +8,7 @@ use crate::virtdev::{
 use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-use spin::Mutex;
+use spin::RwLock;
 
 pub struct DebugPort {
     id: u64,
@@ -17,8 +17,8 @@ pub struct DebugPort {
 }
 
 impl DebugPort {
-    pub fn new(vmid: u64, port: Port) -> Arc<Mutex<Self>> {
-        Arc::new(Mutex::new(Self {
+    pub fn new(vmid: u64, port: Port) -> Arc<RwLock<Self>> {
+        Arc::new(RwLock::new(Self {
             port,
             buff: vec![],
             id: vmid,
@@ -36,10 +36,11 @@ impl EmulatedDevice for DebugPort {
         _port: Port,
         mut val: PortReadRequest,
         _space: GuestAddressSpaceViewMut,
-    ) -> Result<InterruptArray> {
+        _interrupts: &mut InterruptArray,
+    ) -> Result<()> {
         // This is a magical value (called BOCHS_DEBUG_PORT_MAGIC by edk2)
         val.copy_from_u32(0xe9);
-        Ok(InterruptArray::default())
+        Ok(())
     }
 
     fn on_port_write(
@@ -47,7 +48,8 @@ impl EmulatedDevice for DebugPort {
         _port: Port,
         val: PortWriteRequest,
         _space: GuestAddressSpaceViewMut,
-    ) -> Result<InterruptArray> {
+        _interrupts: &mut InterruptArray,
+    ) -> Result<()> {
         self.buff.extend_from_slice(val.as_slice());
 
         // Flush on newlines
@@ -57,6 +59,6 @@ impl EmulatedDevice for DebugPort {
             logger::write_console(&format!("GUEST{}: {}", self.id, s));
             self.buff.clear();
         }
-        Ok(InterruptArray::default())
+        Ok(())
     }
 }

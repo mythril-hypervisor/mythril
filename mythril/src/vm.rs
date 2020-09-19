@@ -7,25 +7,32 @@ use crate::memory::{
 use crate::physdev;
 use crate::vcpu;
 use crate::virtdev::{
-    self, DeviceMap, InterruptArray, MemReadRequest, MemWriteRequest, Port,
-    PortReadRequest, PortWriteRequest,
+    DeviceInteraction, DeviceMap, DeviceMessage, InterruptArray,
+    MemReadRequest, MemWriteRequest, Port, PortReadRequest, PortWriteRequest,
 };
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-use spin::{Mutex, RwLock};
+use spin::RwLock;
 
 pub static mut VM_MAP: Option<BTreeMap<usize, Arc<RwLock<VirtualMachine>>>> =
     None;
+
+#[derive(Default)]
+pub struct PhysicalDeviceConfig {
+    /// The physical serial connection for this VM (if any).
+    pub serial: Option<physdev::com::Uart8250>,
+}
 
 /// A configuration for a `VirtualMachine`
 pub struct VirtualMachineConfig {
     _cpus: Vec<u8>,
     images: Vec<(String, GuestPhysAddr)>,
     bios: Option<String>,
-    devices: DeviceMap,
+    virtual_devices: DeviceMap,
+    physical_devices: PhysicalDeviceConfig,
     memory: u64, // in MB
 }
 
@@ -36,11 +43,16 @@ impl VirtualMachineConfig {
     ///
     /// * `cpus` - A list of the cores used by the VM (by APIC id)
     /// * `memory` - The amount of VM memory (in MB)
-    pub fn new(cpus: Vec<u8>, memory: u64) -> VirtualMachineConfig {
+    pub fn new(
+        cpus: Vec<u8>,
+        memory: u64,
+        physical_devices: PhysicalDeviceConfig,
+    ) -> VirtualMachineConfig {
         VirtualMachineConfig {
             _cpus: cpus,
             images: vec![],
-            devices: DeviceMap::default(),
+            virtual_devices: DeviceMap::default(),
+            physical_devices: physical_devices,
             bios: None,
             memory: memory,
         }
@@ -71,9 +83,18 @@ impl VirtualMachineConfig {
         Ok(())
     }
 
-    /// Access the configurations `DeviceMap`
-    pub fn device_map(&mut self) -> &mut DeviceMap {
-        &mut self.devices
+    /// Access the configurations virtual `DeviceMap`
+    pub fn virtual_devices(&self) -> &DeviceMap {
+        &self.virtual_devices
+    }
+
+    /// Access the configurations virtual `DeviceMap` mutably
+    pub fn virtual_devices_mut(&mut self) -> &mut DeviceMap {
+        &mut self.virtual_devices
+    }
+
+    pub fn physical_devices(&self) -> &PhysicalDeviceConfig {
+        &self.physical_devices
     }
 }
 
@@ -86,11 +107,6 @@ pub struct VirtualMachine {
     ///
     /// This will be shared by all `VCpu`s associated with this VM.
     pub guest_space: GuestAddressSpace,
-
-    /// The physical serial connection for this VM (if any).
-    pub serial: Option<physdev::com::Uart8250>,
-
-    pub virt_uart: Arc<Mutex<virtdev::com::Uart8250>>,
 }
 
 impl VirtualMachine {
@@ -99,20 +115,39 @@ impl VirtualMachine {
     /// This creates the guest address space (allocating the needed memory),
     /// and maps in the requested images.
     pub fn new(
-        mut config: VirtualMachineConfig,
+        config: VirtualMachineConfig,
         info: &BootInfo,
     ) -> Result<Arc<RwLock<Self>>> {
         let guest_space = Self::setup_ept(&config, info)?;
 
-        let uart = virtdev::com::Uart8250::new(0, 0x3F8);
-        config.device_map().register_device(uart.clone()).unwrap();
-
         Ok(Arc::new(RwLock::new(Self {
             config: config,
             guest_space: guest_space,
-            serial: physdev::com::Uart8250::new(0x3f8).ok(),
-            virt_uart: uart,
         })))
+    }
+
+    pub fn on_event(
+        &mut self,
+        vcpu: &vcpu::VCpu,
+        message: &DeviceMessage,
+        ident: impl DeviceInteraction + core::fmt::Debug,
+        interrupts: &mut InterruptArray,
+    ) -> Result<()> {
+        let dev = self
+            .config
+            .virtual_devices()
+            .find_device(ident)
+            .ok_or_else(|| {
+                Error::MissingDevice(format!(
+                    "No device for event {:?}",
+                    message
+                ))
+            })?;
+        let view = memory::GuestAddressSpaceViewMut::from_vmcs(
+            &vcpu.vmcs,
+            &mut self.guest_space,
+        )?;
+        dev.write().on_event(message, view, interrupts)
     }
 
     pub fn on_mem_read(
@@ -120,22 +155,21 @@ impl VirtualMachine {
         vcpu: &vcpu::VCpu,
         addr: GuestPhysAddr,
         val: MemReadRequest,
-    ) -> Result<InterruptArray> {
-        let dev =
-            self.config
-                .device_map()
-                .device_for_mut(addr)
-                .ok_or_else(|| {
-                    Error::MissingDevice(format!(
-                        "No device for address {:?}",
-                        addr
-                    ))
-                })?;
+        interrupts: &mut InterruptArray,
+    ) -> Result<()> {
+        let dev = self.config.virtual_devices().find_device(addr).ok_or_else(
+            || {
+                Error::MissingDevice(format!(
+                    "No device for address {:?}",
+                    addr
+                ))
+            },
+        )?;
         let view = memory::GuestAddressSpaceViewMut::from_vmcs(
             &vcpu.vmcs,
             &mut self.guest_space,
         )?;
-        dev.lock().on_mem_read(addr, val, view)
+        dev.write().on_mem_read(addr, val, view, interrupts)
     }
 
     pub fn on_mem_write(
@@ -143,22 +177,21 @@ impl VirtualMachine {
         vcpu: &vcpu::VCpu,
         addr: GuestPhysAddr,
         val: MemWriteRequest,
-    ) -> Result<InterruptArray> {
-        let dev =
-            self.config
-                .device_map()
-                .device_for_mut(addr)
-                .ok_or_else(|| {
-                    Error::MissingDevice(format!(
-                        "No device for address {:?}",
-                        addr
-                    ))
-                })?;
+        interrupts: &mut InterruptArray,
+    ) -> Result<()> {
+        let dev = self.config.virtual_devices().find_device(addr).ok_or_else(
+            || {
+                Error::MissingDevice(format!(
+                    "No device for address {:?}",
+                    addr
+                ))
+            },
+        )?;
         let view = memory::GuestAddressSpaceViewMut::from_vmcs(
             &vcpu.vmcs,
             &mut self.guest_space,
         )?;
-        dev.lock().on_mem_write(addr, val, view)
+        dev.write().on_mem_write(addr, val, view, interrupts)
     }
 
     pub fn on_port_read(
@@ -166,19 +199,16 @@ impl VirtualMachine {
         vcpu: &vcpu::VCpu,
         port: Port,
         val: PortReadRequest,
-    ) -> Result<InterruptArray> {
-        let dev =
-            self.config
-                .device_map()
-                .device_for_mut(port)
-                .ok_or_else(|| {
-                    Error::MissingDevice(format!("No device for port {}", port))
-                })?;
+        interrupts: &mut InterruptArray,
+    ) -> Result<()> {
+        let dev = self.config.virtual_devices().find_device(port).ok_or_else(
+            || Error::MissingDevice(format!("No device for port {}", port)),
+        )?;
         let view = memory::GuestAddressSpaceViewMut::from_vmcs(
             &vcpu.vmcs,
             &mut self.guest_space,
         )?;
-        dev.lock().on_port_read(port, val, view)
+        dev.write().on_port_read(port, val, view, interrupts)
     }
 
     pub fn on_port_write(
@@ -186,19 +216,16 @@ impl VirtualMachine {
         vcpu: &vcpu::VCpu,
         port: Port,
         val: PortWriteRequest,
-    ) -> Result<InterruptArray> {
-        let dev =
-            self.config
-                .device_map()
-                .device_for_mut(port)
-                .ok_or_else(|| {
-                    Error::MissingDevice(format!("No device for port {}", port))
-                })?;
+        interrupts: &mut InterruptArray,
+    ) -> Result<()> {
+        let dev = self.config.virtual_devices().find_device(port).ok_or_else(
+            || Error::MissingDevice(format!("No device for port {}", port)),
+        )?;
         let view = memory::GuestAddressSpaceViewMut::from_vmcs(
             &vcpu.vmcs,
             &mut self.guest_space,
         )?;
-        dev.lock().on_port_write(port, val, view)
+        dev.write().on_port_write(port, val, view, interrupts)
     }
 
     fn map_data(
@@ -309,8 +336,9 @@ mod test {
     #[test]
     fn test_vm_creation() {
         let info = BootInfo::default();
+        let phys_config = PhysicalDeviceConfig::default();
 
-        let config = VirtualMachineConfig::new(vec![1], 0);
+        let config = VirtualMachineConfig::new(vec![1], 0, phys_config);
         VirtualMachine::new(config, &info).unwrap();
     }
 }

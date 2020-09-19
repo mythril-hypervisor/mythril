@@ -12,7 +12,7 @@ use alloc::sync::Arc;
 use alloc::vec::Vec;
 use bitflags::bitflags;
 use core::convert::TryInto;
-use spin::Mutex;
+use spin::RwLock;
 
 // This is _almost_ an enum, but there are 'file' selectors
 // between 0x20 and 0x7fff inclusive that make it impractical to actually
@@ -136,7 +136,7 @@ impl QemuFwCfgBuilder {
         s
     }
 
-    pub fn build(mut self) -> Arc<Mutex<QemuFwCfg>> {
+    pub fn build(mut self) -> Arc<RwLock<QemuFwCfg>> {
         // Now that we are done building the fwcfg device, we need to make the
         // FileDir buffer, which has the following structure:
         //
@@ -167,7 +167,7 @@ impl QemuFwCfgBuilder {
 
         self.data.insert(FwCfgSelector::FILE_DIR, buffer);
 
-        Arc::new(Mutex::new(QemuFwCfg {
+        Arc::new(RwLock::new(QemuFwCfg {
             selector: FwCfgSelector::SIGNATURE,
             data: self.data,
             data_idx: 0,
@@ -334,7 +334,8 @@ impl EmulatedDevice for QemuFwCfg {
         port: Port,
         mut val: PortReadRequest,
         _space: GuestAddressSpaceViewMut,
-    ) -> Result<InterruptArray> {
+        _interrupts: &mut InterruptArray,
+    ) -> Result<()> {
         let len = val.len();
         match port {
             Self::FW_CFG_PORT_SEL => {
@@ -365,7 +366,7 @@ impl EmulatedDevice for QemuFwCfg {
             }
             _ => unreachable!(),
         }
-        Ok(InterruptArray::default())
+        Ok(())
     }
 
     fn on_port_write(
@@ -373,7 +374,8 @@ impl EmulatedDevice for QemuFwCfg {
         port: Port,
         val: PortWriteRequest,
         space: GuestAddressSpaceViewMut,
-    ) -> Result<InterruptArray> {
+        _interrupts: &mut InterruptArray,
+    ) -> Result<()> {
         match port {
             Self::FW_CFG_PORT_SEL => {
                 self.selector = val.try_into()?;
@@ -397,7 +399,7 @@ impl EmulatedDevice for QemuFwCfg {
             }
             _ => unreachable!(),
         }
-        Ok(InterruptArray::default())
+        Ok(())
     }
 }
 

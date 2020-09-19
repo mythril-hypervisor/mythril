@@ -55,6 +55,10 @@ impl Uart8250 {
         Ok(uart)
     }
 
+    pub fn base_port(&self) -> u16 {
+        self.base
+    }
+
     fn read_ier(&self) -> IerFlags {
         IerFlags::from_bits_truncate(unsafe {
             inb(self.base + SerialOffset::IER)

@@ -8,7 +8,7 @@ use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::convert::{TryFrom, TryInto};
 use num_enum::TryFromPrimitive;
-use spin::Mutex;
+use spin::RwLock;
 
 #[derive(Copy, Clone, Debug, TryFromPrimitive)]
 #[repr(u8)]
@@ -77,8 +77,8 @@ impl CmosRtc {
     const RTC_ADDRESS: Port = 0x0070;
     const RTC_DATA: Port = 0x0071;
 
-    pub fn new(mem: u64) -> Arc<Mutex<Self>> {
-        Arc::new(Mutex::new(Self {
+    pub fn new(mem: u64) -> Arc<RwLock<Self>> {
+        Arc::new(RwLock::new(Self {
             addr: CmosRegister::Seconds, // For now, just set the default reg as seconds
             data: Self::default_register_values(mem),
         }))
@@ -121,7 +121,8 @@ impl EmulatedDevice for CmosRtc {
         port: Port,
         mut val: PortReadRequest,
         _space: GuestAddressSpaceViewMut,
-    ) -> Result<InterruptArray> {
+        _interrupts: &mut InterruptArray,
+    ) -> Result<()> {
         match port {
             Self::RTC_ADDRESS => val.copy_from_u32(self.addr as u8 as u32),
             Self::RTC_DATA => match self.addr {
@@ -132,7 +133,7 @@ impl EmulatedDevice for CmosRtc {
             _ => unreachable!(),
         }
 
-        Ok(InterruptArray::default())
+        Ok(())
     }
 
     fn on_port_write(
@@ -140,7 +141,8 @@ impl EmulatedDevice for CmosRtc {
         port: Port,
         val: PortWriteRequest,
         _space: GuestAddressSpaceViewMut,
-    ) -> Result<InterruptArray> {
+        _interrupts: &mut InterruptArray,
+    ) -> Result<()> {
         // For now, just ignore the NMI masking
         let val: u8 = val.try_into()?;
         let val = val & 0x7f;
@@ -171,6 +173,6 @@ impl EmulatedDevice for CmosRtc {
             }
             _ => unreachable!(),
         }
-        Ok(InterruptArray::default())
+        Ok(())
     }
 }

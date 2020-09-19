@@ -93,11 +93,6 @@ impl Ps2Controller {
         }
 
         Self::flush_read("init finished");
-
-        // info!("{:?}", Self::read_status_port());
-        // info!("{:?}", Self::read_configuration());
-        // Self::write_command_port(Command::EnableFirst);
-        info!("Done with ps2 initialization");
         Ok(())
     }
 
@@ -151,13 +146,5 @@ impl Ps2Controller {
         unsafe {
             outb(PS2_COMMAND_PORT, cmd as u8);
         }
-    }
-
-    fn output_available() -> bool {
-        Self::read_status_port().contains(Ps2StatusFlags::OUTPUT_BUFFER_FULL)
-    }
-
-    fn ready_for_input() -> bool {
-        !Self::read_status_port().contains(Ps2StatusFlags::INPUT_BUFFER_FULL)
     }
 }

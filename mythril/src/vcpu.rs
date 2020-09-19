@@ -6,7 +6,7 @@ use crate::percore;
 use crate::registers::{GdtrBase, IdtrBase};
 use crate::time;
 use crate::vm::VirtualMachine;
-use crate::{vm, vmcs, vmexit, vmx};
+use crate::{virtdev, vm, vmcs, vmexit, vmx};
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
@@ -444,15 +444,31 @@ impl VCpu {
         Ok(())
     }
 
-    fn handle_uart_keypress(&mut self) {
-        let vm = self.vm.write();
+    fn handle_uart_keypress(
+        &mut self,
+        interrupts: &mut virtdev::InterruptArray,
+    ) -> Result<()> {
+        let vm = self.vm.read();
 
-        if let Some(serial) = vm.serial.as_ref() {
-            let keypress = serial.read();
-            vm.virt_uart.lock().write(keypress);
-        }
+        let serial_info = vm
+            .config
+            .physical_devices()
+            .serial
+            .as_ref()
+            .map(|serial| (serial.read(), serial.base_port()));
         drop(vm);
-        self.inject_interrupt(52, InjectedInterruptType::ExternalInterrupt);
+
+        let mut vm = self.vm.write();
+        if let Some((key, port)) = serial_info {
+            vm.on_event(
+                self,
+                &virtdev::DeviceMessage::UartKeyPressed(key),
+                port,
+                interrupts,
+            )
+        } else {
+            Ok(())
+        }
     }
 
     fn handle_vmexit_impl(
@@ -460,6 +476,10 @@ impl VCpu {
         guest_cpu: &mut vmexit::GuestCpuState,
         exit: vmexit::ExitReason,
     ) -> Result<()> {
+        // An array of outstanding interrupts/exceptions that should be injected
+        // into the guest as a result of this vmexit
+        let mut interrupts = virtdev::InterruptArray::default();
+
         match exit.info {
             vmexit::ExitInformation::CrAccess(info) => {
                 match info.cr_num {
@@ -518,11 +538,21 @@ impl VCpu {
                 self.skip_emulated_instruction()?;
             }
             vmexit::ExitInformation::IoInstruction(info) => {
-                emulate::portio::emulate_portio(self, guest_cpu, info)?;
+                emulate::portio::emulate_portio(
+                    self,
+                    guest_cpu,
+                    info,
+                    &mut interrupts,
+                )?;
                 self.skip_emulated_instruction()?;
             }
             vmexit::ExitInformation::EptViolation(info) => {
-                emulate::memio::handle_ept_violation(self, guest_cpu, info)?;
+                emulate::memio::handle_ept_violation(
+                    self,
+                    guest_cpu,
+                    info,
+                    &mut interrupts,
+                )?;
                 self.skip_emulated_instruction()?;
             }
             vmexit::ExitInformation::WrMsr => {
@@ -536,7 +566,7 @@ impl VCpu {
             vmexit::ExitInformation::InterruptWindow => {}
             vmexit::ExitInformation::ExternalInterrupt(info) => unsafe {
                 match info.vector {
-                    0x24 => self.handle_uart_keypress(),
+                    0x24 => self.handle_uart_keypress(&mut interrupts)?,
                     _ => (),
                 }
 
@@ -552,6 +582,13 @@ impl VCpu {
                 info!("{}", self.vmcs);
                 panic!("No handler for exit reason: {:?}", exit);
             }
+        }
+
+        for interrupt in interrupts {
+            self.inject_interrupt(
+                interrupt,
+                InjectedInterruptType::ExternalInterrupt,
+            );
         }
 
         Ok(())

@@ -9,7 +9,7 @@ use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::convert::TryInto;
 use num_enum::TryFromPrimitive;
-use spin::Mutex;
+use spin::RwLock;
 use ux;
 
 #[derive(Clone, Copy, Debug, TryFromPrimitive)]
@@ -158,7 +158,7 @@ impl PciRootComplex {
     const PCI_CONFIG_DATA: Port = 0xcfc;
     const PCI_CONFIG_DATA_MAX: Port = Self::PCI_CONFIG_DATA + 3;
 
-    pub fn new() -> Arc<Mutex<Self>> {
+    pub fn new() -> Arc<RwLock<Self>> {
         let mut devices = BTreeMap::new();
 
         let host_bridge = PciDevice {
@@ -185,7 +185,7 @@ impl PciRootComplex {
         };
         devices.insert(ich9.bdf.into(), ich9);
 
-        Arc::new(Mutex::new(Self {
+        Arc::new(RwLock::new(Self {
             current_address: 0,
             devices: devices,
         }))
@@ -209,7 +209,8 @@ impl EmulatedDevice for PciRootComplex {
         port: Port,
         mut val: PortReadRequest,
         _space: GuestAddressSpaceViewMut,
-    ) -> Result<InterruptArray> {
+        _interrupts: &mut InterruptArray,
+    ) -> Result<()> {
         match port {
             Self::PCI_CONFIG_ADDRESS => {
                 // For now, always set the enable bit
@@ -245,7 +246,7 @@ impl EmulatedDevice for PciRootComplex {
                 )))
             }
         }
-        Ok(InterruptArray::default())
+        Ok(())
     }
 
     fn on_port_write(
@@ -253,7 +254,8 @@ impl EmulatedDevice for PciRootComplex {
         port: Port,
         val: PortWriteRequest,
         _space: GuestAddressSpaceViewMut,
-    ) -> Result<InterruptArray> {
+        _interrupts: &mut InterruptArray,
+    ) -> Result<()> {
         match port {
             Self::PCI_CONFIG_ADDRESS => {
                 let addr: u32 = val.try_into()?;
@@ -266,7 +268,7 @@ impl EmulatedDevice for PciRootComplex {
                 );
             }
         }
-        Ok(InterruptArray::default())
+        Ok(())
     }
 }
 
@@ -276,6 +278,7 @@ mod test {
     use crate::memory::{
         GuestAddressSpace, GuestAddressSpaceViewMut, GuestPhysAddr,
     };
+    use alloc::boxed::Box;
 
     fn define_test_view() -> GuestAddressSpaceViewMut<'static> {
         let space: &'static mut GuestAddressSpace =
@@ -283,27 +286,43 @@ mod test {
         GuestAddressSpaceViewMut::new(GuestPhysAddr::new(0), space)
     }
 
-    fn complex_ready_for_reg_read(reg: u8) -> Box<PciRootComplex> {
+    fn complex_ready_for_reg_read(reg: u8) -> Arc<RwLock<PciRootComplex>> {
         use core::convert::TryFrom;
 
         let view = define_test_view();
-        let mut complex = PciRootComplex::new();
+        let complex = PciRootComplex::new();
         let addr = ((reg << 2) as u32).to_be_bytes();
         let request = PortWriteRequest::try_from(&addr[..]).unwrap();
-        complex
-            .on_port_write(PciRootComplex::PCI_CONFIG_ADDRESS, request, view)
-            .unwrap();
+        let mut interrupts = InterruptArray::default();
+        {
+            let mut complex = complex.write();
+            complex
+                .on_port_write(
+                    PciRootComplex::PCI_CONFIG_ADDRESS,
+                    request,
+                    view,
+                    &mut interrupts,
+                )
+                .unwrap();
+        }
         complex
     }
 
     #[test]
     fn test_full_register_read() {
         let view = define_test_view();
-        let mut complex = complex_ready_for_reg_read(0);
+        let complex = complex_ready_for_reg_read(0);
         let mut buff = [0u8; 4];
         let val = PortReadRequest::FourBytes(&mut buff);
+        let mut interrupts = InterruptArray::default();
+        let mut complex = complex.write();
         complex
-            .on_port_read(PciRootComplex::PCI_CONFIG_DATA, val, view)
+            .on_port_read(
+                PciRootComplex::PCI_CONFIG_DATA,
+                val,
+                view,
+                &mut interrupts,
+            )
             .unwrap();
 
         assert_eq!(u32::from_be_bytes(buff), 0x29c08086);
@@ -312,54 +331,88 @@ mod test {
     #[test]
     fn test_half_register_read() {
         let view = define_test_view();
-        let mut complex = complex_ready_for_reg_read(0);
+        let complex = complex_ready_for_reg_read(0);
         let mut buff = [0u8; 2];
         let val = PortReadRequest::TwoBytes(&mut buff);
+        let mut interrupts = InterruptArray::default();
+        let mut complex = complex.write();
 
         complex
-            .on_port_read(PciRootComplex::PCI_CONFIG_DATA, val, view)
+            .on_port_read(
+                PciRootComplex::PCI_CONFIG_DATA,
+                val,
+                view,
+                &mut interrupts,
+            )
             .unwrap();
         assert_eq!(u16::from_be_bytes(buff), 0x8086);
 
         let view = define_test_view();
         let val = PortReadRequest::TwoBytes(&mut buff);
         complex
-            .on_port_read(PciRootComplex::PCI_CONFIG_DATA + 2, val, view)
+            .on_port_read(
+                PciRootComplex::PCI_CONFIG_DATA + 2,
+                val,
+                view,
+                &mut interrupts,
+            )
             .unwrap();
         assert_eq!(u16::from_be_bytes(buff), 0x29c0);
     }
 
     #[test]
     fn test_register_byte_read() {
-        let mut complex = complex_ready_for_reg_read(0);
+        let complex = complex_ready_for_reg_read(0);
         let mut buff = [0u8; 1];
+        let mut interrupts = InterruptArray::default();
+        let mut complex = complex.write();
 
         let view = define_test_view();
         let val = PortReadRequest::OneByte(&mut buff);
 
         complex
-            .on_port_read(PciRootComplex::PCI_CONFIG_DATA, val, view)
+            .on_port_read(
+                PciRootComplex::PCI_CONFIG_DATA,
+                val,
+                view,
+                &mut interrupts,
+            )
             .unwrap();
         assert_eq!(u8::from_be_bytes(buff), 0x86);
 
         let view = define_test_view();
         let val = PortReadRequest::OneByte(&mut buff);
         complex
-            .on_port_read(PciRootComplex::PCI_CONFIG_DATA + 1, val, view)
+            .on_port_read(
+                PciRootComplex::PCI_CONFIG_DATA + 1,
+                val,
+                view,
+                &mut interrupts,
+            )
             .unwrap();
         assert_eq!(u8::from_be_bytes(buff), 0x80);
 
         let view = define_test_view();
         let val = PortReadRequest::OneByte(&mut buff);
         complex
-            .on_port_read(PciRootComplex::PCI_CONFIG_DATA + 2, val, view)
+            .on_port_read(
+                PciRootComplex::PCI_CONFIG_DATA + 2,
+                val,
+                view,
+                &mut interrupts,
+            )
             .unwrap();
         assert_eq!(u8::from_be_bytes(buff), 0xc0);
 
         let view = define_test_view();
         let val = PortReadRequest::OneByte(&mut buff);
         complex
-            .on_port_read(PciRootComplex::PCI_CONFIG_DATA + 3, val, view)
+            .on_port_read(
+                PciRootComplex::PCI_CONFIG_DATA + 3,
+                val,
+                view,
+                &mut interrupts,
+            )
             .unwrap();
         assert_eq!(u8::from_be_bytes(buff), 0x29);
     }

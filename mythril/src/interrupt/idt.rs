@@ -189,30 +189,11 @@ fault_fn!(zero_division_handler, state, {
     panic!("Divide by zero handler (rip=0x{:x})", state.rip);
 });
 
-interrupt_fn!(ps2_input_handler, state, {
-    use x86::io::{inb, outb};
-
-    let input = inb(0x60);
-    let status = inb(0x64);
-    info!("Key 0x{:x} pressed (status = 0x{:x})", input, status);
-    outb(0x20, 0x20);
-});
-
-interrupt_fn!(uart_input_handler, state, {
-    use x86::io::{inb, outb};
-
-    info!("Uart input");
-    outb(0x20, 0x20);
-});
-
 pub unsafe fn init() {
     IDT[0].set_func(zero_division_handler);
     IDT[2].set_func(nmi_handler);
     IDT[13].set_func(protection_fault_handler);
     IDT[14].set_func(page_fault_handler);
-
-    // IDT[33].set_func(ps2_input_handler);
-    // IDT[36].set_func(uart_input_handler);
 
     ap_init();
 }

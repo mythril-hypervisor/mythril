@@ -7,7 +7,7 @@ use crate::virtdev::{
 };
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-use spin::Mutex;
+use spin::RwLock;
 
 const PMTIMER_HZ: u64 = 3579545;
 
@@ -32,8 +32,8 @@ impl AcpiRuntime {
     const PCI_REMOVABILITY_STATUS_START: Port = 0xae0c;
     const PCI_REMOVABILITY_STATUS_END: Port = 0xae0f;
 
-    pub fn new(pm_base: Port) -> Result<Arc<Mutex<Self>>> {
-        Ok(Arc::new(Mutex::new(AcpiRuntime { pm_base })))
+    pub fn new(pm_base: Port) -> Result<Arc<RwLock<Self>>> {
+        Ok(Arc::new(RwLock::new(AcpiRuntime { pm_base })))
     }
 
     fn pm1a_cnt(&self) -> Port {
@@ -76,14 +76,15 @@ impl EmulatedDevice for AcpiRuntime {
         port: Port,
         mut val: PortReadRequest,
         _space: GuestAddressSpaceViewMut,
-    ) -> Result<InterruptArray> {
+        _interrupts: &mut InterruptArray,
+    ) -> Result<()> {
         if port == self.pmtimer() {
             let on_duration = time::now() - time::system_start_time();
             let pm_time =
                 (on_duration.as_nanos() * PMTIMER_HZ as u128) / 1_000_000_000;
             val.copy_from_u32(pm_time as u32);
         }
-        Ok(InterruptArray::default())
+        Ok(())
     }
 
     fn on_port_write(
@@ -91,11 +92,12 @@ impl EmulatedDevice for AcpiRuntime {
         port: Port,
         val: PortWriteRequest,
         _space: GuestAddressSpaceViewMut,
-    ) -> Result<InterruptArray> {
+        _interrupts: &mut InterruptArray,
+    ) -> Result<()> {
         info!(
             "Attempt to write to AcpiRuntime port=0x{:x}, val={}. Ignoring",
             port, val
         );
-        Ok(InterruptArray::default())
+        Ok(())
     }
 }

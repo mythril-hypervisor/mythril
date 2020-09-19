@@ -8,7 +8,7 @@ use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::convert::{TryFrom, TryInto};
 use num_enum::TryFromPrimitive;
-use spin::Mutex;
+use spin::RwLock;
 
 #[derive(Clone, Copy, Debug, TryFromPrimitive)]
 #[repr(u8)]
@@ -43,8 +43,8 @@ impl VgaController {
     const VGA_INDEX: Port = 0x03D4;
     const VGA_DATA: Port = 0x03D5;
 
-    pub fn new() -> Arc<Mutex<Self>> {
-        Arc::new(Mutex::new(Self {
+    pub fn new() -> Arc<RwLock<Self>> {
+        Arc::new(RwLock::new(Self {
             index: VgaRegister::HorizontalTotalChars,
 
             registers: [
@@ -82,7 +82,8 @@ impl EmulatedDevice for VgaController {
         port: Port,
         mut val: PortReadRequest,
         _space: GuestAddressSpaceViewMut,
-    ) -> Result<InterruptArray> {
+        _interrupts: &mut InterruptArray,
+    ) -> Result<()> {
         match port {
             Self::VGA_DATA => {
                 val.copy_from_u32(self.registers[self.index as usize] as u32);
@@ -94,7 +95,7 @@ impl EmulatedDevice for VgaController {
                 )))
             }
         }
-        Ok(InterruptArray::default())
+        Ok(())
     }
 
     fn on_port_write(
@@ -102,7 +103,8 @@ impl EmulatedDevice for VgaController {
         port: Port,
         val: PortWriteRequest,
         _space: GuestAddressSpaceViewMut,
-    ) -> Result<InterruptArray> {
+        _interrupts: &mut InterruptArray,
+    ) -> Result<()> {
         match port {
             Self::VGA_INDEX => match val {
                 PortWriteRequest::OneByte(b) => {
@@ -135,6 +137,6 @@ impl EmulatedDevice for VgaController {
                 )))
             }
         }
-        Ok(InterruptArray::default())
+        Ok(())
     }
 }

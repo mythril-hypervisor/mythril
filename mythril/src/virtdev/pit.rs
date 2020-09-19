@@ -10,7 +10,7 @@ use crate::virtdev::{
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::convert::TryFrom;
-use spin::Mutex;
+use spin::RwLock;
 
 #[derive(Debug)]
 enum OperatingModeState {
@@ -61,8 +61,8 @@ pub struct Pit8254 {
 }
 
 impl Pit8254 {
-    pub fn new() -> Arc<Mutex<Self>> {
-        Arc::new(Mutex::new(Pit8254::default()))
+    pub fn new() -> Arc<RwLock<Self>> {
+        Arc::new(RwLock::new(Pit8254::default()))
     }
 }
 
@@ -79,7 +79,8 @@ impl EmulatedDevice for Pit8254 {
         port: Port,
         mut val: PortReadRequest,
         _space: GuestAddressSpaceViewMut,
-    ) -> Result<InterruptArray> {
+        _interrupts: &mut InterruptArray,
+    ) -> Result<()> {
         match port {
             //FIXME: much of this 'PS2' handling is a hack. I'm not aware of
             // a good source for exactly what's supposed to happen here.
@@ -107,7 +108,7 @@ impl EmulatedDevice for Pit8254 {
                 info!("PIT read from unsupported port");
             }
         }
-        Ok(InterruptArray::default())
+        Ok(())
     }
 
     fn on_port_write(
@@ -115,7 +116,8 @@ impl EmulatedDevice for Pit8254 {
         port: Port,
         val: PortWriteRequest,
         _space: GuestAddressSpaceViewMut,
-    ) -> Result<InterruptArray> {
+        _interrupts: &mut InterruptArray,
+    ) -> Result<()> {
         match port {
             PIT_MODE_CONTROL => {
                 let val = u8::try_from(val)?;
@@ -211,7 +213,7 @@ impl EmulatedDevice for Pit8254 {
                             // We are just setting the low byte in word access mode.
                             // There is nothing else to do, so return.
                             *lo_byte = Some(val);
-                            return Ok(InterruptArray::default());
+                            return Ok(());
                         }
                     }
                     _ => unreachable!(),
@@ -219,7 +221,7 @@ impl EmulatedDevice for Pit8254 {
 
                 if counter == 0 {
                     warn!("PIT: ignoring counter set to 0");
-                    return Ok(InterruptArray::default());
+                    return Ok(());
                 }
 
                 let duration = core::time::Duration::from_nanos(
@@ -266,6 +268,6 @@ impl EmulatedDevice for Pit8254 {
             }
         }
 
-        Ok(InterruptArray::default())
+        Ok(())
     }
 }

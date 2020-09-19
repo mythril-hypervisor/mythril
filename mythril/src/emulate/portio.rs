@@ -9,6 +9,7 @@ fn emulate_outs(
     port: Port,
     guest_cpu: &mut vmexit::GuestCpuState,
     exit: vmexit::IoInstructionInformation,
+    interrupts: &mut InterruptArray,
 ) -> Result<()> {
     let mut vm = vcpu.vm.write();
 
@@ -34,22 +35,13 @@ fn emulate_outs(
     )?;
 
     // FIXME: Actually test for REP
-    let mut interrupts = InterruptArray::default();
     for chunk in bytes.chunks_exact(exit.size as usize) {
         let request = PortWriteRequest::try_from(chunk)?;
-        interrupts = vm.on_port_write(vcpu, port, request)?;
+        vm.on_port_write(vcpu, port, request, interrupts)?;
     }
 
     guest_cpu.rsi += bytes.len() as u64;
     guest_cpu.rcx = 0;
-    drop(vm);
-
-    for interrupt in interrupts {
-        vcpu.inject_interrupt(
-            interrupt,
-            vcpu::InjectedInterruptType::ExternalInterrupt,
-        );
-    }
     Ok(())
 }
 
@@ -58,6 +50,7 @@ fn emulate_ins(
     port: Port,
     guest_cpu: &mut vmexit::GuestCpuState,
     exit: vmexit::IoInstructionInformation,
+    interrupts: &mut InterruptArray,
 ) -> Result<()> {
     let mut vm = vcpu.vm.write();
 
@@ -67,12 +60,9 @@ fn emulate_ins(
     let access = memory::GuestAccess::Read(memory::PrivilegeLevel(0));
 
     let mut bytes = vec![0u8; guest_cpu.rcx as usize];
-    let mut interrupts = InterruptArray::default();
     for chunk in bytes.chunks_exact_mut(exit.size as usize) {
         let request = PortReadRequest::try_from(chunk)?;
-
-        //TODO: For now, only consider the _last_ interrupt/exception/fault
-        interrupts = vm.on_port_read(vcpu, port, request)?;
+        vm.on_port_read(vcpu, port, request, interrupts)?;
     }
 
     let mut view = memory::GuestAddressSpaceViewMut::from_vmcs(
@@ -83,14 +73,6 @@ fn emulate_ins(
 
     guest_cpu.rdi += bytes.len() as u64;
     guest_cpu.rcx = 0;
-    drop(vm);
-
-    for interrupt in interrupts {
-        vcpu.inject_interrupt(
-            interrupt,
-            vcpu::InjectedInterruptType::ExternalInterrupt,
-        );
-    }
     Ok(())
 }
 
@@ -98,42 +80,36 @@ pub fn emulate_portio(
     vcpu: &mut vcpu::VCpu,
     guest_cpu: &mut vmexit::GuestCpuState,
     exit: vmexit::IoInstructionInformation,
+    interrupts: &mut InterruptArray,
 ) -> Result<()> {
     let (port, input, size, string) =
         (exit.port, exit.input, exit.size, exit.string);
 
     if !string {
         let mut vm = vcpu.vm.write();
-
-        let interrupts = if !input {
+        if !input {
             let arr = (guest_cpu.rax as u32).to_be_bytes();
             vm.on_port_write(
                 vcpu,
                 port,
                 PortWriteRequest::try_from(&arr[4 - size as usize..])?,
-            )?
+                interrupts,
+            )?;
         } else {
             let mut arr = [0u8; 4];
             let request =
                 PortReadRequest::try_from(&mut arr[4 - size as usize..])?;
-            let interrupts = vm.on_port_read(vcpu, port, request)?;
+            vm.on_port_read(vcpu, port, request, interrupts)?;
             guest_cpu.rax &= (!guest_cpu.rax) << (size * 8);
             guest_cpu.rax |= u32::from_be_bytes(arr) as u64;
-            interrupts
         };
-        drop(vm);
-        for interrupt in interrupts {
-            vcpu.inject_interrupt(
-                interrupt,
-                vcpu::InjectedInterruptType::ExternalInterrupt,
-            );
-        }
     } else {
         if !input {
-            emulate_outs(vcpu, port, guest_cpu, exit)?;
+            emulate_outs(vcpu, port, guest_cpu, exit, interrupts)?;
         } else {
-            emulate_ins(vcpu, port, guest_cpu, exit)?;
+            emulate_ins(vcpu, port, guest_cpu, exit, interrupts)?;
         }
     }
+
     Ok(())
 }

@@ -7,7 +7,7 @@ use crate::virtdev::{
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::convert::TryInto;
-use spin::Mutex;
+use spin::RwLock;
 
 #[derive(Default, Debug)]
 pub struct PicState {
@@ -28,8 +28,8 @@ impl Pic8259 {
     const PIC_ECLR_COMMAND: Port = 0x4d0;
     const PIC_ECLR_DATA: Port = Self::PIC_ECLR_COMMAND + 1;
 
-    pub fn new() -> Arc<Mutex<Self>> {
-        Arc::new(Mutex::new(Pic8259::default()))
+    pub fn new() -> Arc<RwLock<Self>> {
+        Arc::new(RwLock::new(Pic8259::default()))
     }
 }
 
@@ -51,16 +51,17 @@ impl EmulatedDevice for Pic8259 {
         port: Port,
         mut val: PortReadRequest,
         _space: GuestAddressSpaceViewMut,
-    ) -> Result<InterruptArray> {
+        _interrupts: &mut InterruptArray,
+    ) -> Result<()> {
         let data = match port {
             Self::PIC_MASTER_DATA => self.master_state.imr,
             Self::PIC_SLAVE_DATA => self.master_state.imr,
             _ => {
-                return Ok(InterruptArray::default());
+                return Ok(());
             }
         };
         val.copy_from_u32(data as u32);
-        Ok(InterruptArray::default())
+        Ok(())
     }
 
     fn on_port_write(
@@ -68,7 +69,8 @@ impl EmulatedDevice for Pic8259 {
         port: Port,
         val: PortWriteRequest,
         _space: GuestAddressSpaceViewMut,
-    ) -> Result<InterruptArray> {
+        _interrupts: &mut InterruptArray,
+    ) -> Result<()> {
         match port {
             Self::PIC_MASTER_DATA => {
                 self.master_state.imr = val.try_into()?;
@@ -78,6 +80,6 @@ impl EmulatedDevice for Pic8259 {
             }
             _ => (),
         }
-        Ok(InterruptArray::default())
+        Ok(())
     }
 }

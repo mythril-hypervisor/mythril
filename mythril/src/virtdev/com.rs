@@ -3,14 +3,14 @@ use crate::logger;
 use crate::memory::GuestAddressSpaceViewMut;
 use crate::physdev::com::*;
 use crate::virtdev::{
-    DeviceRegion, EmulatedDevice, InterruptArray, Port, PortReadRequest,
-    PortWriteRequest,
+    DeviceMessage, DeviceRegion, EmulatedDevice, InterruptArray, Port,
+    PortReadRequest, PortWriteRequest,
 };
 use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::convert::TryInto;
-use spin::Mutex;
+use spin::RwLock;
 
 pub struct Uart8250 {
     id: u64,
@@ -22,14 +22,14 @@ pub struct Uart8250 {
     interrupt_identification_register: u8,
     _line_control_register: u8,
     _modem_control_register: u8,
-    line_status_register: LsrFlags,
+    _line_status_register: LsrFlags,
     _modem_status_register: u8,
     _scratch_register: u8,
 }
 
 impl Uart8250 {
-    pub fn new(vmid: u64, base_port: Port) -> Arc<Mutex<Self>> {
-        Arc::new(Mutex::new(Self {
+    pub fn new(vmid: u64, base_port: Port) -> Arc<RwLock<Self>> {
+        Arc::new(RwLock::new(Self {
             id: vmid,
             base_port: base_port,
             divisor: 0,
@@ -39,7 +39,7 @@ impl Uart8250 {
             interrupt_enable_register: IerFlags::empty(),
             _line_control_register: 0,
             _modem_control_register: 0,
-            line_status_register: LsrFlags::empty(),
+            _line_status_register: LsrFlags::empty(),
             _modem_status_register: 0,
             _scratch_register: 0,
         }))
@@ -62,12 +62,29 @@ impl EmulatedDevice for Uart8250 {
         vec![DeviceRegion::PortIo(self.base_port..=self.base_port + 7)]
     }
 
+    fn on_event(
+        &mut self,
+        event: &DeviceMessage,
+        _space: GuestAddressSpaceViewMut,
+        interrupts: &mut InterruptArray,
+    ) -> Result<()> {
+        match event {
+            DeviceMessage::UartKeyPressed(key) => {
+                interrupts.push(52);
+                self.write(*key)
+            }
+        }
+
+        Ok(())
+    }
+
     fn on_port_read(
         &mut self,
         port: Port,
         mut val: PortReadRequest,
         _space: GuestAddressSpaceViewMut,
-    ) -> Result<InterruptArray> {
+        _interrupts: &mut InterruptArray,
+    ) -> Result<()> {
         if port - self.base_port == SerialOffset::DATA
             && !self.divisor_latch_bit_set()
         {
@@ -106,7 +123,7 @@ impl EmulatedDevice for Uart8250 {
 
             val.copy_from_u32(flags.bits() as u32);
         }
-        Ok(InterruptArray::default())
+        Ok(())
     }
 
     fn on_port_write(
@@ -114,7 +131,8 @@ impl EmulatedDevice for Uart8250 {
         port: Port,
         val: PortWriteRequest,
         _space: GuestAddressSpaceViewMut,
-    ) -> Result<InterruptArray> {
+        interrupts: &mut InterruptArray,
+    ) -> Result<()> {
         let val: u8 = val.try_into()?;
         if port - self.base_port == SerialOffset::DATA {
             if self.divisor_latch_bit_set() {
@@ -130,15 +148,13 @@ impl EmulatedDevice for Uart8250 {
 
                 self.is_newline = val == 10;
 
-                let mut arr = InterruptArray::default();
                 if self
                     .interrupt_enable_register
                     .contains(IerFlags::THR_EMPTY_INTERRUPT)
                 {
-                    arr.push(52);
+                    interrupts.push(52);
                 }
                 self.interrupt_identification_register = 0b10;
-                return Ok(arr);
             }
         } else if port - self.base_port == SerialOffset::DLL
             && self.divisor_latch_bit_set()
@@ -150,6 +166,6 @@ impl EmulatedDevice for Uart8250 {
             self.interrupt_enable_register = IerFlags::from_bits_truncate(val);
         }
 
-        Ok(InterruptArray::default())
+        Ok(())
     }
 }
