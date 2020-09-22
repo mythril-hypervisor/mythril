@@ -1,6 +1,8 @@
 use crate::error::{Error, Result};
 use crate::memory;
-use crate::virtdev::{InterruptArray, MemReadRequest, MemWriteRequest};
+use crate::virtdev::{
+    DeviceEvent, MemReadRequest, MemWriteRequest, ResponseEventArray,
+};
 use crate::{vcpu, vmcs, vmexit};
 use arrayvec::ArrayVec;
 use iced_x86;
@@ -15,10 +17,15 @@ macro_rules! read_register {
 }
 
 macro_rules! write_register {
-    ($vm:ident, $vcpu:ident, $addr:ident, $interrupts:ident, $value:expr, $type:ty, $mask:expr) => {{
+    ($vm:ident, $vcpu:ident, $addr:expr, $responses:ident, $value:expr, $type:ty, $mask:expr) => {{
         let mut buff = <$type>::default().to_be_bytes();
         let request = MemReadRequest::new(&mut buff[..]);
-        $vm.on_mem_read($vcpu, $addr, request, $interrupts)?;
+        $vm.dispatch_event(
+            $addr,
+            DeviceEvent::MemRead(($addr, request)),
+            $vcpu,
+            $responses,
+        )?;
         $value = ($value & $mask) | <$type>::from_be_bytes(buff) as u64;
     }};
 }
@@ -141,7 +148,7 @@ fn do_mmio_write(
     addr: memory::GuestPhysAddr,
     vcpu: &mut vcpu::VCpu,
     guest_cpu: &mut vmexit::GuestCpuState,
-    interrupts: &mut InterruptArray,
+    responses: &mut ResponseEventArray,
     instr: iced_x86::Instruction,
 ) -> Result<()> {
     let mut res = ArrayVec::<[u8; 8]>::new();
@@ -175,27 +182,29 @@ fn do_mmio_write(
     let request = MemWriteRequest::new(&data[..]);
 
     let mut vm = vcpu.vm.write();
-    vm.on_mem_write(vcpu, addr, request, interrupts)?;
-
-    Ok(())
+    vm.dispatch_event(
+        addr,
+        crate::virtdev::DeviceEvent::MemWrite((addr, request)),
+        vcpu,
+        responses,
+    )
 }
 
 fn do_mmio_read(
     addr: memory::GuestPhysAddr,
     vcpu: &mut vcpu::VCpu,
     guest_cpu: &mut vmexit::GuestCpuState,
-    interrupts: &mut InterruptArray,
+    responses: &mut ResponseEventArray,
     instr: iced_x86::Instruction,
 ) -> Result<()> {
     let mut vm = vcpu.vm.write();
-
     match instr.op0_kind() {
         iced_x86::OpKind::Register => match instr.op_register(0) {
             iced_x86::Register::AL => write_register!(
                 vm,
                 vcpu,
                 addr,
-                interrupts,
+                responses,
                 guest_cpu.rax,
                 u8,
                 !0xff
@@ -204,7 +213,7 @@ fn do_mmio_read(
                 vm,
                 vcpu,
                 addr,
-                interrupts,
+                responses,
                 guest_cpu.rax,
                 u16,
                 !0xffff
@@ -213,7 +222,7 @@ fn do_mmio_read(
                 vm,
                 vcpu,
                 addr,
-                interrupts,
+                responses,
                 guest_cpu.rax,
                 u32,
                 !0xffffffff
@@ -222,7 +231,7 @@ fn do_mmio_read(
                 vm,
                 vcpu,
                 addr,
-                interrupts,
+                responses,
                 guest_cpu.rax,
                 u64,
                 0x00
@@ -232,7 +241,7 @@ fn do_mmio_read(
                 vm,
                 vcpu,
                 addr,
-                interrupts,
+                responses,
                 guest_cpu.rbx,
                 u8,
                 !0xff
@@ -241,7 +250,7 @@ fn do_mmio_read(
                 vm,
                 vcpu,
                 addr,
-                interrupts,
+                responses,
                 guest_cpu.rbx,
                 u16,
                 !0xffff
@@ -250,7 +259,7 @@ fn do_mmio_read(
                 vm,
                 vcpu,
                 addr,
-                interrupts,
+                responses,
                 guest_cpu.rbx,
                 u32,
                 !0xffffffff
@@ -259,7 +268,7 @@ fn do_mmio_read(
                 vm,
                 vcpu,
                 addr,
-                interrupts,
+                responses,
                 guest_cpu.rbx,
                 u64,
                 0x00
@@ -269,7 +278,7 @@ fn do_mmio_read(
                 vm,
                 vcpu,
                 addr,
-                interrupts,
+                responses,
                 guest_cpu.rcx,
                 u8,
                 !0xff
@@ -278,7 +287,7 @@ fn do_mmio_read(
                 vm,
                 vcpu,
                 addr,
-                interrupts,
+                responses,
                 guest_cpu.rcx,
                 u16,
                 !0xffff
@@ -287,7 +296,7 @@ fn do_mmio_read(
                 vm,
                 vcpu,
                 addr,
-                interrupts,
+                responses,
                 guest_cpu.rcx,
                 u32,
                 !0xffffffff
@@ -296,7 +305,7 @@ fn do_mmio_read(
                 vm,
                 vcpu,
                 addr,
-                interrupts,
+                responses,
                 guest_cpu.rdx,
                 u64,
                 0x00
@@ -306,7 +315,7 @@ fn do_mmio_read(
                 vm,
                 vcpu,
                 addr,
-                interrupts,
+                responses,
                 guest_cpu.rdx,
                 u8,
                 !0xff
@@ -315,7 +324,7 @@ fn do_mmio_read(
                 vm,
                 vcpu,
                 addr,
-                interrupts,
+                responses,
                 guest_cpu.rdx,
                 u16,
                 !0xffff
@@ -324,7 +333,7 @@ fn do_mmio_read(
                 vm,
                 vcpu,
                 addr,
-                interrupts,
+                responses,
                 guest_cpu.rdx,
                 u32,
                 !0xffffffff
@@ -333,7 +342,7 @@ fn do_mmio_read(
                 vm,
                 vcpu,
                 addr,
-                interrupts,
+                responses,
                 guest_cpu.rdx,
                 u64,
                 0x00
@@ -343,7 +352,7 @@ fn do_mmio_read(
                 vm,
                 vcpu,
                 addr,
-                interrupts,
+                responses,
                 guest_cpu.r8,
                 u8,
                 !0xff
@@ -352,7 +361,7 @@ fn do_mmio_read(
                 vm,
                 vcpu,
                 addr,
-                interrupts,
+                responses,
                 guest_cpu.r8,
                 u16,
                 !0xffff
@@ -361,7 +370,7 @@ fn do_mmio_read(
                 vm,
                 vcpu,
                 addr,
-                interrupts,
+                responses,
                 guest_cpu.r8,
                 u32,
                 !0xffffffff
@@ -370,7 +379,7 @@ fn do_mmio_read(
                 vm,
                 vcpu,
                 addr,
-                interrupts,
+                responses,
                 guest_cpu.r8,
                 u64,
                 0x00
@@ -380,7 +389,7 @@ fn do_mmio_read(
                 vm,
                 vcpu,
                 addr,
-                interrupts,
+                responses,
                 guest_cpu.r9,
                 u8,
                 !0xff
@@ -389,7 +398,7 @@ fn do_mmio_read(
                 vm,
                 vcpu,
                 addr,
-                interrupts,
+                responses,
                 guest_cpu.r9,
                 u16,
                 !0xffff
@@ -398,7 +407,7 @@ fn do_mmio_read(
                 vm,
                 vcpu,
                 addr,
-                interrupts,
+                responses,
                 guest_cpu.r9,
                 u32,
                 !0xffffffff
@@ -407,7 +416,7 @@ fn do_mmio_read(
                 vm,
                 vcpu,
                 addr,
-                interrupts,
+                responses,
                 guest_cpu.r9,
                 u64,
                 0x00
@@ -417,7 +426,7 @@ fn do_mmio_read(
                 vm,
                 vcpu,
                 addr,
-                interrupts,
+                responses,
                 guest_cpu.r10,
                 u8,
                 !0xff
@@ -426,7 +435,7 @@ fn do_mmio_read(
                 vm,
                 vcpu,
                 addr,
-                interrupts,
+                responses,
                 guest_cpu.r10,
                 u16,
                 !0xffff
@@ -435,7 +444,7 @@ fn do_mmio_read(
                 vm,
                 vcpu,
                 addr,
-                interrupts,
+                responses,
                 guest_cpu.r10,
                 u32,
                 !0xffffffff
@@ -444,7 +453,7 @@ fn do_mmio_read(
                 vm,
                 vcpu,
                 addr,
-                interrupts,
+                responses,
                 guest_cpu.r10,
                 u64,
                 0x00
@@ -454,7 +463,7 @@ fn do_mmio_read(
                 vm,
                 vcpu,
                 addr,
-                interrupts,
+                responses,
                 guest_cpu.r11,
                 u8,
                 !0xff
@@ -463,7 +472,7 @@ fn do_mmio_read(
                 vm,
                 vcpu,
                 addr,
-                interrupts,
+                responses,
                 guest_cpu.r11,
                 u16,
                 !0xffff
@@ -472,7 +481,7 @@ fn do_mmio_read(
                 vm,
                 vcpu,
                 addr,
-                interrupts,
+                responses,
                 guest_cpu.r11,
                 u32,
                 !0xffffffff
@@ -481,7 +490,7 @@ fn do_mmio_read(
                 vm,
                 vcpu,
                 addr,
-                interrupts,
+                responses,
                 guest_cpu.r11,
                 u64,
                 0x00
@@ -491,7 +500,7 @@ fn do_mmio_read(
                 vm,
                 vcpu,
                 addr,
-                interrupts,
+                responses,
                 guest_cpu.r12,
                 u8,
                 !0xff
@@ -500,7 +509,7 @@ fn do_mmio_read(
                 vm,
                 vcpu,
                 addr,
-                interrupts,
+                responses,
                 guest_cpu.r12,
                 u16,
                 !0xffff
@@ -509,7 +518,7 @@ fn do_mmio_read(
                 vm,
                 vcpu,
                 addr,
-                interrupts,
+                responses,
                 guest_cpu.r12,
                 u32,
                 !0xffffffff
@@ -518,7 +527,7 @@ fn do_mmio_read(
                 vm,
                 vcpu,
                 addr,
-                interrupts,
+                responses,
                 guest_cpu.r12,
                 u64,
                 0x00
@@ -528,7 +537,7 @@ fn do_mmio_read(
                 vm,
                 vcpu,
                 addr,
-                interrupts,
+                responses,
                 guest_cpu.r13,
                 u8,
                 !0xff
@@ -537,7 +546,7 @@ fn do_mmio_read(
                 vm,
                 vcpu,
                 addr,
-                interrupts,
+                responses,
                 guest_cpu.r13,
                 u16,
                 !0xffff
@@ -546,7 +555,7 @@ fn do_mmio_read(
                 vm,
                 vcpu,
                 addr,
-                interrupts,
+                responses,
                 guest_cpu.r13,
                 u32,
                 !0xffffffff
@@ -555,7 +564,7 @@ fn do_mmio_read(
                 vm,
                 vcpu,
                 addr,
-                interrupts,
+                responses,
                 guest_cpu.r13,
                 u64,
                 0x00
@@ -565,7 +574,7 @@ fn do_mmio_read(
                 vm,
                 vcpu,
                 addr,
-                interrupts,
+                responses,
                 guest_cpu.r14,
                 u8,
                 !0xff
@@ -574,7 +583,7 @@ fn do_mmio_read(
                 vm,
                 vcpu,
                 addr,
-                interrupts,
+                responses,
                 guest_cpu.r14,
                 u16,
                 !0xffff
@@ -583,7 +592,7 @@ fn do_mmio_read(
                 vm,
                 vcpu,
                 addr,
-                interrupts,
+                responses,
                 guest_cpu.r14,
                 u32,
                 !0xffffffff
@@ -592,7 +601,7 @@ fn do_mmio_read(
                 vm,
                 vcpu,
                 addr,
-                interrupts,
+                responses,
                 guest_cpu.r14,
                 u64,
                 0x00
@@ -602,7 +611,7 @@ fn do_mmio_read(
                 vm,
                 vcpu,
                 addr,
-                interrupts,
+                responses,
                 guest_cpu.r15,
                 u8,
                 !0xff
@@ -611,7 +620,7 @@ fn do_mmio_read(
                 vm,
                 vcpu,
                 addr,
-                interrupts,
+                responses,
                 guest_cpu.r15,
                 u16,
                 !0xffff
@@ -620,7 +629,7 @@ fn do_mmio_read(
                 vm,
                 vcpu,
                 addr,
-                interrupts,
+                responses,
                 guest_cpu.r15,
                 u32,
                 !0xffffffff
@@ -629,7 +638,7 @@ fn do_mmio_read(
                 vm,
                 vcpu,
                 addr,
-                interrupts,
+                responses,
                 guest_cpu.r15,
                 u64,
                 0x00
@@ -639,7 +648,7 @@ fn do_mmio_read(
                 vm,
                 vcpu,
                 addr,
-                interrupts,
+                responses,
                 guest_cpu.rdi,
                 u8,
                 !0xff
@@ -648,7 +657,7 @@ fn do_mmio_read(
                 vm,
                 vcpu,
                 addr,
-                interrupts,
+                responses,
                 guest_cpu.rdi,
                 u16,
                 !0xffff
@@ -657,7 +666,7 @@ fn do_mmio_read(
                 vm,
                 vcpu,
                 addr,
-                interrupts,
+                responses,
                 guest_cpu.rdi,
                 u32,
                 !0xffffffff
@@ -666,7 +675,7 @@ fn do_mmio_read(
                 vm,
                 vcpu,
                 addr,
-                interrupts,
+                responses,
                 guest_cpu.rdi,
                 u64,
                 0x00
@@ -676,7 +685,7 @@ fn do_mmio_read(
                 vm,
                 vcpu,
                 addr,
-                interrupts,
+                responses,
                 guest_cpu.rsi,
                 u8,
                 !0xff
@@ -685,7 +694,7 @@ fn do_mmio_read(
                 vm,
                 vcpu,
                 addr,
-                interrupts,
+                responses,
                 guest_cpu.rsi,
                 u16,
                 !0xffff
@@ -694,7 +703,7 @@ fn do_mmio_read(
                 vm,
                 vcpu,
                 addr,
-                interrupts,
+                responses,
                 guest_cpu.rsi,
                 u32,
                 !0xffffffff
@@ -703,7 +712,7 @@ fn do_mmio_read(
                 vm,
                 vcpu,
                 addr,
-                interrupts,
+                responses,
                 guest_cpu.rsi,
                 u64,
                 0x00
@@ -726,7 +735,7 @@ pub fn handle_ept_violation(
     vcpu: &mut vcpu::VCpu,
     guest_cpu: &mut vmexit::GuestCpuState,
     _exit: vmexit::EptInformation,
-    interrupts: &mut InterruptArray,
+    responses: &mut ResponseEventArray,
 ) -> Result<()> {
     let instruction_len = vcpu
         .vmcs
@@ -766,11 +775,11 @@ pub fn handle_ept_violation(
     if instr.op0_kind() == iced_x86::OpKind::Memory
         || instr.op0_kind() == iced_x86::OpKind::Memory64
     {
-        do_mmio_write(addr, vcpu, guest_cpu, interrupts, instr)?;
+        do_mmio_write(addr, vcpu, guest_cpu, responses, instr)?;
     } else if instr.op1_kind() == iced_x86::OpKind::Memory
         || instr.op1_kind() == iced_x86::OpKind::Memory64
     {
-        do_mmio_read(addr, vcpu, guest_cpu, interrupts, instr)?;
+        do_mmio_read(addr, vcpu, guest_cpu, responses, instr)?;
     } else {
         return Err(Error::InvalidValue(format!(
             "Unsupported mmio instruction: {:?} (rip=0x{:x}, bytes={:?})",

@@ -1,10 +1,9 @@
 use crate::error::Result;
 use crate::logger;
-use crate::memory::GuestAddressSpaceViewMut;
 use crate::physdev::com::*;
+use crate::vcpu;
 use crate::virtdev::{
-    DeviceMessage, DeviceRegion, EmulatedDevice, InterruptArray, Port,
-    PortReadRequest, PortWriteRequest,
+    DeviceEvent, DeviceEventResponse, DeviceRegion, EmulatedDevice, Event, Port,
 };
 use alloc::string::String;
 use alloc::sync::Arc;
@@ -62,110 +61,105 @@ impl EmulatedDevice for Uart8250 {
         vec![DeviceRegion::PortIo(self.base_port..=self.base_port + 7)]
     }
 
-    fn on_event(
-        &mut self,
-        event: &DeviceMessage,
-        _space: GuestAddressSpaceViewMut,
-        interrupts: &mut InterruptArray,
-    ) -> Result<()> {
-        match event {
-            DeviceMessage::UartKeyPressed(key) => {
-                interrupts.push(52);
-                self.write(*key)
+    fn on_event(&mut self, event: Event) -> Result<()> {
+        match event.kind {
+            DeviceEvent::HostUartReceived(key) => {
+                event.responses.push(
+                    // IRQ4
+                    DeviceEventResponse::Interrupt((
+                        52,
+                        vcpu::InjectedInterruptType::ExternalInterrupt,
+                    )),
+                );
+                self.write(key)
             }
-        }
-
-        Ok(())
-    }
-
-    fn on_port_read(
-        &mut self,
-        port: Port,
-        mut val: PortReadRequest,
-        _space: GuestAddressSpaceViewMut,
-        _interrupts: &mut InterruptArray,
-    ) -> Result<()> {
-        if port - self.base_port == SerialOffset::DATA
-            && !self.divisor_latch_bit_set()
-        {
-            if let Some(receive_buffer) = self.receive_buffer {
-                val.copy_from_u32(receive_buffer.into());
-                self.receive_buffer = None;
-                self.interrupt_identification_register = 1;
-            }
-        } else if port - self.base_port == SerialOffset::DATA
-            && self.divisor_latch_bit_set()
-        {
-            val.copy_from_u32((self.divisor & 0xff).into());
-        } else if port - self.base_port == SerialOffset::DLL
-            && self.divisor_latch_bit_set()
-        {
-            val.copy_from_u32((self.divisor >> 8).into());
-        }
-
-        if port - self.base_port == SerialOffset::IIR {
-            val.copy_from_u32(self.interrupt_identification_register as u32);
-
-            // Reading the IIR clears it (the LSB = 1 indicates there is _not_ a
-            // pending interrupt)
-            self.interrupt_identification_register = 1;
-        } else if port - self.base_port == SerialOffset::IER {
-            val.copy_from_u32(self.interrupt_enable_register.bits() as u32);
-        }
-
-        if port - self.base_port == SerialOffset::LSR {
-            let mut flags = LsrFlags::EMPTY_TRANSMIT_HOLDING_REGISTER
-                | LsrFlags::EMPTY_DATA_HOLDING_REGISTER;
-
-            if self.receive_buffer.is_some() {
-                flags.insert(LsrFlags::DATA_READY);
-            }
-
-            val.copy_from_u32(flags.bits() as u32);
-        }
-        Ok(())
-    }
-
-    fn on_port_write(
-        &mut self,
-        port: Port,
-        val: PortWriteRequest,
-        _space: GuestAddressSpaceViewMut,
-        interrupts: &mut InterruptArray,
-    ) -> Result<()> {
-        let val: u8 = val.try_into()?;
-        if port - self.base_port == SerialOffset::DATA {
-            if self.divisor_latch_bit_set() {
-                self.divisor &= 0xff00 | val as u16;
-            } else {
-                if self.is_newline {
-                    logger::write_console(&format!("GUEST{}: ", self.id));
-                }
-
-                let buff = &[val];
-                let s = String::from_utf8_lossy(buff);
-                logger::write_console(&s);
-
-                self.is_newline = val == 10;
-
-                if self
-                    .interrupt_enable_register
-                    .contains(IerFlags::THR_EMPTY_INTERRUPT)
+            DeviceEvent::PortRead((port, mut val)) => {
+                if port - self.base_port == SerialOffset::DATA
+                    && !self.divisor_latch_bit_set()
                 {
-                    interrupts.push(52);
+                    if let Some(receive_buffer) = self.receive_buffer {
+                        val.copy_from_u32(receive_buffer.into());
+                        self.receive_buffer = None;
+                        self.interrupt_identification_register = 1;
+                    }
+                } else if port - self.base_port == SerialOffset::DATA
+                    && self.divisor_latch_bit_set()
+                {
+                    val.copy_from_u32((self.divisor & 0xff).into());
+                } else if port - self.base_port == SerialOffset::DLL
+                    && self.divisor_latch_bit_set()
+                {
+                    val.copy_from_u32((self.divisor >> 8).into());
                 }
-                self.interrupt_identification_register = 0b10;
+
+                if port - self.base_port == SerialOffset::IIR {
+                    val.copy_from_u32(
+                        self.interrupt_identification_register as u32,
+                    );
+
+                    // Reading the IIR clears it (the LSB = 1 indicates there is _not_ a
+                    // pending interrupt)
+                    self.interrupt_identification_register = 1;
+                } else if port - self.base_port == SerialOffset::IER {
+                    val.copy_from_u32(
+                        self.interrupt_enable_register.bits() as u32
+                    );
+                }
+
+                if port - self.base_port == SerialOffset::LSR {
+                    let mut flags = LsrFlags::EMPTY_TRANSMIT_HOLDING_REGISTER
+                        | LsrFlags::EMPTY_DATA_HOLDING_REGISTER;
+
+                    if self.receive_buffer.is_some() {
+                        flags.insert(LsrFlags::DATA_READY);
+                    }
+
+                    val.copy_from_u32(flags.bits() as u32);
+                }
             }
-        } else if port - self.base_port == SerialOffset::DLL
-            && self.divisor_latch_bit_set()
-        {
-            self.divisor = (self.divisor & 0xff) | (val as u16) << 8;
-        }
+            DeviceEvent::PortWrite((port, val)) => {
+                let val: u8 = val.try_into()?;
+                if port - self.base_port == SerialOffset::DATA {
+                    if self.divisor_latch_bit_set() {
+                        self.divisor &= 0xff00 | val as u16;
+                    } else {
+                        if self.is_newline {
+                            logger::write_console(&format!(
+                                "GUEST{}: ",
+                                self.id
+                            ));
+                        }
 
-        if port - self.base_port == SerialOffset::IER {
-            self.interrupt_enable_register = IerFlags::from_bits_truncate(val);
-        }
+                        let buff = &[val];
+                        let s = String::from_utf8_lossy(buff);
+                        logger::write_console(&s);
 
+                        self.is_newline = val == 10;
+
+                        if self
+                            .interrupt_enable_register
+                            .contains(IerFlags::THR_EMPTY_INTERRUPT)
+                        {
+                            event.responses.push(
+                                // IRQ4
+                                DeviceEventResponse::Interrupt((52, vcpu::InjectedInterruptType::ExternalInterrupt))
+                            );
+                        }
+                        self.interrupt_identification_register = 0b10;
+                    }
+                } else if port - self.base_port == SerialOffset::DLL
+                    && self.divisor_latch_bit_set()
+                {
+                    self.divisor = (self.divisor & 0xff) | (val as u16) << 8;
+                }
+
+                if port - self.base_port == SerialOffset::IER {
+                    self.interrupt_enable_register =
+                        IerFlags::from_bits_truncate(val);
+                }
+            }
+            _ => (),
+        }
         Ok(())
     }
 }

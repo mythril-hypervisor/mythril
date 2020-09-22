@@ -1,9 +1,5 @@
 use crate::error::Result;
-use crate::memory::GuestAddressSpaceViewMut;
-use crate::virtdev::{
-    DeviceRegion, EmulatedDevice, InterruptArray, Port, PortReadRequest,
-    PortWriteRequest,
-};
+use crate::virtdev::{DeviceEvent, DeviceRegion, EmulatedDevice, Event, Port};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::convert::TryInto;
@@ -46,38 +42,27 @@ impl EmulatedDevice for Pic8259 {
         ]
     }
 
-    fn on_port_read(
-        &mut self,
-        port: Port,
-        mut val: PortReadRequest,
-        _space: GuestAddressSpaceViewMut,
-        _interrupts: &mut InterruptArray,
-    ) -> Result<()> {
-        let data = match port {
-            Self::PIC_MASTER_DATA => self.master_state.imr,
-            Self::PIC_SLAVE_DATA => self.master_state.imr,
-            _ => {
-                return Ok(());
+    fn on_event(&mut self, event: Event) -> Result<()> {
+        match event.kind {
+            DeviceEvent::PortRead((port, mut val)) => {
+                let data = match port {
+                    Self::PIC_MASTER_DATA => self.master_state.imr,
+                    Self::PIC_SLAVE_DATA => self.master_state.imr,
+                    _ => {
+                        return Ok(());
+                    }
+                };
+                val.copy_from_u32(data as u32);
             }
-        };
-        val.copy_from_u32(data as u32);
-        Ok(())
-    }
-
-    fn on_port_write(
-        &mut self,
-        port: Port,
-        val: PortWriteRequest,
-        _space: GuestAddressSpaceViewMut,
-        _interrupts: &mut InterruptArray,
-    ) -> Result<()> {
-        match port {
-            Self::PIC_MASTER_DATA => {
-                self.master_state.imr = val.try_into()?;
-            }
-            Self::PIC_SLAVE_DATA => {
-                self.master_state.imr = val.try_into()?;
-            }
+            DeviceEvent::PortWrite((port, val)) => match port {
+                Self::PIC_MASTER_DATA => {
+                    self.master_state.imr = val.try_into()?;
+                }
+                Self::PIC_SLAVE_DATA => {
+                    self.master_state.imr = val.try_into()?;
+                }
+                _ => (),
+            },
             _ => (),
         }
         Ok(())

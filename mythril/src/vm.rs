@@ -7,8 +7,9 @@ use crate::memory::{
 use crate::physdev;
 use crate::vcpu;
 use crate::virtdev::{
-    DeviceInteraction, DeviceMap, DeviceMessage, InterruptArray,
-    MemReadRequest, MemWriteRequest, Port, PortReadRequest, PortWriteRequest,
+    DeviceEvent, DeviceInteraction, DeviceMap, Event, MemReadRequest,
+    MemWriteRequest, Port, PortReadRequest, PortWriteRequest,
+    ResponseEventArray,
 };
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
@@ -96,6 +97,10 @@ impl VirtualMachineConfig {
     pub fn physical_devices(&self) -> &PhysicalDeviceConfig {
         &self.physical_devices
     }
+
+    pub fn physical_devices_mut(&mut self) -> &mut PhysicalDeviceConfig {
+        &mut self.physical_devices
+    }
 }
 
 /// A virtual machine
@@ -126,106 +131,29 @@ impl VirtualMachine {
         })))
     }
 
-    pub fn on_event(
+    pub fn dispatch_event(
         &mut self,
-        vcpu: &vcpu::VCpu,
-        message: &DeviceMessage,
         ident: impl DeviceInteraction + core::fmt::Debug,
-        interrupts: &mut InterruptArray,
+        kind: DeviceEvent,
+        vcpu: &crate::vcpu::VCpu,
+        responses: &mut ResponseEventArray,
     ) -> Result<()> {
         let dev = self
             .config
             .virtual_devices()
             .find_device(ident)
             .ok_or_else(|| {
-                Error::MissingDevice(format!(
-                    "No device for event {:?}",
-                    message
-                ))
+                Error::MissingDevice("Unable to dispatch event".into())
             })?;
-        let view = memory::GuestAddressSpaceViewMut::from_vmcs(
-            &vcpu.vmcs,
-            &mut self.guest_space,
-        )?;
-        dev.write().on_event(message, view, interrupts)
-    }
 
-    pub fn on_mem_read(
-        &mut self,
-        vcpu: &vcpu::VCpu,
-        addr: GuestPhysAddr,
-        val: MemReadRequest,
-        interrupts: &mut InterruptArray,
-    ) -> Result<()> {
-        let dev = self.config.virtual_devices().find_device(addr).ok_or_else(
-            || {
-                Error::MissingDevice(format!(
-                    "No device for address {:?}",
-                    addr
-                ))
-            },
-        )?;
-        let view = memory::GuestAddressSpaceViewMut::from_vmcs(
+        let space = crate::memory::GuestAddressSpaceViewMut::from_vmcs(
             &vcpu.vmcs,
             &mut self.guest_space,
         )?;
-        dev.write().on_mem_read(addr, val, view, interrupts)
-    }
 
-    pub fn on_mem_write(
-        &mut self,
-        vcpu: &vcpu::VCpu,
-        addr: GuestPhysAddr,
-        val: MemWriteRequest,
-        interrupts: &mut InterruptArray,
-    ) -> Result<()> {
-        let dev = self.config.virtual_devices().find_device(addr).ok_or_else(
-            || {
-                Error::MissingDevice(format!(
-                    "No device for address {:?}",
-                    addr
-                ))
-            },
-        )?;
-        let view = memory::GuestAddressSpaceViewMut::from_vmcs(
-            &vcpu.vmcs,
-            &mut self.guest_space,
-        )?;
-        dev.write().on_mem_write(addr, val, view, interrupts)
-    }
+        let event = Event::new(kind, space, vcpu, responses)?;
 
-    pub fn on_port_read(
-        &mut self,
-        vcpu: &vcpu::VCpu,
-        port: Port,
-        val: PortReadRequest,
-        interrupts: &mut InterruptArray,
-    ) -> Result<()> {
-        let dev = self.config.virtual_devices().find_device(port).ok_or_else(
-            || Error::MissingDevice(format!("No device for port {}", port)),
-        )?;
-        let view = memory::GuestAddressSpaceViewMut::from_vmcs(
-            &vcpu.vmcs,
-            &mut self.guest_space,
-        )?;
-        dev.write().on_port_read(port, val, view, interrupts)
-    }
-
-    pub fn on_port_write(
-        &mut self,
-        vcpu: &vcpu::VCpu,
-        port: Port,
-        val: PortWriteRequest,
-        interrupts: &mut InterruptArray,
-    ) -> Result<()> {
-        let dev = self.config.virtual_devices().find_device(port).ok_or_else(
-            || Error::MissingDevice(format!("No device for port {}", port)),
-        )?;
-        let view = memory::GuestAddressSpaceViewMut::from_vmcs(
-            &vcpu.vmcs,
-            &mut self.guest_space,
-        )?;
-        dev.write().on_port_write(port, val, view, interrupts)
+        dev.write().on_event(event)
     }
 
     fn map_data(

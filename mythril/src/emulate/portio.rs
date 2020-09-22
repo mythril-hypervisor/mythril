@@ -1,6 +1,8 @@
 use crate::error::Result;
 use crate::memory;
-use crate::virtdev::{InterruptArray, Port, PortReadRequest, PortWriteRequest};
+use crate::virtdev::{
+    DeviceEvent, Port, PortReadRequest, PortWriteRequest, ResponseEventArray,
+};
 use crate::{vcpu, vmcs, vmexit};
 use core::convert::TryFrom;
 
@@ -9,7 +11,7 @@ fn emulate_outs(
     port: Port,
     guest_cpu: &mut vmexit::GuestCpuState,
     exit: vmexit::IoInstructionInformation,
-    interrupts: &mut InterruptArray,
+    responses: &mut ResponseEventArray,
 ) -> Result<()> {
     let mut vm = vcpu.vm.write();
 
@@ -37,7 +39,12 @@ fn emulate_outs(
     // FIXME: Actually test for REP
     for chunk in bytes.chunks_exact(exit.size as usize) {
         let request = PortWriteRequest::try_from(chunk)?;
-        vm.on_port_write(vcpu, port, request, interrupts)?;
+        vm.dispatch_event(
+            port,
+            DeviceEvent::PortWrite((port, request)),
+            vcpu,
+            responses,
+        )?;
     }
 
     guest_cpu.rsi += bytes.len() as u64;
@@ -50,7 +57,7 @@ fn emulate_ins(
     port: Port,
     guest_cpu: &mut vmexit::GuestCpuState,
     exit: vmexit::IoInstructionInformation,
-    interrupts: &mut InterruptArray,
+    responses: &mut ResponseEventArray,
 ) -> Result<()> {
     let mut vm = vcpu.vm.write();
 
@@ -62,7 +69,12 @@ fn emulate_ins(
     let mut bytes = vec![0u8; guest_cpu.rcx as usize];
     for chunk in bytes.chunks_exact_mut(exit.size as usize) {
         let request = PortReadRequest::try_from(chunk)?;
-        vm.on_port_read(vcpu, port, request, interrupts)?;
+        vm.dispatch_event(
+            port,
+            DeviceEvent::PortRead((port, request)),
+            vcpu,
+            responses,
+        )?;
     }
 
     let mut view = memory::GuestAddressSpaceViewMut::from_vmcs(
@@ -80,7 +92,7 @@ pub fn emulate_portio(
     vcpu: &mut vcpu::VCpu,
     guest_cpu: &mut vmexit::GuestCpuState,
     exit: vmexit::IoInstructionInformation,
-    interrupts: &mut InterruptArray,
+    responses: &mut ResponseEventArray,
 ) -> Result<()> {
     let (port, input, size, string) =
         (exit.port, exit.input, exit.size, exit.string);
@@ -89,25 +101,32 @@ pub fn emulate_portio(
         let mut vm = vcpu.vm.write();
         if !input {
             let arr = (guest_cpu.rax as u32).to_be_bytes();
-            vm.on_port_write(
-                vcpu,
+            let request =
+                PortWriteRequest::try_from(&arr[4 - size as usize..])?;
+            vm.dispatch_event(
                 port,
-                PortWriteRequest::try_from(&arr[4 - size as usize..])?,
-                interrupts,
+                DeviceEvent::PortWrite((port, request)),
+                vcpu,
+                responses,
             )?;
         } else {
             let mut arr = [0u8; 4];
             let request =
                 PortReadRequest::try_from(&mut arr[4 - size as usize..])?;
-            vm.on_port_read(vcpu, port, request, interrupts)?;
+            vm.dispatch_event(
+                port,
+                DeviceEvent::PortRead((port, request)),
+                vcpu,
+                responses,
+            )?;
             guest_cpu.rax &= (!guest_cpu.rax) << (size * 8);
             guest_cpu.rax |= u32::from_be_bytes(arr) as u64;
         };
     } else {
         if !input {
-            emulate_outs(vcpu, port, guest_cpu, exit, interrupts)?;
+            emulate_outs(vcpu, port, guest_cpu, exit, responses)?;
         } else {
-            emulate_ins(vcpu, port, guest_cpu, exit, interrupts)?;
+            emulate_ins(vcpu, port, guest_cpu, exit, responses)?;
         }
     }
 

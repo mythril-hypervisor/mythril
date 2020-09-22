@@ -1,9 +1,8 @@
 use crate::error::{Error, Result};
-use crate::memory::GuestAddressSpaceViewMut;
 use crate::physdev::pit::*;
 use crate::time;
 use crate::virtdev::{
-    DeviceRegion, EmulatedDevice, InterruptArray, Port, PortReadRequest,
+    DeviceEvent, DeviceRegion, EmulatedDevice, Event, Port, PortReadRequest,
     PortWriteRequest,
 };
 
@@ -64,22 +63,11 @@ impl Pit8254 {
     pub fn new() -> Arc<RwLock<Self>> {
         Arc::new(RwLock::new(Pit8254::default()))
     }
-}
-
-impl EmulatedDevice for Pit8254 {
-    fn services(&self) -> Vec<DeviceRegion> {
-        vec![
-            DeviceRegion::PortIo(PIT_COUNTER_0..=PIT_MODE_CONTROL),
-            DeviceRegion::PortIo(PIT_PS2_CTRL_B..=PIT_PS2_CTRL_B),
-        ]
-    }
 
     fn on_port_read(
         &mut self,
         port: Port,
         mut val: PortReadRequest,
-        _space: GuestAddressSpaceViewMut,
-        _interrupts: &mut InterruptArray,
     ) -> Result<()> {
         match port {
             //FIXME: much of this 'PS2' handling is a hack. I'm not aware of
@@ -115,8 +103,6 @@ impl EmulatedDevice for Pit8254 {
         &mut self,
         port: Port,
         val: PortWriteRequest,
-        _space: GuestAddressSpaceViewMut,
-        _interrupts: &mut InterruptArray,
     ) -> Result<()> {
         match port {
             PIT_MODE_CONTROL => {
@@ -268,6 +254,28 @@ impl EmulatedDevice for Pit8254 {
             }
         }
 
+        Ok(())
+    }
+}
+
+impl EmulatedDevice for Pit8254 {
+    fn services(&self) -> Vec<DeviceRegion> {
+        vec![
+            DeviceRegion::PortIo(PIT_COUNTER_0..=PIT_MODE_CONTROL),
+            DeviceRegion::PortIo(PIT_PS2_CTRL_B..=PIT_PS2_CTRL_B),
+        ]
+    }
+
+    fn on_event(&mut self, event: Event) -> Result<()> {
+        match event.kind {
+            DeviceEvent::PortRead((port, val)) => {
+                self.on_port_read(port, val)?
+            }
+            DeviceEvent::PortWrite((port, val)) => {
+                self.on_port_write(port, val)?
+            }
+            _ => (),
+        }
         Ok(())
     }
 }

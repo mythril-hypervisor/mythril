@@ -1,7 +1,6 @@
 use crate::error::{Error, Result};
-use crate::memory::GuestAddressSpaceViewMut;
 use crate::virtdev::{
-    DeviceRegion, EmulatedDevice, InterruptArray, Port, PortReadRequest,
+    DeviceEvent, DeviceRegion, EmulatedDevice, Event, Port, PortReadRequest,
     PortWriteRequest,
 };
 use alloc::sync::Arc;
@@ -67,22 +66,11 @@ impl VgaController {
             ],
         }))
     }
-}
-
-impl EmulatedDevice for VgaController {
-    fn services(&self) -> Vec<DeviceRegion> {
-        vec![
-            // vga stuff
-            DeviceRegion::PortIo(Self::VGA_INDEX..=Self::VGA_DATA),
-        ]
-    }
 
     fn on_port_read(
         &mut self,
         port: Port,
         mut val: PortReadRequest,
-        _space: GuestAddressSpaceViewMut,
-        _interrupts: &mut InterruptArray,
     ) -> Result<()> {
         match port {
             Self::VGA_DATA => {
@@ -102,8 +90,6 @@ impl EmulatedDevice for VgaController {
         &mut self,
         port: Port,
         val: PortWriteRequest,
-        _space: GuestAddressSpaceViewMut,
-        _interrupts: &mut InterruptArray,
     ) -> Result<()> {
         match port {
             Self::VGA_INDEX => match val {
@@ -136,6 +122,28 @@ impl EmulatedDevice for VgaController {
                     port
                 )))
             }
+        }
+        Ok(())
+    }
+}
+
+impl EmulatedDevice for VgaController {
+    fn services(&self) -> Vec<DeviceRegion> {
+        vec![
+            // vga stuff
+            DeviceRegion::PortIo(Self::VGA_INDEX..=Self::VGA_DATA),
+        ]
+    }
+
+    fn on_event(&mut self, event: Event) -> Result<()> {
+        match event.kind {
+            DeviceEvent::PortRead((port, val)) => {
+                self.on_port_read(port, val)?
+            }
+            DeviceEvent::PortWrite((port, val)) => {
+                self.on_port_write(port, val)?
+            }
+            _ => (),
         }
         Ok(())
     }

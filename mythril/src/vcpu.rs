@@ -446,7 +446,7 @@ impl VCpu {
 
     fn handle_uart_keypress(
         &mut self,
-        interrupts: &mut virtdev::InterruptArray,
+        responses: &mut virtdev::ResponseEventArray,
     ) -> Result<()> {
         let vm = self.vm.read();
 
@@ -460,11 +460,11 @@ impl VCpu {
 
         let mut vm = self.vm.write();
         if let Some((key, port)) = serial_info {
-            vm.on_event(
-                self,
-                &virtdev::DeviceMessage::UartKeyPressed(key),
+            vm.dispatch_event(
                 port,
-                interrupts,
+                virtdev::DeviceEvent::HostUartReceived(key),
+                self,
+                responses,
             )
         } else {
             Ok(())
@@ -476,9 +476,7 @@ impl VCpu {
         guest_cpu: &mut vmexit::GuestCpuState,
         exit: vmexit::ExitReason,
     ) -> Result<()> {
-        // An array of outstanding interrupts/exceptions that should be injected
-        // into the guest as a result of this vmexit
-        let mut interrupts = virtdev::InterruptArray::default();
+        let mut responses = virtdev::ResponseEventArray::default();
 
         match exit.info {
             vmexit::ExitInformation::CrAccess(info) => {
@@ -542,7 +540,7 @@ impl VCpu {
                     self,
                     guest_cpu,
                     info,
-                    &mut interrupts,
+                    &mut responses,
                 )?;
                 self.skip_emulated_instruction()?;
             }
@@ -551,7 +549,7 @@ impl VCpu {
                     self,
                     guest_cpu,
                     info,
-                    &mut interrupts,
+                    &mut responses,
                 )?;
                 self.skip_emulated_instruction()?;
             }
@@ -566,7 +564,7 @@ impl VCpu {
             vmexit::ExitInformation::InterruptWindow => {}
             vmexit::ExitInformation::ExternalInterrupt(info) => unsafe {
                 match info.vector {
-                    0x24 => self.handle_uart_keypress(&mut interrupts)?,
+                    0x24 => self.handle_uart_keypress(&mut responses)?,
                     _ => (),
                 }
 
@@ -584,11 +582,13 @@ impl VCpu {
             }
         }
 
-        for interrupt in interrupts {
-            self.inject_interrupt(
-                interrupt,
-                InjectedInterruptType::ExternalInterrupt,
-            );
+        for response in responses {
+            match response {
+                virtdev::DeviceEventResponse::Interrupt((vector, kind)) => {
+                    self.inject_interrupt(vector, kind);
+                }
+                _ => (),
+            }
         }
 
         Ok(())

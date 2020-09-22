@@ -1,9 +1,6 @@
 use crate::error::Result;
-use crate::memory::{GuestAddressSpaceViewMut, GuestPhysAddr};
-use crate::virtdev::{
-    DeviceRegion, EmulatedDevice, InterruptArray, MemReadRequest,
-    MemWriteRequest,
-};
+use crate::memory::GuestPhysAddr;
+use crate::virtdev::{DeviceEvent, DeviceRegion, EmulatedDevice, Event, Port};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use spin::RwLock;
@@ -34,29 +31,7 @@ impl EmulatedDevice for LocalApic {
         ]
     }
 
-    fn on_mem_read(
-        &mut self,
-        addr: GuestPhysAddr,
-        data: MemReadRequest,
-        _space: GuestAddressSpaceViewMut,
-        _interrupts: &mut InterruptArray,
-    ) -> Result<()> {
-        info!(
-            "local apic read of addr = {:?} (len=0x{:x})",
-            addr,
-            data.as_slice().len()
-        );
-        Ok(())
-    }
-
-    fn on_mem_write(
-        &mut self,
-        addr: GuestPhysAddr,
-        data: MemWriteRequest,
-        _space: GuestAddressSpaceViewMut,
-        _interrupts: &mut InterruptArray,
-    ) -> Result<()> {
-        info!("local apic write of addr = {:?} (data={:?})", addr, data);
+    fn on_event(&mut self, event: Event) -> Result<()> {
         Ok(())
     }
 }

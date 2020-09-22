@@ -1,9 +1,5 @@
 use crate::error::Result;
-use crate::memory::GuestAddressSpaceViewMut;
-use crate::virtdev::{
-    DeviceRegion, EmulatedDevice, InterruptArray, Port, PortReadRequest,
-    PortWriteRequest,
-};
+use crate::virtdev::{DeviceEvent, DeviceRegion, EmulatedDevice, Event, Port};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use spin::RwLock;
@@ -28,25 +24,14 @@ impl EmulatedDevice for Keyboard8042 {
         ]
     }
 
-    fn on_port_read(
-        &mut self,
-        _port: Port,
-        mut val: PortReadRequest,
-        _space: GuestAddressSpaceViewMut,
-        _interrupts: &mut InterruptArray,
-    ) -> Result<()> {
-        //FIXME: For now just return 0xff for everything
-        val.copy_from_u32(0xff);
-        Ok(())
-    }
-
-    fn on_port_write(
-        &mut self,
-        _port: Port,
-        _val: PortWriteRequest,
-        _space: GuestAddressSpaceViewMut,
-        _interrupts: &mut InterruptArray,
-    ) -> Result<()> {
+    fn on_event(&mut self, event: Event) -> Result<()> {
+        match event.kind {
+            DeviceEvent::PortRead((port, mut val)) => {
+                //FIXME: For now just return 0xff for everything
+                val.copy_from_u32(0xff);
+            }
+            _ => (),
+        }
         Ok(())
     }
 }

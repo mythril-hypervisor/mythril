@@ -1,10 +1,6 @@
 use crate::error::Result;
-use crate::memory::GuestAddressSpaceViewMut;
 use crate::time;
-use crate::virtdev::{
-    DeviceRegion, EmulatedDevice, InterruptArray, Port, PortReadRequest,
-    PortWriteRequest,
-};
+use crate::virtdev::{DeviceEvent, DeviceRegion, EmulatedDevice, Event, Port};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use spin::RwLock;
@@ -71,33 +67,25 @@ impl EmulatedDevice for AcpiRuntime {
         ]
     }
 
-    fn on_port_read(
-        &mut self,
-        port: Port,
-        mut val: PortReadRequest,
-        _space: GuestAddressSpaceViewMut,
-        _interrupts: &mut InterruptArray,
-    ) -> Result<()> {
-        if port == self.pmtimer() {
-            let on_duration = time::now() - time::system_start_time();
-            let pm_time =
-                (on_duration.as_nanos() * PMTIMER_HZ as u128) / 1_000_000_000;
-            val.copy_from_u32(pm_time as u32);
+    fn on_event(&mut self, event: Event) -> Result<()> {
+        match event.kind {
+            DeviceEvent::PortRead((port, mut val)) => {
+                if port == self.pmtimer() {
+                    let on_duration = time::now() - time::system_start_time();
+                    let pm_time = (on_duration.as_nanos() * PMTIMER_HZ as u128)
+                        / 1_000_000_000;
+                    val.copy_from_u32(pm_time as u32);
+                }
+            }
+            DeviceEvent::PortWrite((port, val)) => {
+                info!(
+                    "Attempt to write to AcpiRuntime port=0x{:x}, val={}. Ignoring",
+                    port, val
+                );
+            }
+            _ => (),
         }
-        Ok(())
-    }
 
-    fn on_port_write(
-        &mut self,
-        port: Port,
-        val: PortWriteRequest,
-        _space: GuestAddressSpaceViewMut,
-        _interrupts: &mut InterruptArray,
-    ) -> Result<()> {
-        info!(
-            "Attempt to write to AcpiRuntime port=0x{:x}, val={}. Ignoring",
-            port, val
-        );
         Ok(())
     }
 }

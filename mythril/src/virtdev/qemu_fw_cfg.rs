@@ -4,7 +4,7 @@ use crate::memory::{
     PrivilegeLevel,
 };
 use crate::virtdev::{
-    DeviceRegion, EmulatedDevice, InterruptArray, Port, PortReadRequest,
+    DeviceEvent, DeviceRegion, EmulatedDevice, Event, Port, PortReadRequest,
     PortWriteRequest,
 };
 use alloc::collections::BTreeMap;
@@ -315,26 +315,11 @@ impl QemuFwCfg {
             None
         }
     }
-}
-
-impl EmulatedDevice for QemuFwCfg {
-    fn services(&self) -> Vec<DeviceRegion> {
-        vec![
-            DeviceRegion::PortIo(
-                Self::FW_CFG_PORT_SEL..=Self::FW_CFG_PORT_DATA,
-            ),
-            DeviceRegion::PortIo(
-                Self::FW_CFG_PORT_DMA_HIGH..=Self::FW_CFG_PORT_DMA_LOW,
-            ),
-        ]
-    }
 
     fn on_port_read(
         &mut self,
         port: Port,
         mut val: PortReadRequest,
-        _space: GuestAddressSpaceViewMut,
-        _interrupts: &mut InterruptArray,
     ) -> Result<()> {
         let len = val.len();
         match port {
@@ -374,7 +359,6 @@ impl EmulatedDevice for QemuFwCfg {
         port: Port,
         val: PortWriteRequest,
         space: GuestAddressSpaceViewMut,
-        _interrupts: &mut InterruptArray,
     ) -> Result<()> {
         match port {
             Self::FW_CFG_PORT_SEL => {
@@ -398,6 +382,32 @@ impl EmulatedDevice for QemuFwCfg {
                 self.dma_addr = (high as u64) << 32;
             }
             _ => unreachable!(),
+        }
+        Ok(())
+    }
+}
+
+impl EmulatedDevice for QemuFwCfg {
+    fn services(&self) -> Vec<DeviceRegion> {
+        vec![
+            DeviceRegion::PortIo(
+                Self::FW_CFG_PORT_SEL..=Self::FW_CFG_PORT_DATA,
+            ),
+            DeviceRegion::PortIo(
+                Self::FW_CFG_PORT_DMA_HIGH..=Self::FW_CFG_PORT_DMA_LOW,
+            ),
+        ]
+    }
+
+    fn on_event(&mut self, event: Event) -> Result<()> {
+        match event.kind {
+            DeviceEvent::PortRead((port, val)) => {
+                self.on_port_read(port, val)?
+            }
+            DeviceEvent::PortWrite((port, val)) => {
+                self.on_port_write(port, val, event.space)?
+            }
+            _ => (),
         }
         Ok(())
     }

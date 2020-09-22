@@ -1,5 +1,6 @@
 use crate::error::{Error, Result};
 use crate::memory::{GuestAddressSpaceViewMut, GuestPhysAddr};
+use crate::vcpu;
 use alloc::collections::btree_map::BTreeMap;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
@@ -25,15 +26,48 @@ pub mod qemu_fw_cfg;
 pub mod rtc;
 pub mod vga;
 
-#[derive(Eq, PartialEq, Debug)]
-#[non_exhaustive]
-pub enum DeviceMessage {
-    UartKeyPressed(u8),
+const MAX_EVENT_RESPONSES: usize = 8;
+pub type ResponseEventArray =
+    ArrayVec<[DeviceEventResponse; MAX_EVENT_RESPONSES]>;
+pub type Port = u16;
+
+#[derive(Debug)]
+pub enum DeviceEvent<'a> {
+    HostUartReceived(u8),
+    MemRead((GuestPhysAddr, MemReadRequest<'a>)),
+    MemWrite((GuestPhysAddr, MemWriteRequest<'a>)),
+    PortRead((Port, PortReadRequest<'a>)),
+    PortWrite((Port, PortWriteRequest<'a>)),
 }
 
-const MAX_EVENT_INTERRUPTS: usize = 8;
-pub type InterruptArray = ArrayVec<[u8; MAX_EVENT_INTERRUPTS]>;
-pub type Port = u16;
+#[derive(Debug)]
+pub enum DeviceEventResponse {
+    GuestUartTransmitted(u8),
+    Interrupt((u8, vcpu::InjectedInterruptType)),
+}
+
+pub struct Event<'a> {
+    pub kind: DeviceEvent<'a>,
+    pub vcpu: &'a vcpu::VCpu,
+    pub space: GuestAddressSpaceViewMut<'a>,
+    pub responses: &'a mut ResponseEventArray,
+}
+
+impl<'a> Event<'a> {
+    pub fn new(
+        kind: DeviceEvent<'a>,
+        space: GuestAddressSpaceViewMut<'a>,
+        vcpu: &'a crate::vcpu::VCpu,
+        responses: &'a mut ResponseEventArray,
+    ) -> Result<Self> {
+        Ok(Event {
+            kind,
+            vcpu,
+            responses,
+            space,
+        })
+    }
+}
 
 #[derive(Eq, PartialEq)]
 struct PortIoRegion(RangeInclusive<Port>);
@@ -190,58 +224,8 @@ impl DeviceMap {
 pub trait EmulatedDevice {
     fn services(&self) -> Vec<DeviceRegion>;
 
-    fn on_event(
-        &mut self,
-        _event: &DeviceMessage,
-        _space: GuestAddressSpaceViewMut,
-        _interrupts: &mut InterruptArray,
-    ) -> Result<()> {
+    fn on_event(&mut self, _event: Event) -> Result<()> {
         Ok(())
-    }
-
-    fn on_mem_read(
-        &mut self,
-        _addr: GuestPhysAddr,
-        _data: MemReadRequest,
-        _space: GuestAddressSpaceViewMut,
-        _interrupts: &mut InterruptArray,
-    ) -> Result<()> {
-        Err(Error::NotImplemented(
-            "MemoryMapped device does not support reading".into(),
-        ))
-    }
-    fn on_mem_write(
-        &mut self,
-        _addr: GuestPhysAddr,
-        _data: MemWriteRequest,
-        _space: GuestAddressSpaceViewMut,
-        _interrupts: &mut InterruptArray,
-    ) -> Result<()> {
-        Err(Error::NotImplemented(
-            "MemoryMapped device does not support writing".into(),
-        ))
-    }
-    fn on_port_read(
-        &mut self,
-        _port: Port,
-        _val: PortReadRequest,
-        _space: GuestAddressSpaceViewMut,
-        _interrupts: &mut InterruptArray,
-    ) -> Result<()> {
-        Err(Error::NotImplemented(
-            "PortIo device does not support reading".into(),
-        ))
-    }
-    fn on_port_write(
-        &mut self,
-        _port: Port,
-        _val: PortWriteRequest,
-        _space: GuestAddressSpaceViewMut,
-        _interrupts: &mut InterruptArray,
-    ) -> Result<()> {
-        Err(Error::NotImplemented(
-            "PortIo device does not support writing".into(),
-        ))
     }
 }
 

@@ -1,7 +1,6 @@
 use crate::error::Result;
-use crate::memory::GuestAddressSpaceViewMut;
 use crate::virtdev::{
-    DeviceRegion, EmulatedDevice, InterruptArray, Port, PortReadRequest,
+    DeviceEvent, DeviceRegion, EmulatedDevice, Event, Port, PortReadRequest,
     PortWriteRequest,
 };
 use alloc::sync::Arc;
@@ -108,20 +107,11 @@ impl CmosRtc {
         }
         data
     }
-}
-
-//TODO: support the NMI masking stuff
-impl EmulatedDevice for CmosRtc {
-    fn services(&self) -> Vec<DeviceRegion> {
-        vec![DeviceRegion::PortIo(Self::RTC_ADDRESS..=Self::RTC_DATA)]
-    }
 
     fn on_port_read(
         &mut self,
         port: Port,
         mut val: PortReadRequest,
-        _space: GuestAddressSpaceViewMut,
-        _interrupts: &mut InterruptArray,
     ) -> Result<()> {
         match port {
             Self::RTC_ADDRESS => val.copy_from_u32(self.addr as u8 as u32),
@@ -140,8 +130,6 @@ impl EmulatedDevice for CmosRtc {
         &mut self,
         port: Port,
         val: PortWriteRequest,
-        _space: GuestAddressSpaceViewMut,
-        _interrupts: &mut InterruptArray,
     ) -> Result<()> {
         // For now, just ignore the NMI masking
         let val: u8 = val.try_into()?;
@@ -172,6 +160,26 @@ impl EmulatedDevice for CmosRtc {
                 }
             }
             _ => unreachable!(),
+        }
+        Ok(())
+    }
+}
+
+//TODO: support the NMI masking stuff
+impl EmulatedDevice for CmosRtc {
+    fn services(&self) -> Vec<DeviceRegion> {
+        vec![DeviceRegion::PortIo(Self::RTC_ADDRESS..=Self::RTC_DATA)]
+    }
+
+    fn on_event(&mut self, event: Event) -> Result<()> {
+        match event.kind {
+            DeviceEvent::PortRead((port, val)) => {
+                self.on_port_read(port, val)?
+            }
+            DeviceEvent::PortWrite((port, val)) => {
+                self.on_port_write(port, val)?
+            }
+            _ => (),
         }
         Ok(())
     }

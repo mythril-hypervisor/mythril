@@ -1,9 +1,5 @@
 use crate::error::{Error, Result};
-use crate::memory::GuestAddressSpaceViewMut;
-use crate::virtdev::{
-    DeviceRegion, EmulatedDevice, InterruptArray, Port, PortReadRequest,
-    PortWriteRequest,
-};
+use crate::virtdev::{DeviceEvent, DeviceRegion, EmulatedDevice, Event, Port};
 use alloc::collections::btree_map::BTreeMap;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
@@ -204,69 +200,61 @@ impl EmulatedDevice for PciRootComplex {
             DeviceRegion::PortIo(Self::PCI_CONFIG_TYPE..=Self::PCI_CONFIG_TYPE),
         ]
     }
-    fn on_port_read(
-        &mut self,
-        port: Port,
-        mut val: PortReadRequest,
-        _space: GuestAddressSpaceViewMut,
-        _interrupts: &mut InterruptArray,
-    ) -> Result<()> {
-        match port {
-            Self::PCI_CONFIG_ADDRESS => {
-                // For now, always set the enable bit
-                let addr = 0x80000000 | self.current_address;
-                val.copy_from_u32(addr);
-            }
-            Self::PCI_CONFIG_DATA..=Self::PCI_CONFIG_DATA_MAX => {
-                let bdf = ((self.current_address & 0xffff00) >> 8) as u16;
-                let register = (self.current_address & 0xff >> 2) as u8;
-                let offset = (port - Self::PCI_CONFIG_DATA) as u8;
 
-                match self.devices.get(&bdf) {
-                    Some(device) => {
-                        let res = device.config_space.read_register(register)
-                            >> (offset * 8);
-                        val.copy_from_u32(res);
-                        info!(
-                            "port=0x{:x}, register=0x{:x}, offset=0x{:x}, val={}",
-                            port, register, offset, val
-                        );
+    fn on_event(&mut self, event: Event) -> Result<()> {
+        match event.kind {
+            DeviceEvent::PortRead((port, mut val)) => {
+                match port {
+                    Self::PCI_CONFIG_ADDRESS => {
+                        // For now, always set the enable bit
+                        let addr = 0x80000000 | self.current_address;
+                        val.copy_from_u32(addr);
                     }
-                    None => {
-                        // If no device is present, just return all 0xFFs
-                        let res = 0xffffffffu32;
-                        val.copy_from_u32(res);
+                    Self::PCI_CONFIG_DATA..=Self::PCI_CONFIG_DATA_MAX => {
+                        let bdf =
+                            ((self.current_address & 0xffff00) >> 8) as u16;
+                        let register = (self.current_address & 0xff >> 2) as u8;
+                        let offset = (port - Self::PCI_CONFIG_DATA) as u8;
+
+                        match self.devices.get(&bdf) {
+                            Some(device) => {
+                                let res =
+                                    device.config_space.read_register(register)
+                                        >> (offset * 8);
+                                val.copy_from_u32(res);
+                                info!(
+                                    "port=0x{:x}, register=0x{:x}, offset=0x{:x}, val={}",
+                                    port, register, offset, val
+                                );
+                            }
+                            None => {
+                                // If no device is present, just return all 0xFFs
+                                let res = 0xffffffffu32;
+                                val.copy_from_u32(res);
+                            }
+                        }
+                    }
+                    _ => {
+                        return Err(Error::InvalidValue(format!(
+                            "Invalid PCI port read 0x{:x}",
+                            port
+                        )))
                     }
                 }
             }
-            _ => {
-                return Err(Error::InvalidValue(format!(
-                    "Invalid PCI port read 0x{:x}",
-                    port
-                )))
-            }
-        }
-        Ok(())
-    }
-
-    fn on_port_write(
-        &mut self,
-        port: Port,
-        val: PortWriteRequest,
-        _space: GuestAddressSpaceViewMut,
-        _interrupts: &mut InterruptArray,
-    ) -> Result<()> {
-        match port {
-            Self::PCI_CONFIG_ADDRESS => {
-                let addr: u32 = val.try_into()?;
-                self.current_address = addr & 0x7fffffffu32;
-            }
-            _ => {
-                info!(
-                    "Attempt to write to port=0x{:x} (addr=0x{:x}). Ignoring.",
-                    port, self.current_address
-                );
-            }
+            DeviceEvent::PortWrite((port, val)) => match port {
+                Self::PCI_CONFIG_ADDRESS => {
+                    let addr: u32 = val.try_into()?;
+                    self.current_address = addr & 0x7fffffffu32;
+                }
+                _ => {
+                    info!(
+                            "Attempt to write to port=0x{:x} (addr=0x{:x}). Ignoring.",
+                            port, self.current_address
+                        );
+                }
+            },
+            _ => (),
         }
         Ok(())
     }
