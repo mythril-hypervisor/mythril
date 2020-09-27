@@ -1,5 +1,5 @@
 use crate::error::{self, Error, Result};
-use crate::memory::Raw4kPage;
+use crate::memory::{GuestVirtAddr, Raw4kPage};
 use alloc::boxed::Box;
 use raw_cpuid::CpuId;
 use x86::msr;

@@ -1,5 +1,5 @@
 use crate::error::Result;
-use crate::virtdev::{DeviceEvent, DeviceRegion, EmulatedDevice, Event, Port};
+use crate::virtdev::{DeviceRegion, EmulatedDevice, Event};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use spin::RwLock;
@@ -33,7 +33,7 @@ impl EmulatedDevice for IgnoredDevice {
         ]
     }
 
-    fn on_event(&mut self, event: Event) -> Result<()> {
+    fn on_event(&mut self, _event: Event) -> Result<()> {
         Ok(())
     }
 }

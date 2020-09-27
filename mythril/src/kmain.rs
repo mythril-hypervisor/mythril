@@ -42,6 +42,7 @@ fn default_vm(
                 physdev::com::Uart8250::new(0x3f8)
                     .expect("Failed to create UART"),
             ),
+            ps2_keyboard: None,
         }
     };
 

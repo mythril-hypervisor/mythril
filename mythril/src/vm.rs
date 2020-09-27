@@ -5,11 +5,8 @@ use crate::memory::{
     Raw4kPage,
 };
 use crate::physdev;
-use crate::vcpu;
 use crate::virtdev::{
-    DeviceEvent, DeviceInteraction, DeviceMap, Event, MemReadRequest,
-    MemWriteRequest, Port, PortReadRequest, PortWriteRequest,
-    ResponseEventArray,
+    DeviceEvent, DeviceInteraction, DeviceMap, Event, ResponseEventArray,
 };
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
@@ -25,6 +22,9 @@ pub static mut VM_MAP: Option<BTreeMap<usize, Arc<RwLock<VirtualMachine>>>> =
 pub struct PhysicalDeviceConfig {
     /// The physical serial connection for this VM (if any).
     pub serial: Option<physdev::com::Uart8250>,
+
+    /// The physical ps2 keyboard connection for this VM (if any).
+    pub ps2_keyboard: Option<physdev::keyboard::Ps2Controller>,
 }
 
 /// A configuration for a `VirtualMachine`

@@ -32,7 +32,7 @@ impl EmulatedDevice for ProgrammableOptionSelect {
 
     fn on_event(&mut self, event: Event) -> Result<()> {
         match event.kind {
-            DeviceEvent::PortRead((port, mut val)) => {
+            DeviceEvent::PortRead((_port, mut val)) => {
                 val.copy_from_u32(0);
             }
             _ => (),
