@@ -41,7 +41,7 @@ fn emulate_outs(
         let request = PortWriteRequest::try_from(chunk)?;
         vm.dispatch_event(
             port,
-            DeviceEvent::PortWrite((port, request)),
+            DeviceEvent::PortWrite(port, request),
             vcpu,
             responses,
         )?;
@@ -71,7 +71,7 @@ fn emulate_ins(
         let request = PortReadRequest::try_from(chunk)?;
         vm.dispatch_event(
             port,
-            DeviceEvent::PortRead((port, request)),
+            DeviceEvent::PortRead(port, request),
             vcpu,
             responses,
         )?;
@@ -105,7 +105,7 @@ pub fn emulate_portio(
                 PortWriteRequest::try_from(&arr[4 - size as usize..])?;
             vm.dispatch_event(
                 port,
-                DeviceEvent::PortWrite((port, request)),
+                DeviceEvent::PortWrite(port, request),
                 vcpu,
                 responses,
             )?;
@@ -115,7 +115,7 @@ pub fn emulate_portio(
                 PortReadRequest::try_from(&mut arr[4 - size as usize..])?;
             vm.dispatch_event(
                 port,
-                DeviceEvent::PortRead((port, request)),
+                DeviceEvent::PortRead(port, request),
                 vcpu,
                 responses,
             )?;

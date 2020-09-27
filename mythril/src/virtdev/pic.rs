@@ -44,7 +44,7 @@ impl EmulatedDevice for Pic8259 {
 
     fn on_event(&mut self, event: Event) -> Result<()> {
         match event.kind {
-            DeviceEvent::PortRead((port, mut val)) => {
+            DeviceEvent::PortRead(port, mut val) => {
                 let data = match port {
                     Self::PIC_MASTER_DATA => self.master_state.imr,
                     Self::PIC_SLAVE_DATA => self.master_state.imr,
@@ -54,7 +54,7 @@ impl EmulatedDevice for Pic8259 {
                 };
                 val.copy_from_u32(data as u32);
             }
-            DeviceEvent::PortWrite((port, val)) => match port {
+            DeviceEvent::PortWrite(port, val) => match port {
                 Self::PIC_MASTER_DATA => {
                     self.master_state.imr = val.try_into()?;
                 }

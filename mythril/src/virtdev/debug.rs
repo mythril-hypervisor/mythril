@@ -24,10 +24,10 @@ impl EmulatedDevice for DebugPort {
 
     fn on_event(&mut self, event: Event) -> Result<()> {
         match event.kind {
-            DeviceEvent::PortRead((_port, mut val)) => {
+            DeviceEvent::PortRead(_port, mut val) => {
                 val.copy_from_u32(0xe9);
             }
-            DeviceEvent::PortWrite((_port, val)) => {
+            DeviceEvent::PortWrite(_port, val) => {
                 event.responses.push(
                     DeviceEventResponse::GuestUartTransmitted(val.try_into()?),
                 );

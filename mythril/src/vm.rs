@@ -151,7 +151,7 @@ impl VirtualMachine {
             &mut self.guest_space,
         )?;
 
-        let event = Event::new(kind, space, vcpu, responses)?;
+        let event = Event::new(kind, space, responses)?;
 
         dev.write().on_event(event)
     }

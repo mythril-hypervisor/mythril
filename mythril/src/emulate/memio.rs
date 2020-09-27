@@ -22,7 +22,7 @@ macro_rules! write_register {
         let request = MemReadRequest::new(&mut buff[..]);
         $vm.dispatch_event(
             $addr,
-            DeviceEvent::MemRead(($addr, request)),
+            DeviceEvent::MemRead($addr, request),
             $vcpu,
             $responses,
         )?;
@@ -184,7 +184,7 @@ fn do_mmio_write(
     let mut vm = vcpu.vm.write();
     vm.dispatch_event(
         addr,
-        crate::virtdev::DeviceEvent::MemWrite((addr, request)),
+        crate::virtdev::DeviceEvent::MemWrite(addr, request),
         vcpu,
         responses,
     )

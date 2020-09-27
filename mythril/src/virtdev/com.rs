@@ -67,7 +67,7 @@ impl EmulatedDevice for Uart8250 {
                 );
                 self.write(key)
             }
-            DeviceEvent::PortRead((port, mut val)) => {
+            DeviceEvent::PortRead(port, mut val) => {
                 if port - self.base_port == SerialOffset::DATA
                     && !self.divisor_latch_bit_set()
                 {
@@ -111,7 +111,7 @@ impl EmulatedDevice for Uart8250 {
                     val.copy_from_u32(flags.bits() as u32);
                 }
             }
-            DeviceEvent::PortWrite((port, val)) => {
+            DeviceEvent::PortWrite(port, val) => {
                 let val: u8 = val.try_into()?;
                 if port - self.base_port == SerialOffset::DATA {
                     if self.divisor_latch_bit_set() {

@@ -401,10 +401,8 @@ impl EmulatedDevice for QemuFwCfg {
 
     fn on_event(&mut self, event: Event) -> Result<()> {
         match event.kind {
-            DeviceEvent::PortRead((port, val)) => {
-                self.on_port_read(port, val)?
-            }
-            DeviceEvent::PortWrite((port, val)) => {
+            DeviceEvent::PortRead(port, val) => self.on_port_read(port, val)?,
+            DeviceEvent::PortWrite(port, val) => {
                 self.on_port_write(port, val, event.space)?
             }
             _ => (),

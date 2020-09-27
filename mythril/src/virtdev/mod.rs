@@ -34,10 +34,10 @@ pub type Port = u16;
 #[derive(Debug)]
 pub enum DeviceEvent<'a> {
     HostUartReceived(u8),
-    MemRead((GuestPhysAddr, MemReadRequest<'a>)),
-    MemWrite((GuestPhysAddr, MemWriteRequest<'a>)),
-    PortRead((Port, PortReadRequest<'a>)),
-    PortWrite((Port, PortWriteRequest<'a>)),
+    MemRead(GuestPhysAddr, MemReadRequest<'a>),
+    MemWrite(GuestPhysAddr, MemWriteRequest<'a>),
+    PortRead(Port, PortReadRequest<'a>),
+    PortWrite(Port, PortWriteRequest<'a>),
 }
 
 #[derive(Debug)]
@@ -48,7 +48,6 @@ pub enum DeviceEventResponse {
 
 pub struct Event<'a> {
     pub kind: DeviceEvent<'a>,
-    pub vcpu: &'a vcpu::VCpu,
     pub space: GuestAddressSpaceViewMut<'a>,
     pub responses: &'a mut ResponseEventArray,
 }
@@ -57,12 +56,10 @@ impl<'a> Event<'a> {
     pub fn new(
         kind: DeviceEvent<'a>,
         space: GuestAddressSpaceViewMut<'a>,
-        vcpu: &'a crate::vcpu::VCpu,
         responses: &'a mut ResponseEventArray,
     ) -> Result<Self> {
         Ok(Event {
             kind,
-            vcpu,
             responses,
             space,
         })
@@ -481,18 +478,8 @@ impl<'a> fmt::Display for MemReadRequest<'a> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::memory::{
-        GuestAddressSpace, GuestAddressSpaceViewMut, GuestPhysAddr,
-    };
     use crate::virtdev::com::*;
-    use alloc::boxed::Box;
     use core::convert::TryInto;
-
-    fn define_test_view() -> GuestAddressSpaceViewMut<'static> {
-        let space: &'static mut GuestAddressSpace =
-            Box::leak(Box::new(GuestAddressSpace::new().unwrap()));
-        GuestAddressSpaceViewMut::new(GuestPhysAddr::new(0), space)
-    }
 
     // This is just a dummy device so we can have arbitrary port ranges
     // for testing.
@@ -518,24 +505,9 @@ mod test {
     }
 
     #[test]
-    fn test_memmap_write_to_portio_fails() {
-        let view = define_test_view();
-        let mut interrupts = InterruptArray::default();
-        let com = Uart8250::new(0, 0);
-        let addr = GuestPhysAddr::new(0);
-        let data = [0u8; 4];
-        let req = MemWriteRequest::new(&data);
-        let mut com = com.write();
-        assert_eq!(
-            com.on_mem_write(addr, req, view, &mut interrupts).is_err(),
-            true
-        );
-    }
-
-    #[test]
     fn test_device_map() {
         let mut map = DeviceMap::default();
-        let com = Uart8250::new(0, 0);
+        let com = Uart8250::new(0);
         map.register_device(com).unwrap();
         let _dev = map.find_device(0u16).unwrap();
 
@@ -571,9 +543,9 @@ mod test {
     #[test]
     fn test_conflicting_portio_device() {
         let mut map = DeviceMap::default();
-        let com = Uart8250::new(0, 0);
+        let com = Uart8250::new(0);
         map.register_device(com).unwrap();
-        let com = Uart8250::new(0, 0);
+        let com = Uart8250::new(0);
 
         assert!(map.register_device(com).is_err());
     }

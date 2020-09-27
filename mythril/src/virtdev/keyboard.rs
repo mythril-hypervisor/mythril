@@ -26,7 +26,7 @@ impl EmulatedDevice for Keyboard8042 {
 
     fn on_event(&mut self, event: Event) -> Result<()> {
         match event.kind {
-            DeviceEvent::PortRead((_port, mut val)) => {
+            DeviceEvent::PortRead(_port, mut val) => {
                 //FIXME: For now just return 0xff for everything
                 val.copy_from_u32(0xff);
             }

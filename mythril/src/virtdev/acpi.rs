@@ -69,7 +69,7 @@ impl EmulatedDevice for AcpiRuntime {
 
     fn on_event(&mut self, event: Event) -> Result<()> {
         match event.kind {
-            DeviceEvent::PortRead((port, mut val)) => {
+            DeviceEvent::PortRead(port, mut val) => {
                 if port == self.pmtimer() {
                     let on_duration = time::now() - time::system_start_time();
                     let pm_time = (on_duration.as_nanos() * PMTIMER_HZ as u128)
@@ -77,7 +77,7 @@ impl EmulatedDevice for AcpiRuntime {
                     val.copy_from_u32(pm_time as u32);
                 }
             }
-            DeviceEvent::PortWrite((port, val)) => {
+            DeviceEvent::PortWrite(port, val) => {
                 info!(
                     "Attempt to write to AcpiRuntime port=0x{:x}, val={}. Ignoring",
                     port, val
