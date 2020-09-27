@@ -480,54 +480,7 @@ impl VCpu {
 
         match exit.info {
             vmexit::ExitInformation::CrAccess(info) => {
-                match info.cr_num {
-                    0 => match info.access_type {
-                        vmexit::CrAccessType::Clts => {
-                            let cr0 = self
-                                .vmcs
-                                .read_field(vmcs::VmcsField::GuestCr0)?;
-                            self.vmcs.write_field(
-                                vmcs::VmcsField::GuestCr0,
-                                cr0 & !0b1000,
-                            )?;
-                        }
-                        vmexit::CrAccessType::MovToCr => {
-                            let reg = info.register.unwrap();
-                            let val = reg.read(&self.vmcs, guest_cpu)?;
-                            self.vmcs
-                                .write_field(vmcs::VmcsField::GuestCr0, val)?;
-                        }
-                        op => panic!(
-                            "Unsupported MovToCr cr0 operation: {:?}",
-                            op
-                        ),
-                    },
-                    3 => match info.access_type {
-                        vmexit::CrAccessType::MovToCr => {
-                            let reg = info.register.unwrap();
-                            let val = reg.read(&self.vmcs, guest_cpu)?;
-                            self.vmcs
-                                .write_field(vmcs::VmcsField::GuestCr3, val)?;
-                        }
-                        vmexit::CrAccessType::MovFromCr => {
-                            let reg = info.register.unwrap();
-                            let val = self
-                                .vmcs
-                                .read_field(vmcs::VmcsField::GuestCr3)?;
-                            reg.write(val, &mut self.vmcs, guest_cpu)?;
-                        }
-                        op => panic!(
-                            "Unsupported MovFromCr cr0 operation: {:?}",
-                            op
-                        ),
-                    },
-                    _ => {
-                        return Err(Error::InvalidValue(format!(
-                            "Unsupported CR number access"
-                        )))
-                    }
-                }
-
+                emulate::controlreg::emulate_access(self, guest_cpu, info)?;
                 self.skip_emulated_instruction()?;
             }
 
