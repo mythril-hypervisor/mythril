@@ -157,6 +157,11 @@ static LOGGER: logger::DirectLogger = logger::DirectLogger::new();
 
 #[no_mangle]
 pub unsafe extern "C" fn kmain_multiboot2(multiboot_info_addr: usize) -> ! {
+    // Setup our (com0) logger
+    log::set_logger(&LOGGER)
+        .map(|()| log::set_max_level(log::LevelFilter::Debug))
+        .expect("Failed to set logger");
+
     let boot_info = multiboot2::early_init_multiboot2(
         memory::HostPhysAddr::new(multiboot_info_addr as u64),
     );
@@ -166,11 +171,6 @@ pub unsafe extern "C" fn kmain_multiboot2(multiboot_info_addr: usize) -> ! {
 unsafe fn kmain(mut boot_info: BootInfo) -> ! {
     // Setup the actual interrupt handlers
     interrupt::idt::init();
-
-    // Setup our (com0) logger
-    log::set_logger(&LOGGER)
-        .map(|()| log::set_max_level(log::LevelFilter::Info))
-        .expect("Failed to set logger");
 
     // Calibrate the global time source
     time::init_global_time().expect("Failed to init global timesource");
