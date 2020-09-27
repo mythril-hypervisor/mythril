@@ -310,8 +310,6 @@ impl VCpu {
         vmcs.write_with_fixed(
             vmcs::VmcsField::VmExitControls,
             (vmcs::VmExitCtrlFlags::IA32E_MODE
-                | vmcs::VmExitCtrlFlags::LOAD_HOST_EFER
-                | vmcs::VmExitCtrlFlags::SAVE_GUEST_EFER
                 | vmcs::VmExitCtrlFlags::ACK_INTR_ON_EXIT)
                 .bits(),
             msr::IA32_VMX_EXIT_CTLS,
@@ -319,7 +317,7 @@ impl VCpu {
 
         vmcs.write_with_fixed(
             vmcs::VmcsField::VmEntryControls,
-            vmcs::VmEntryCtrlFlags::LOAD_GUEST_EFER.bits(),
+            0,
             msr::IA32_VMX_ENTRY_CTLS,
         )?;
 
@@ -505,14 +503,6 @@ impl VCpu {
                     &mut responses,
                 )?;
                 self.skip_emulated_instruction()?;
-            }
-            vmexit::ExitInformation::WrMsr => {
-                info!(
-                    "wrmsr: {:x}:{:x} to register 0x{:x}",
-                    guest_cpu.rdx as u32,
-                    guest_cpu.rax as u32,
-                    guest_cpu.rcx as u32
-                );
             }
             vmexit::ExitInformation::InterruptWindow => {}
             vmexit::ExitInformation::ExternalInterrupt(info) => unsafe {
