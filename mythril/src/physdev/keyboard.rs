@@ -1,4 +1,11 @@
-use crate::error::Result;
+#![deny(missing_docs)]
+
+//! # Physical PS2 Support
+//!
+//! This module provides support for interacting with a physical
+//! PS2 keyboard controller.
+
+use crate::error::{Error, Result};
 use bitflags::bitflags;
 use x86::io::{inb, outb};
 
@@ -7,7 +14,7 @@ const PS2_STATUS_PORT: u16 = 0x64;
 const PS2_COMMAND_PORT: u16 = 0x64;
 
 bitflags! {
-    pub struct Ps2StatusFlags: u8 {
+    struct Ps2StatusFlags: u8 {
         const OUTPUT_BUFFER_FULL = 1 << 0;
         const INPUT_BUFFER_FULL = 1 << 1;
         const SELF_TEST_PASS = 1 << 2;
@@ -20,7 +27,7 @@ bitflags! {
 }
 
 bitflags! {
-    pub struct Ps2ConfigurationFlags: u8 {
+    struct Ps2ConfigurationFlags: u8 {
         const FIRST_PORT_INTERRUPT = 1 << 0;
         const SECOND_PORT_INTERRUPT = 1 << 1;
         const SYSTEM_POST = 1 << 2;
@@ -48,101 +55,123 @@ enum Command {
     WriteSecond = 0xD4,
 }
 
+/// A representation of a physical PS2 keyboard controller
+///
+/// Note that currently only one instance of this type should be created.
 pub struct Ps2Controller;
+
 impl Ps2Controller {
-    pub fn init() -> Result<()> {
+    /// Create a new `Ps2Controller` and prepare the controller
+    pub fn init() -> Result<Self> {
         // See https://wiki.osdev.org/%228042%22_PS/2_Controller#Initialising_the_PS.2F2_Controller
-        Self::flush_read("init start");
-        Self::write_command_port(Command::DisableFirst);
-        Self::write_command_port(Command::DisableSecond);
-        Self::flush_read("disable");
+        let mut controller = Ps2Controller {};
+        controller.flush_read("init start");
+        controller.write_command_port(Command::DisableFirst);
+        controller.write_command_port(Command::DisableSecond);
+        controller.flush_read("disable");
 
         {
-            let mut config = Self::read_configuration();
+            let mut config = controller.read_configuration();
             config.insert(Ps2ConfigurationFlags::FIRST_PORT_CLOCK_DISABLED);
             config.insert(Ps2ConfigurationFlags::SECOND_PORT_CLOCK_DISABLED);
             config.remove(Ps2ConfigurationFlags::FIRST_PORT_TRANSLATION);
             config.remove(Ps2ConfigurationFlags::FIRST_PORT_INTERRUPT);
             config.remove(Ps2ConfigurationFlags::SECOND_PORT_INTERRUPT);
-            Self::write_configuration(config);
+            controller.write_configuration(config);
         }
 
-        Self::write_command_port(Command::TestController);
-        //TODO: these should return error
-        assert_eq!(Self::read_data_port(), 0x55);
+        controller.write_command_port(Command::TestController);
 
-        Self::write_command_port(Command::EnableFirst);
-        Self::write_command_port(Command::EnableSecond);
-        Self::flush_read("enable");
+        if controller.read_data_port() != 0x55 {
+            return Err(Error::DeviceError(
+                "Failed to init Ps2Controller".into(),
+            ));
+        }
 
-        Self::write_data_port(0xff);
-        //TODO: these should return error
-        assert_eq!(Self::read_data_port(), 0xFA);
-        assert_eq!(Self::read_data_port(), 0xAA);
+        controller.write_command_port(Command::EnableFirst);
+        controller.write_command_port(Command::EnableSecond);
+        controller.flush_read("enable");
 
-        Self::flush_read("defaults");
+        controller.write_data_port(0xff);
+
+        if controller.read_data_port() != 0xFA {
+            return Err(Error::DeviceError(
+                "Failed to init Ps2Controller".into(),
+            ));
+        }
+        if controller.read_data_port() != 0xAA {
+            return Err(Error::DeviceError(
+                "Failed to init Ps2Controller".into(),
+            ));
+        }
+
+        controller.flush_read("defaults");
 
         {
-            let mut config = Self::read_configuration();
+            let mut config = controller.read_configuration();
             config.remove(Ps2ConfigurationFlags::FIRST_PORT_CLOCK_DISABLED);
             config.remove(Ps2ConfigurationFlags::SECOND_PORT_CLOCK_DISABLED);
             config.insert(Ps2ConfigurationFlags::FIRST_PORT_TRANSLATION);
             config.insert(Ps2ConfigurationFlags::FIRST_PORT_INTERRUPT);
             config.insert(Ps2ConfigurationFlags::SECOND_PORT_INTERRUPT);
-            Self::write_configuration(config);
+            controller.write_configuration(config);
         }
 
-        Self::flush_read("init finished");
-        Ok(())
+        controller.flush_read("init finished");
+        Ok(controller)
     }
 
-    fn flush_read(message: &str) {
-        while Self::read_status_port()
+    fn flush_read(&mut self, message: &str) {
+        while self
+            .read_status_port()
             .contains(Ps2StatusFlags::OUTPUT_BUFFER_FULL)
         {
-            info!("ps2: flush {}: {:X}", message, Self::read_data_port())
+            info!("ps2: flush {}: {:X}", message, self.read_data_port())
         }
     }
 
-    fn read_data_port() -> u8 {
-        Self::wait_read();
+    /// Read a pending byte of data from the controller
+    pub fn read_data_port(&mut self) -> u8 {
+        self.wait_read();
         unsafe { inb(PS2_DATA_PORT) }
     }
 
-    fn write_data_port(data: u8) {
-        Self::wait_write();
+    fn write_data_port(&mut self, data: u8) {
+        self.wait_write();
         unsafe {
             outb(PS2_DATA_PORT, data);
         }
     }
 
-    fn read_status_port() -> Ps2StatusFlags {
+    fn read_status_port(&mut self) -> Ps2StatusFlags {
         Ps2StatusFlags::from_bits_truncate(unsafe { inb(PS2_STATUS_PORT) })
     }
 
-    fn read_configuration() -> Ps2ConfigurationFlags {
-        Self::write_command_port(Command::ReadConfig);
-        Ps2ConfigurationFlags::from_bits_truncate(Self::read_data_port())
+    fn read_configuration(&mut self) -> Ps2ConfigurationFlags {
+        self.write_command_port(Command::ReadConfig);
+        Ps2ConfigurationFlags::from_bits_truncate(self.read_data_port())
     }
 
-    fn write_configuration(config: Ps2ConfigurationFlags) {
-        Self::write_command_port(Command::WriteConfig);
-        Self::write_data_port(config.bits())
+    fn write_configuration(&mut self, config: Ps2ConfigurationFlags) {
+        self.write_command_port(Command::WriteConfig);
+        self.write_data_port(config.bits())
     }
 
-    fn wait_read() {
-        while !Self::read_status_port()
+    fn wait_read(&mut self) {
+        while !self
+            .read_status_port()
             .contains(Ps2StatusFlags::OUTPUT_BUFFER_FULL)
         {}
     }
 
-    fn wait_write() {
-        while Self::read_status_port()
+    fn wait_write(&mut self) {
+        while self
+            .read_status_port()
             .contains(Ps2StatusFlags::INPUT_BUFFER_FULL)
         {}
     }
 
-    fn write_command_port(cmd: Command) {
+    fn write_command_port(&mut self, cmd: Command) {
         unsafe {
             outb(PS2_COMMAND_PORT, cmd as u8);
         }
