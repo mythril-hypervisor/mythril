@@ -1,20 +1,16 @@
 use crate::error::Result;
-use crate::logger;
 use crate::physdev::com::*;
 use crate::vcpu;
 use crate::virtdev::{
     DeviceEvent, DeviceEventResponse, DeviceRegion, EmulatedDevice, Event, Port,
 };
-use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::convert::TryInto;
 use spin::RwLock;
 
 pub struct Uart8250 {
-    id: u64,
     base_port: Port,
-    is_newline: bool,
     divisor: u16,
     receive_buffer: Option<u8>,
     interrupt_enable_register: IerFlags,
@@ -27,12 +23,10 @@ pub struct Uart8250 {
 }
 
 impl Uart8250 {
-    pub fn new(vmid: u64, base_port: Port) -> Arc<RwLock<Self>> {
+    pub fn new(base_port: Port) -> Arc<RwLock<Self>> {
         Arc::new(RwLock::new(Self {
-            id: vmid,
             base_port: base_port,
             divisor: 0,
-            is_newline: true,
             receive_buffer: None,
             interrupt_identification_register: 0x01,
             interrupt_enable_register: IerFlags::empty(),
@@ -123,19 +117,9 @@ impl EmulatedDevice for Uart8250 {
                     if self.divisor_latch_bit_set() {
                         self.divisor &= 0xff00 | val as u16;
                     } else {
-                        if self.is_newline {
-                            logger::write_console(&format!(
-                                "GUEST{}: ",
-                                self.id
-                            ));
-                        }
-
-                        let buff = &[val];
-                        let s = String::from_utf8_lossy(buff);
-                        logger::write_console(&s);
-
-                        self.is_newline = val == 10;
-
+                        event.responses.push(
+                            DeviceEventResponse::GuestUartTransmitted(val),
+                        );
                         if self
                             .interrupt_enable_register
                             .contains(IerFlags::THR_EMPTY_INTERRUPT)

@@ -56,10 +56,10 @@ fn default_vm(
         .register_device(virtdev::acpi::AcpiRuntime::new(0xb000).unwrap())
         .unwrap();
     device_map
-        .register_device(virtdev::debug::DebugPort::new(core as u64, 0x402))
+        .register_device(virtdev::debug::DebugPort::new(0x402))
         .unwrap();
     device_map
-        .register_device(virtdev::com::Uart8250::new(core as u64, 0x3F8))
+        .register_device(virtdev::com::Uart8250::new(0x3F8))
         .unwrap();
     device_map
         .register_device(virtdev::vga::VgaController::new())

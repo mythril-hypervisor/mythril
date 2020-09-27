@@ -540,7 +540,15 @@ impl VCpu {
                 virtdev::DeviceEventResponse::Interrupt((vector, kind)) => {
                     self.inject_interrupt(vector, kind);
                 }
-                _ => (),
+                virtdev::DeviceEventResponse::GuestUartTransmitted(val) => {
+                    let vm = self.vm.read();
+                    if vm.config.physical_devices().serial.is_some() {
+                        //TODO: This should be a write to the physical serial device
+                        let buff = &[val];
+                        let s = alloc::string::String::from_utf8_lossy(buff);
+                        crate::logger::write_console(&s);
+                    }
+                }
             }
         }
 

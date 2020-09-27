@@ -1,24 +1,19 @@
 use crate::error::Result;
-use crate::logger;
-use crate::virtdev::{DeviceEvent, DeviceRegion, EmulatedDevice, Event, Port};
-use alloc::string::String;
+use crate::virtdev::{
+    DeviceEvent, DeviceEventResponse, DeviceRegion, EmulatedDevice, Event, Port,
+};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
+use core::convert::TryInto;
 use spin::RwLock;
 
 pub struct DebugPort {
-    id: u64,
     port: Port,
-    buff: Vec<u8>,
 }
 
 impl DebugPort {
-    pub fn new(vmid: u64, port: Port) -> Arc<RwLock<Self>> {
-        Arc::new(RwLock::new(Self {
-            port,
-            buff: vec![],
-            id: vmid,
-        }))
+    pub fn new(port: Port) -> Arc<RwLock<Self>> {
+        Arc::new(RwLock::new(Self { port }))
     }
 }
 
@@ -29,20 +24,13 @@ impl EmulatedDevice for DebugPort {
 
     fn on_event(&mut self, event: Event) -> Result<()> {
         match event.kind {
-            DeviceEvent::PortRead((port, mut val)) => {
+            DeviceEvent::PortRead((_port, mut val)) => {
                 val.copy_from_u32(0xe9);
             }
-            DeviceEvent::PortWrite((port, val)) => {
-                self.buff.extend_from_slice(val.as_slice());
-
-                // Flush on newlines
-                if val.as_slice().iter().filter(|b| **b == 10).next().is_some()
-                {
-                    let s = String::from_utf8_lossy(&self.buff);
-
-                    logger::write_console(&format!("GUEST{}: {}", self.id, s));
-                    self.buff.clear();
-                }
+            DeviceEvent::PortWrite((_port, val)) => {
+                event.responses.push(
+                    DeviceEventResponse::GuestUartTransmitted(val.try_into()?),
+                );
             }
             _ => (),
         }
