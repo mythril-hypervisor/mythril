@@ -11,6 +11,7 @@ description = "A intel-focused hypervisor using VT-x/EPT"
 test = []
 
 [dependencies]
+arraydeque = { version = "0.4.5", default-features = false }
 arrayvec = { version = "0.5.1", default-features = false }
 bitflags = "1.2.0"
 byteorder = { version = "1", default-features = false }

@@ -1,5 +1,7 @@
+use crate::apic;
 use crate::boot_info::BootInfo;
 use crate::error::{Error, Result};
+use crate::interrupt;
 use crate::memory::{
     self, GuestAddressSpace, GuestPhysAddr, HostPhysAddr, HostPhysFrame,
     Raw4kPage,
@@ -13,10 +15,185 @@ use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
+use arraydeque::ArrayDeque;
 use spin::RwLock;
 
-pub static mut VM_MAP: Option<BTreeMap<usize, Arc<RwLock<VirtualMachine>>>> =
-    None;
+static mut VIRTUAL_MACHINES: Option<VirtualMachines> = None;
+
+pub unsafe fn init_virtual_machines(machines: VirtualMachines) {
+    VIRTUAL_MACHINES = Some(machines);
+}
+
+/// Get the virtual machine that owns the core with the given apic id
+///
+/// This method is unsafe as it should almost certainly not be used (use message
+/// passing instead of directly access the remote VM).
+pub unsafe fn get_vm_for_apic_id(
+    apic_id: u32,
+) -> Option<Arc<RwLock<VirtualMachine>>> {
+    VIRTUAL_MACHINES
+        .as_ref()
+        .expect("Global VirtualMachines has not been initialized")
+        .get_by_apic_id(apic_id)
+}
+
+//FIXME(alschwalm): this breaks if the current VM is already locked
+pub fn send_vm_msg(msg: VirtualMachineMsg, vmid: u32) -> Result<()> {
+    unsafe { VIRTUAL_MACHINES.as_mut() }
+        .expect("Global VirtualMachines has not been initialized")
+        .send_msg(msg, vmid)
+}
+
+pub fn recv_vm_msg() -> Option<VirtualMachineMsg> {
+    unsafe { VIRTUAL_MACHINES.as_mut() }
+        .expect("Global VirtualMachines has not been initialized")
+        .resv_msg()
+}
+
+pub fn max_vm_id() -> u32 {
+    unsafe { VIRTUAL_MACHINES.as_ref() }
+        .expect("Global VirtualMachines has not been initialized")
+        .len() as u32
+}
+
+const MAX_PENDING_MSG: usize = 100;
+
+pub enum VirtualMachineMsg {
+    GrantConsole(physdev::com::Uart8250),
+}
+
+struct VirtualMachineContext {
+    vm: Arc<RwLock<VirtualMachine>>,
+    msgqueue: RwLock<ArrayDeque<[VirtualMachineMsg; MAX_PENDING_MSG]>>,
+}
+
+pub struct VirtualMachines {
+    map: BTreeMap<u32, VirtualMachineContext>,
+}
+
+impl VirtualMachines {
+    fn context_by_apid_id(
+        &self,
+        apic_id: u32,
+    ) -> Option<&VirtualMachineContext> {
+        self.map.get(&apic_id)
+    }
+
+    fn context_by_id(&self, id: u32) -> Option<&VirtualMachineContext> {
+        self.map
+            .iter()
+            .filter_map(|(_apicid, context)| {
+                if context.vm.read().id == id {
+                    Some(context)
+                } else {
+                    None
+                }
+            })
+            .next()
+    }
+
+    pub fn len(&self) -> usize {
+        self.map.len()
+    }
+
+    pub fn get_by_apic_id(
+        &self,
+        apic_id: u32,
+    ) -> Option<Arc<RwLock<VirtualMachine>>> {
+        self.context_by_apid_id(apic_id)
+            .map(|context| context.vm.clone())
+    }
+
+    pub fn get_by_id(&self, id: u32) -> Option<Arc<RwLock<VirtualMachine>>> {
+        self.context_by_id(id).map(|context| context.vm.clone())
+    }
+
+    pub fn send_msg(
+        &mut self,
+        msg: VirtualMachineMsg,
+        vmid: u32,
+    ) -> Result<()> {
+        let context =
+            self.context_by_id(vmid).ok_or_else(|| Error::NotFound)?;
+        context.msgqueue.write().push_back(msg).map_err(|_| {
+            Error::InvalidValue(format!(
+                "RX queue is full for vmid = 0x{:x}",
+                vmid
+            ))
+        })?;
+
+        // Transmit the IPC external interrupt vector to the other vm, so it will
+        // process the message.
+        unsafe {
+            let localapic = apic::get_local_apic_mut();
+            localapic.send_ipi(
+                vmid, //FIXME(alschwalm): this should actually be the BSP apic id
+                apic::DstShorthand::NoShorthand,
+                apic::TriggerMode::Edge,
+                apic::Level::Assert,
+                apic::DstMode::Physical,
+                apic::DeliveryMode::Fixed,
+                interrupt::IPC_VECTOR,
+            );
+        }
+
+        Ok(())
+    }
+
+    pub fn resv_msg(&mut self) -> Option<VirtualMachineMsg> {
+        let context = self
+            .context_by_id(apic::get_local_apic().id())
+            .expect("No VirtualMachineContext for apic id");
+        context.msgqueue.write().pop_front()
+    }
+}
+
+pub struct VirtualMachineBuilder {
+    map: BTreeMap<u32, Arc<RwLock<VirtualMachine>>>,
+}
+
+impl VirtualMachineBuilder {
+    pub fn new() -> Self {
+        VirtualMachineBuilder {
+            map: BTreeMap::new(),
+        }
+    }
+
+    pub fn insert_machine(
+        &mut self,
+        vm: Arc<RwLock<VirtualMachine>>,
+    ) -> Result<()> {
+        for cpu in vm.read().config.cpus() {
+            self.map.insert(*cpu, vm.clone());
+        }
+        Ok(())
+    }
+
+    pub fn get_by_apic_id(
+        &self,
+        apic_id: u32,
+    ) -> Option<Arc<RwLock<VirtualMachine>>> {
+        self.map.get(&apic_id).map(|vm| vm.clone())
+    }
+
+    pub fn finalize(self) -> VirtualMachines {
+        VirtualMachines {
+            map: self
+                .map
+                .into_iter()
+                .map(|(apicid, vm)| {
+                    (
+                        apicid,
+                        VirtualMachineContext {
+                            vm: vm,
+                            msgqueue: RwLock::new(ArrayDeque::new()),
+                        },
+                    )
+                })
+                .collect(),
+        }
+    }
+}
 
 #[derive(Default)]
 pub struct PhysicalDeviceConfig {
@@ -29,7 +206,7 @@ pub struct PhysicalDeviceConfig {
 
 /// A configuration for a `VirtualMachine`
 pub struct VirtualMachineConfig {
-    _cpus: Vec<u8>,
+    cpus: Vec<u32>,
     images: Vec<(String, GuestPhysAddr)>,
     bios: Option<String>,
     virtual_devices: DeviceMap,
@@ -45,12 +222,12 @@ impl VirtualMachineConfig {
     /// * `cpus` - A list of the cores used by the VM (by APIC id)
     /// * `memory` - The amount of VM memory (in MB)
     pub fn new(
-        cpus: Vec<u8>,
+        cpus: Vec<u32>,
         memory: u64,
         physical_devices: PhysicalDeviceConfig,
     ) -> VirtualMachineConfig {
         VirtualMachineConfig {
-            _cpus: cpus,
+            cpus: cpus,
             images: vec![],
             virtual_devices: DeviceMap::default(),
             physical_devices: physical_devices,
@@ -101,10 +278,17 @@ impl VirtualMachineConfig {
     pub fn physical_devices_mut(&mut self) -> &mut PhysicalDeviceConfig {
         &mut self.physical_devices
     }
+
+    pub fn cpus(&self) -> &Vec<u32> {
+        &self.cpus
+    }
 }
 
 /// A virtual machine
 pub struct VirtualMachine {
+    /// The numeric ID of this virtual machine
+    pub id: u32,
+
     /// The configuration for this virtual machine (including the `DeviceMap`)
     pub config: VirtualMachineConfig,
 
@@ -120,12 +304,14 @@ impl VirtualMachine {
     /// This creates the guest address space (allocating the needed memory),
     /// and maps in the requested images.
     pub fn new(
+        id: u32,
         config: VirtualMachineConfig,
         info: &BootInfo,
     ) -> Result<Arc<RwLock<Self>>> {
         let guest_space = Self::setup_ept(&config, info)?;
 
         Ok(Arc::new(RwLock::new(Self {
+            id: id,
             config: config,
             guest_space: guest_space,
         })))
@@ -267,6 +453,6 @@ mod test {
         let phys_config = PhysicalDeviceConfig::default();
 
         let config = VirtualMachineConfig::new(vec![1], 0, phys_config);
-        VirtualMachine::new(config, &info).unwrap();
+        VirtualMachine::new(0, config, &info).unwrap();
     }
 }

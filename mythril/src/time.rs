@@ -8,6 +8,7 @@
 
 use crate::apic;
 use crate::error::Result;
+use crate::interrupt;
 use crate::tsc;
 use crate::vcpu;
 use crate::{declare_per_core, get_per_core, get_per_core_mut};
@@ -15,8 +16,6 @@ use crate::{declare_per_core, get_per_core, get_per_core_mut};
 use alloc::{collections::BTreeMap, vec};
 use core::ops::{Add, AddAssign, Sub, SubAssign};
 use core::time::Duration;
-
-const TIMER_VECTOR: u8 = 48;
 
 //TODO: should this just be stored as a VCPU member?
 declare_per_core! {
@@ -331,7 +330,7 @@ impl TimerWheel {
         if let Some((when, _)) = soonest {
             unsafe {
                 apic::get_local_apic_mut()
-                    .schedule_interrupt(when, TIMER_VECTOR);
+                    .schedule_interrupt(when, interrupt::TIMER_VECTOR);
             }
         }
     }

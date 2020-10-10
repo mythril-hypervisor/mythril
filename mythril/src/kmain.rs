@@ -3,6 +3,7 @@ use crate::ap;
 use crate::apic;
 use crate::boot_info::BootInfo;
 use crate::interrupt;
+use crate::ioapic;
 use crate::linux;
 use crate::logger;
 use crate::memory;
@@ -14,7 +15,6 @@ use crate::vcpu;
 use crate::virtdev;
 use crate::vm;
 
-use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use log::{debug, info};
@@ -29,7 +29,7 @@ extern "C" {
 
 // Temporary helper function to create a vm for a single core
 fn default_vm(
-    core: usize,
+    core: u32,
     mem: u64,
     info: &BootInfo,
     add_uart: bool,
@@ -47,7 +47,7 @@ fn default_vm(
     };
 
     let mut config =
-        vm::VirtualMachineConfig::new(vec![core as u8], mem, physical_config);
+        vm::VirtualMachineConfig::new(vec![core], mem, physical_config);
 
     // FIXME: When `map_bios` may return an error, log the error.
     config.map_bios("seabios.bin".into()).unwrap_or(());
@@ -132,7 +132,7 @@ fn default_vm(
     .unwrap();
     device_map.register_device(fw_cfg_builder.build()).unwrap();
 
-    vm::VirtualMachine::new(config, info).expect("Failed to create vm")
+    vm::VirtualMachine::new(core, config, info).expect("Failed to create vm")
 }
 
 #[no_mangle]
@@ -207,18 +207,27 @@ unsafe fn kmain(mut boot_info: BootInfo) -> ! {
         })
         .collect::<Vec<_>>();
 
+    ioapic::init_ioapics(&madt).expect("Failed to initialize IOAPICs");
+    ioapic::map_gsi_vector(4, interrupt::UART_VECTOR, 0)
+        .expect("Failed to map com0 gsi");
+
     percore::init_sections(apic_ids.len())
         .expect("Failed to initialize per-core sections");
 
-    let mut map = BTreeMap::new();
+    let mut builder = vm::VirtualMachineBuilder::new();
+
     for apic_id in apic_ids.iter() {
-        map.insert(
-            *apic_id as usize,
-            default_vm(*apic_id as usize, 256, &boot_info, *apic_id == 0),
-        );
+        builder
+            .insert_machine(default_vm(
+                *apic_id,
+                256,
+                &boot_info,
+                *apic_id == 0,
+            ))
+            .expect("Failed to insert new vm");
     }
 
-    vm::VM_MAP = Some(map);
+    vm::init_virtual_machines(builder.finalize());
 
     debug!("AP_STARTUP address: 0x{:x}", AP_STARTUP_ADDR);
 

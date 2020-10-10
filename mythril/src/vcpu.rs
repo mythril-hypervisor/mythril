@@ -1,6 +1,8 @@
 use crate::apic;
 use crate::emulate;
 use crate::error::{self, Error, Result};
+use crate::interrupt;
+use crate::ioapic;
 use crate::memory::Raw4kPage;
 use crate::percore;
 use crate::registers::{GdtrBase, IdtrBase};
@@ -33,14 +35,11 @@ pub fn mp_entry_point() -> ! {
     }
 
     let vm = unsafe {
-        vm::VM_MAP
-            .as_ref()
-            .unwrap()
-            .get(&apic::get_local_apic().id())
-            .expect("Failed to find VM for core")
-            .clone()
+        let id = apic::get_local_apic().id();
+        vm::get_vm_for_apic_id(id)
+            .expect(&format!("Failed to find VM associated with 0x{:x}", id))
     };
-    let vcpu = VCpu::new(vm.clone()).expect("Failed to create vcpu");
+    let vcpu = VCpu::new(vm).expect("Failed to create vcpu");
     vcpu.launch().expect("Failed to launch vm")
 }
 
@@ -507,17 +506,26 @@ impl VCpu {
             vmexit::ExitInformation::InterruptWindow => {}
             vmexit::ExitInformation::ExternalInterrupt(info) => unsafe {
                 match info.vector {
-                    0x24 => self.handle_uart_keypress(&mut responses)?,
+                    interrupt::UART_VECTOR => {
+                        self.handle_uart_keypress(&mut responses)?
+                    }
+                    interrupt::IPC_VECTOR => {
+                        let msg =
+                            vm::recv_vm_msg().ok_or_else(|| Error::NotFound)?;
+                        match msg {
+                            vm::VirtualMachineMsg::GrantConsole(serial) => {
+                                let mut vm = self.vm.write();
+                                vm.config.physical_devices_mut().serial =
+                                    Some(serial);
+                            }
+                        }
+                    }
                     _ => (),
                 }
 
-                // Ack the interrupt via PIC or APIC based on the vector
-                if info.vector < 48 {
-                    //TODO: this should be a call to the physical PIC
-                    x86::io::outb(0x20, 0x20);
-                } else {
-                    apic::get_local_apic_mut().eoi();
-                }
+                // We don't use the PIC, so any interrupt must be ACKed through
+                // the local apic
+                apic::get_local_apic_mut().eoi();
             },
             _ => {
                 info!("{}", self.vmcs);
@@ -529,6 +537,38 @@ impl VCpu {
             match response {
                 virtdev::DeviceEventResponse::Interrupt((vector, kind)) => {
                     self.inject_interrupt(vector, kind);
+                }
+                virtdev::DeviceEventResponse::NextConsole => {
+                    info!("Received Ctrl-a three times. Switching console to next VM");
+
+                    let mut vm = self.vm.write();
+                    let serial = vm
+                        .config
+                        .physical_devices_mut()
+                        .serial
+                        .take()
+                        .ok_or_else(|| Error::NotFound)?;
+                    let vmid = vm.id;
+                    drop(vm);
+
+                    let next_vmid = (vmid + 1) % vm::max_vm_id();
+
+                    vm::send_vm_msg(
+                        vm::VirtualMachineMsg::GrantConsole(serial),
+                        next_vmid,
+                    )?;
+
+                    //FIXME(alschwalm): this should use the vm's bsp apicid
+                    ioapic::map_gsi_vector(
+                        4,
+                        interrupt::UART_VECTOR,
+                        next_vmid as u8,
+                    )
+                    .map_err(|_| {
+                        Error::DeviceError(
+                            "Failed to update console GSI mapping".into(),
+                        )
+                    })?;
                 }
                 virtdev::DeviceEventResponse::GuestUartTransmitted(val) => {
                     let vm = self.vm.read();

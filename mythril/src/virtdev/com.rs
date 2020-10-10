@@ -20,6 +20,8 @@ pub struct Uart8250 {
     _line_status_register: LsrFlags,
     _modem_status_register: u8,
     _scratch_register: u8,
+
+    ctrl_a_count: u8,
 }
 
 impl Uart8250 {
@@ -35,6 +37,7 @@ impl Uart8250 {
             _line_status_register: LsrFlags::empty(),
             _modem_status_register: 0,
             _scratch_register: 0,
+            ctrl_a_count: 0,
         }))
     }
 
@@ -65,6 +68,14 @@ impl EmulatedDevice for Uart8250 {
                         vcpu::InjectedInterruptType::ExternalInterrupt,
                     )),
                 );
+                if key == 0x01 {
+                    // ctrl+a
+                    self.ctrl_a_count += 1;
+                }
+                if self.ctrl_a_count == 3 {
+                    event.responses.push(DeviceEventResponse::NextConsole);
+                    self.ctrl_a_count = 0;
+                }
                 self.write(key)
             }
             DeviceEvent::PortRead(port, mut val) => {

@@ -43,6 +43,7 @@ pub enum DeviceEvent<'a> {
 #[derive(Debug)]
 pub enum DeviceEventResponse {
     GuestUartTransmitted(u8),
+    NextConsole,
     Interrupt((u8, vcpu::InjectedInterruptType)),
 }
 

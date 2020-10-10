@@ -168,13 +168,13 @@ _start:
     out 0x21, al
     out 0xa1, al
 
-    ; Set IRQ masks
-    mov al, 0xED                ; Unmask IRQ1 (ps2) and IRQ4 (COM1)
+    ;; Mask everything so the I/O APIC will work
+    mov al, 0xff
     out 0x21, al
-    mov al, 0xFF
+    mov al, 0xff
     out 0xA1, al
 
-    ; ACK any pending interrupts
+    ;; ACK any pending interrupts
     mov al, 0x20
     out 0x20, al
     out 0xa0, al

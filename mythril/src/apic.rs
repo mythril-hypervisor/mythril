@@ -188,8 +188,8 @@ impl LocalApic {
     }
 
     /// The APIC ID
-    pub fn id(&self) -> usize {
-        unsafe { msr::rdmsr(msr::IA32_X2APIC_APICID) as usize }
+    pub fn id(&self) -> u32 {
+        unsafe { msr::rdmsr(msr::IA32_X2APIC_APICID) as u32 }
     }
 
     /// The Logical APIC ID
