@@ -409,11 +409,8 @@ impl GuestAddressSpace {
         let mut out = vec![];
         let iter = self.frame_iter(cr3, addr, access)?;
 
-        // How many frames this region spans
-        let count = (length + HostPhysFrame::SIZE - 1) / HostPhysFrame::SIZE;
-
         let mut start_offset = addr.as_u64() as usize % HostPhysFrame::SIZE;
-        for frame in iter.take(count) {
+        for frame in iter {
             let frame = frame?;
             let array = unsafe { frame.as_array() };
             let slice = if start_offset + length <= HostPhysFrame::SIZE {
@@ -424,6 +421,10 @@ impl GuestAddressSpace {
             out.extend_from_slice(slice);
 
             length -= slice.len();
+
+            if length == 0 {
+                break;
+            }
 
             // All frames after the first have no start_offset
             start_offset = 0;
@@ -441,15 +442,11 @@ impl GuestAddressSpace {
     ) -> Result<()> {
         let iter = self.frame_iter(cr3, addr, access)?;
 
-        // How many frames this region spans
-        let count =
-            (bytes.len() + HostPhysFrame::SIZE - 1) / HostPhysFrame::SIZE;
-
         let mut start_offset = addr.as_u64() as usize % HostPhysFrame::SIZE;
-        for frame in iter.take(count) {
+        for frame in iter {
             let mut frame = frame?;
             let array = unsafe { frame.as_mut_array() };
-            let _slice = if start_offset + bytes.len() <= HostPhysFrame::SIZE {
+            if start_offset + bytes.len() <= HostPhysFrame::SIZE {
                 array[start_offset..start_offset + bytes.len()]
                     .copy_from_slice(&bytes);
                 break;
@@ -458,7 +455,7 @@ impl GuestAddressSpace {
                     &bytes[..(HostPhysFrame::SIZE - start_offset)],
                 );
                 bytes = &bytes[(HostPhysFrame::SIZE - start_offset)..];
-            };
+            }
 
             // All frames after the first have no start_offset
             start_offset = 0;
