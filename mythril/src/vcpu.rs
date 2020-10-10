@@ -282,6 +282,7 @@ impl VCpu {
             vmcs::VmcsField::SecondaryVmExecControl,
             (vmcs::SecondaryExecFlags::VIRTUALIZE_APIC_ACCESSES
                 | vmcs::SecondaryExecFlags::ENABLE_EPT
+                | vmcs::SecondaryExecFlags::ENABLE_RDTSCP
                 | vmcs::SecondaryExecFlags::ENABLE_VPID
                 | vmcs::SecondaryExecFlags::ENABLE_INVPCID
                 | vmcs::SecondaryExecFlags::UNRESTRICTED_GUEST)
@@ -320,7 +321,17 @@ impl VCpu {
             msr::IA32_VMX_ENTRY_CTLS,
         )?;
 
-        let msr_bitmap = Box::into_raw(Box::new(Raw4kPage::default()));
+        let mut msr_page = Raw4kPage::default();
+
+        // For now, we need to exit on MSR_IA32_APICBASE (msr=0x1b)
+        // so we can tell the kernel the platform it's running on
+        // doesn't support x2apic
+        // TODO(alschwalm): remove this once we support x2apic in
+        // the guest
+        msr_page.0[3] |= 1 << 3;
+
+        let msr_bitmap = Box::into_raw(Box::new(msr_page));
+
         vmcs.write_field(vmcs::VmcsField::MsrBitmap, msr_bitmap as u64)?;
 
         // Do not VMEXIT on any exceptions
@@ -476,6 +487,20 @@ impl VCpu {
         let mut responses = virtdev::ResponseEventArray::default();
 
         match exit.info {
+            //TODO(alschwalm): Once we have guest x2apic support, remove this
+            vmexit::ExitInformation::RdMsr => {
+                match guest_cpu.rcx as u32 {
+                    msr::IA32_APIC_BASE => {
+                        let mut real_apic_base =
+                            unsafe { msr::rdmsr(msr::IA32_APIC_BASE) };
+                        real_apic_base &= !(1 << 10); // mask X2APIC_ENABLE
+                        guest_cpu.rdx = real_apic_base >> 32;
+                        guest_cpu.rax = real_apic_base & 0xffffffff;
+                    }
+                    _ => unreachable!(),
+                }
+                self.skip_emulated_instruction()?;
+            }
             vmexit::ExitInformation::CrAccess(info) => {
                 emulate::controlreg::emulate_access(self, guest_cpu, info)?;
                 self.skip_emulated_instruction()?;

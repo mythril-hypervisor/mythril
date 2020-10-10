@@ -14,7 +14,7 @@ use x86::bits64::paging::*;
 use x86::controlregs::Cr0;
 
 #[repr(align(4096))]
-pub struct Raw4kPage([u8; 4096]);
+pub struct Raw4kPage(pub [u8; 4096]);
 impl Default for Raw4kPage {
     fn default() -> Self {
         Raw4kPage([0u8; 4096])
