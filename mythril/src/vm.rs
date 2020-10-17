@@ -2,11 +2,14 @@ use crate::apic;
 use crate::boot_info::BootInfo;
 use crate::error::{Error, Result};
 use crate::interrupt;
+use crate::lock::ro_after_init::RoAfterInit;
 use crate::memory::{
     self, GuestAddressSpace, GuestPhysAddr, HostPhysAddr, HostPhysFrame,
     Raw4kPage,
 };
+use crate::percore;
 use crate::physdev;
+use crate::time;
 use crate::virtdev::{
     DeviceEvent, DeviceInteraction, DeviceMap, Event, ResponseEventArray,
 };
@@ -18,48 +21,48 @@ use alloc::vec::Vec;
 use arraydeque::ArrayDeque;
 use spin::RwLock;
 
-static mut VIRTUAL_MACHINES: Option<VirtualMachines> = None;
+static VIRTUAL_MACHINES: RoAfterInit<VirtualMachines> =
+    RoAfterInit::uninitialized();
 
 pub unsafe fn init_virtual_machines(machines: VirtualMachines) {
-    VIRTUAL_MACHINES = Some(machines);
+    RoAfterInit::init(&VIRTUAL_MACHINES, machines);
 }
 
-/// Get the virtual machine that owns the core with the given apic id
+/// Get the virtual machine that owns the core with the given core id
 ///
 /// This method is unsafe as it should almost certainly not be used (use message
 /// passing instead of directly access the remote VM).
-pub unsafe fn get_vm_for_apic_id(
-    apic_id: u32,
+pub unsafe fn get_vm_for_core_id(
+    core_id: percore::CoreId,
 ) -> Option<Arc<RwLock<VirtualMachine>>> {
-    VIRTUAL_MACHINES
-        .as_ref()
-        .expect("Global VirtualMachines has not been initialized")
-        .get_by_apic_id(apic_id)
+    VIRTUAL_MACHINES.get_by_core_id(core_id)
 }
 
 //FIXME(alschwalm): this breaks if the current VM is already locked
 pub fn send_vm_msg(msg: VirtualMachineMsg, vmid: u32) -> Result<()> {
-    unsafe { VIRTUAL_MACHINES.as_mut() }
-        .expect("Global VirtualMachines has not been initialized")
-        .send_msg(msg, vmid)
+    VIRTUAL_MACHINES.send_msg(msg, vmid)
+}
+
+pub fn send_vm_msg_core(
+    msg: VirtualMachineMsg,
+    core_id: percore::CoreId,
+) -> Result<()> {
+    VIRTUAL_MACHINES.send_msg_core(msg, core_id)
 }
 
 pub fn recv_vm_msg() -> Option<VirtualMachineMsg> {
-    unsafe { VIRTUAL_MACHINES.as_mut() }
-        .expect("Global VirtualMachines has not been initialized")
-        .resv_msg()
+    VIRTUAL_MACHINES.resv_msg()
 }
 
 pub fn max_vm_id() -> u32 {
-    unsafe { VIRTUAL_MACHINES.as_ref() }
-        .expect("Global VirtualMachines has not been initialized")
-        .len() as u32
+    VIRTUAL_MACHINES.len() as u32
 }
 
 const MAX_PENDING_MSG: usize = 100;
 
 pub enum VirtualMachineMsg {
     GrantConsole(physdev::com::Uart8250),
+    CancelTimer(time::TimerId),
 }
 
 struct VirtualMachineContext {
@@ -68,21 +71,21 @@ struct VirtualMachineContext {
 }
 
 pub struct VirtualMachines {
-    map: BTreeMap<u32, VirtualMachineContext>,
+    map: BTreeMap<percore::CoreId, VirtualMachineContext>,
 }
 
 impl VirtualMachines {
-    fn context_by_apid_id(
+    fn context_by_core_id(
         &self,
-        apic_id: u32,
+        core_id: percore::CoreId,
     ) -> Option<&VirtualMachineContext> {
-        self.map.get(&apic_id)
+        self.map.get(&core_id)
     }
 
-    fn context_by_id(&self, id: u32) -> Option<&VirtualMachineContext> {
+    fn context_by_vm_id(&self, id: u32) -> Option<&VirtualMachineContext> {
         self.map
             .iter()
-            .filter_map(|(_apicid, context)| {
+            .filter_map(|(_core_id, context)| {
                 if context.vm.read().id == id {
                     Some(context)
                 } else {
@@ -96,29 +99,30 @@ impl VirtualMachines {
         self.map.len()
     }
 
-    pub fn get_by_apic_id(
+    pub fn get_by_core_id(
         &self,
-        apic_id: u32,
+        core_id: percore::CoreId,
     ) -> Option<Arc<RwLock<VirtualMachine>>> {
-        self.context_by_apid_id(apic_id)
+        self.context_by_core_id(core_id)
             .map(|context| context.vm.clone())
     }
 
-    pub fn get_by_id(&self, id: u32) -> Option<Arc<RwLock<VirtualMachine>>> {
-        self.context_by_id(id).map(|context| context.vm.clone())
+    pub fn get_by_vm_id(&self, id: u32) -> Option<Arc<RwLock<VirtualMachine>>> {
+        self.context_by_vm_id(id).map(|context| context.vm.clone())
     }
 
-    pub fn send_msg(
-        &mut self,
+    pub fn send_msg_core(
+        &self,
         msg: VirtualMachineMsg,
-        vmid: u32,
+        core_id: percore::CoreId,
     ) -> Result<()> {
-        let context =
-            self.context_by_id(vmid).ok_or_else(|| Error::NotFound)?;
+        let context = self
+            .context_by_core_id(core_id)
+            .ok_or_else(|| Error::NotFound)?;
         context.msgqueue.write().push_back(msg).map_err(|_| {
             Error::InvalidValue(format!(
-                "RX queue is full for vmid = 0x{:x}",
-                vmid
+                "RX queue is full for core_id = {}",
+                core_id
             ))
         })?;
 
@@ -127,7 +131,7 @@ impl VirtualMachines {
         unsafe {
             let localapic = apic::get_local_apic_mut();
             localapic.send_ipi(
-                vmid, //FIXME(alschwalm): this should actually be the BSP apic id
+                core_id.raw.into(), //TODO(alschwalm): convert core_id to APIC ID
                 apic::DstShorthand::NoShorthand,
                 apic::TriggerMode::Edge,
                 apic::Level::Assert,
@@ -140,16 +144,22 @@ impl VirtualMachines {
         Ok(())
     }
 
-    pub fn resv_msg(&mut self) -> Option<VirtualMachineMsg> {
+    pub fn send_msg(&self, msg: VirtualMachineMsg, vm_id: u32) -> Result<()> {
+        //TODO(alschwalm): this should actually be the BSP core_id of the other vm
+        self.send_msg_core(msg, vm_id.into())
+    }
+
+    pub fn resv_msg(&self) -> Option<VirtualMachineMsg> {
         let context = self
-            .context_by_id(apic::get_local_apic().id())
+            .context_by_core_id(percore::read_core_id())
             .expect("No VirtualMachineContext for apic id");
         context.msgqueue.write().pop_front()
     }
 }
 
 pub struct VirtualMachineBuilder {
-    map: BTreeMap<u32, Arc<RwLock<VirtualMachine>>>,
+    // Mapping of core_id to VirtualMachine
+    map: BTreeMap<percore::CoreId, Arc<RwLock<VirtualMachine>>>,
 }
 
 impl VirtualMachineBuilder {
@@ -164,16 +174,16 @@ impl VirtualMachineBuilder {
         vm: Arc<RwLock<VirtualMachine>>,
     ) -> Result<()> {
         for cpu in vm.read().config.cpus() {
-            self.map.insert(*cpu, vm.clone());
+            self.map.insert(percore::CoreId::from(*cpu), vm.clone());
         }
         Ok(())
     }
 
-    pub fn get_by_apic_id(
+    pub fn get_by_core_id(
         &self,
-        apic_id: u32,
+        core_id: percore::CoreId,
     ) -> Option<Arc<RwLock<VirtualMachine>>> {
-        self.map.get(&apic_id).map(|vm| vm.clone())
+        self.map.get(&core_id).map(|vm| vm.clone())
     }
 
     pub fn finalize(self) -> VirtualMachines {
@@ -181,9 +191,9 @@ impl VirtualMachineBuilder {
             map: self
                 .map
                 .into_iter()
-                .map(|(apicid, vm)| {
+                .map(|(core_id, vm)| {
                     (
-                        apicid,
+                        core_id,
                         VirtualMachineContext {
                             vm: vm,
                             msgqueue: RwLock::new(ArrayDeque::new()),
@@ -206,7 +216,7 @@ pub struct PhysicalDeviceConfig {
 
 /// A configuration for a `VirtualMachine`
 pub struct VirtualMachineConfig {
-    cpus: Vec<u32>,
+    cpus: Vec<percore::CoreId>,
     images: Vec<(String, GuestPhysAddr)>,
     bios: Option<String>,
     virtual_devices: DeviceMap,
@@ -222,7 +232,7 @@ impl VirtualMachineConfig {
     /// * `cpus` - A list of the cores used by the VM (by APIC id)
     /// * `memory` - The amount of VM memory (in MB)
     pub fn new(
-        cpus: Vec<u32>,
+        cpus: Vec<percore::CoreId>,
         memory: u64,
         physical_devices: PhysicalDeviceConfig,
     ) -> VirtualMachineConfig {
@@ -279,7 +289,7 @@ impl VirtualMachineConfig {
         &mut self.physical_devices
     }
 
-    pub fn cpus(&self) -> &Vec<u32> {
+    pub fn cpus(&self) -> &Vec<percore::CoreId> {
         &self.cpus
     }
 }
@@ -452,7 +462,11 @@ mod test {
         let info = BootInfo::default();
         let phys_config = PhysicalDeviceConfig::default();
 
-        let config = VirtualMachineConfig::new(vec![1], 0, phys_config);
+        let config = VirtualMachineConfig::new(
+            vec![percore::CoreId::from(1)],
+            0,
+            phys_config,
+        );
         VirtualMachine::new(0, config, &info).unwrap();
     }
 }

@@ -29,7 +29,7 @@ extern "C" {
 
 // Temporary helper function to create a vm for a single core
 fn default_vm(
-    core: u32,
+    core: percore::CoreId,
     mem: u64,
     info: &BootInfo,
     add_uart: bool,
@@ -132,7 +132,8 @@ fn default_vm(
     .unwrap();
     device_map.register_device(fw_cfg_builder.build()).unwrap();
 
-    vm::VirtualMachine::new(core, config, info).expect("Failed to create vm")
+    vm::VirtualMachine::new(core.raw, config, info)
+        .expect("Failed to create vm")
 }
 
 #[no_mangle]
@@ -201,7 +202,7 @@ unsafe fn kmain(mut boot_info: BootInfo) -> ! {
             // TODO(dlrobertson): Check the flags to ensure we can acutally
             // use this APIC.
             Ok(acpi::madt::Ics::LocalApic { apic_id, .. }) => {
-                Some(apic_id as u32)
+                Some(apic::ApicId::from(apic_id as u32))
             }
             _ => None,
         })
@@ -219,10 +220,10 @@ unsafe fn kmain(mut boot_info: BootInfo) -> ! {
     for apic_id in apic_ids.iter() {
         builder
             .insert_machine(default_vm(
-                *apic_id,
+                percore::CoreId::from(apic_id.raw),
                 256,
                 &boot_info,
-                *apic_id == 0,
+                apic_id.is_bsp(),
             ))
             .expect("Failed to insert new vm");
     }
@@ -232,7 +233,7 @@ unsafe fn kmain(mut boot_info: BootInfo) -> ! {
     debug!("AP_STARTUP address: 0x{:x}", AP_STARTUP_ADDR);
 
     for (idx, apic_id) in apic_ids.into_iter().enumerate() {
-        if apic_id == local_apic.id() as u32 {
+        if apic_id == local_apic.id() {
             continue;
         }
 

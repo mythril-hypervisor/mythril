@@ -9,8 +9,11 @@
 use crate::apic;
 use crate::error::Result;
 use crate::interrupt;
+use crate::lock::ro_after_init::RoAfterInit;
+use crate::percore;
 use crate::tsc;
 use crate::vcpu;
+use crate::vm;
 use crate::{declare_per_core, get_per_core, get_per_core_mut};
 
 use alloc::{collections::BTreeMap, vec};
@@ -22,45 +25,36 @@ declare_per_core! {
     static mut TIMER_WHEEL: Option<TimerWheel> = None;
 }
 
-static mut TIME_SRC: Option<&'static mut dyn TimeSource> = None;
-static mut START_TIME: Option<Instant> = None;
+static TIME_SRC: RoAfterInit<&'static dyn TimeSource> =
+    RoAfterInit::uninitialized();
+static START_TIME: RoAfterInit<Instant> = RoAfterInit::uninitialized();
 
 /// Determine the best available global system `TimeSource` and calibrate it.
 pub unsafe fn init_global_time() -> Result<()> {
     // Currently we only support using the TSC
-    TIME_SRC = Some(tsc::calibrate_tsc()?);
-    START_TIME = Some(now());
+    RoAfterInit::init(&TIME_SRC, tsc::calibrate_tsc()?);
+    RoAfterInit::init(&START_TIME, now());
     Ok(())
 }
 
 /// Get the current instant from the global system `TimeSource`.
 pub fn now() -> Instant {
-    unsafe {
-        TIME_SRC
-            .as_ref()
-            .expect("Global time source is not calibrated")
-            .now()
-    }
+    TIME_SRC.now()
 }
 
 /// Get the instant the system was started (approximately) in terms
 /// of the global system `TimeSource`.
 pub fn system_start_time() -> Instant {
-    unsafe { START_TIME.expect("Global time source is not started") }
+    *START_TIME
 }
 
 /// Returns whether the global system `TimeSource` has be initialized.
 pub fn is_global_time_ready() -> bool {
-    unsafe { TIME_SRC.is_some() }
+    RoAfterInit::is_initialized(&TIME_SRC)
 }
 
 fn frequency() -> u64 {
-    unsafe {
-        TIME_SRC
-            .as_ref()
-            .expect("Global time source is not calibrated")
-            .frequency()
-    }
+    TIME_SRC.frequency()
 }
 
 /// A point in time on the system in terms of the global system `TimeSource`
@@ -112,7 +106,7 @@ impl Sub<Instant> for Instant {
 }
 
 /// A trait representing a counter on the system with a consistent frequency.
-pub trait TimeSource {
+pub trait TimeSource: Sync + Send {
     /// The current value of the counter.
     fn now(&self) -> Instant;
 
@@ -251,11 +245,10 @@ pub unsafe fn get_timer_wheel_mut() -> &'static mut TimerWheel {
 
 /// Timer identifier that may be used to cancel a running timer
 #[derive(Eq, PartialEq, PartialOrd, Ord, Clone, Debug)]
-pub struct TimerId(u64);
-
-// TimerId can only be used with the wheel that created the timer. To capture
-// this, don't allow the ids to be sent betweeen cores
-impl !Send for TimerId {}
+pub struct TimerId {
+    timer_id: u64,
+    core_id: percore::CoreId,
+}
 
 /// A container for running timers on a given core
 ///
@@ -335,15 +328,24 @@ impl TimerWheel {
         }
     }
 
-    /// Register a tiemr with this TimerWheel
+    /// Determines if a given TimerId is associated with this wheel
+    pub fn is_local_timer(&self, id: &TimerId) -> bool {
+        id.core_id == percore::read_core_id()
+    }
+
+    /// Register a timer with this TimerWheel
     pub fn register_timer(&mut self, timer: ReadyTimer) -> TimerId {
         let counter = self.counter;
-        self.timers.insert(TimerId(counter), timer.start());
+        let id = TimerId {
+            timer_id: counter,
+            core_id: percore::read_core_id(),
+        };
+        self.timers.insert(id.clone(), timer.start());
         self.counter = self.counter.wrapping_add(1);
 
         self.update_interrupt_timer();
 
-        TimerId(counter)
+        id
     }
 
     /// Get a timer in this wheel by ID (if one exists)
@@ -390,7 +392,14 @@ pub fn busy_wait(duration: core::time::Duration) {
 /// Cancel a timer set on this core
 pub fn cancel_timer(id: &TimerId) -> Result<()> {
     let wheel = unsafe { get_timer_wheel_mut() };
-    wheel.remove_timer(id);
+    if wheel.is_local_timer(id) {
+        wheel.remove_timer(id);
+    } else {
+        vm::send_vm_msg_core(
+            vm::VirtualMachineMsg::CancelTimer(id.clone()),
+            id.core_id,
+        )?;
+    }
     Ok(())
 }
 

@@ -1,4 +1,5 @@
 use crate::error::{Error, Result};
+use crate::lock::ro_after_init::RoAfterInit;
 use crate::physdev::pit;
 use crate::time::{Instant, TimeSource};
 
@@ -28,10 +29,10 @@ impl TimeSource for TscTimeSource {
     }
 }
 
-static mut TSC: Option<TscTimeSource> = None;
+static TSC: RoAfterInit<TscTimeSource> = RoAfterInit::uninitialized();
 
-pub unsafe fn calibrate_tsc() -> Result<&'static mut dyn TimeSource> {
-    if TSC.is_some() {
+pub unsafe fn calibrate_tsc() -> Result<&'static dyn TimeSource> {
+    if RoAfterInit::is_initialized(&TSC) {
         return Err(Error::InvalidValue("TSC is already calibrated".into()));
     }
 
@@ -66,6 +67,6 @@ pub unsafe fn calibrate_tsc() -> Result<&'static mut dyn TimeSource> {
         frequency: tsc_khz * 1000,
     };
 
-    TSC = Some(source);
-    Ok(TSC.as_mut().unwrap())
+    RoAfterInit::init(&TSC, source);
+    Ok(&*TSC)
 }

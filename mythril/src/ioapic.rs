@@ -14,6 +14,7 @@
 
 use crate::acpi::madt::{Ics, MADT};
 use crate::error::{Error, Result};
+use crate::lock::ro_after_init::RoAfterInit;
 use core::convert::TryFrom;
 use core::fmt;
 use core::ptr;
@@ -40,16 +41,14 @@ mod reg {
 
 const MAX_IOAPIC_COUNT: usize = 16;
 
-// Interactions with individual IoApics are thread-safe, and this
-// vector is only initialized by the BSP, so no mutex is needed.
-// TODO(alschwalm): Remove the Option once ArrayVec::new is a const fn
-static mut IOAPICS: Option<ArrayVec<[IoApic; MAX_IOAPIC_COUNT]>> = None;
+static IOAPICS: RoAfterInit<ArrayVec<[IoApic; MAX_IOAPIC_COUNT]>> =
+    RoAfterInit::uninitialized();
 
 // Get the IoApic and redirection table entry index corresponding to a given GSI.
 // Returns None if there is no such IoApic
 // TODO(alschwalm): Support InterruptSourceOverride
-fn ioapic_for_gsi(gsi: u32) -> Option<(&'static mut IoApic, u8)> {
-    for ioapic in unsafe { IOAPICS.as_mut().unwrap() }.iter_mut() {
+fn ioapic_for_gsi(gsi: u32) -> Option<(&'static IoApic, u8)> {
+    for ioapic in IOAPICS.iter() {
         let entries = ioapic.max_redirection_entry() as u32;
         let base = ioapic.gsi_base;
         if gsi > base && gsi < base + entries {
@@ -102,7 +101,7 @@ pub unsafe fn init_ioapics(madt: &MADT) -> Result<()> {
     }) {
         ioapics.push(ioapic);
     }
-    IOAPICS = Some(ioapics);
+    RoAfterInit::init(&IOAPICS, ioapics);
     Ok(())
 }
 
@@ -114,6 +113,11 @@ pub struct IoApic {
     /// input starts.
     pub gsi_base: u32,
 }
+
+// IoApics are actually Send/Sync. This will not be correctly derived
+// because raw pointers are not send (even when protected by a mutex).
+unsafe impl Send for IoApic {}
+unsafe impl Sync for IoApic {}
 
 impl IoApic {
     /// Create a new raw IoApic structure from the given

@@ -35,9 +35,9 @@ pub fn mp_entry_point() -> ! {
     }
 
     let vm = unsafe {
-        let id = apic::get_local_apic().id();
-        vm::get_vm_for_apic_id(id)
-            .expect(&format!("Failed to find VM associated with 0x{:x}", id))
+        let id = percore::read_core_id();
+        vm::get_vm_for_core_id(id)
+            .expect(&format!("Failed to find VM associated with {}", id))
     };
     let vcpu = VCpu::new(vm).expect("Failed to create vcpu");
     vcpu.launch().expect("Failed to launch vm")
@@ -162,7 +162,7 @@ impl VCpu {
 
         vmcs.write_field(
             vmcs::VmcsField::HostFsSelector,
-            percore::read_core_idx() << 3, // Skip the RPL and TI flags
+            (percore::read_core_id().raw as u64) << 3, // Skip the RPL and TI flags
         )?;
 
         vmcs.write_field(vmcs::VmcsField::HostFsBase, unsafe {
@@ -298,7 +298,7 @@ impl VCpu {
         //   VM-execution control field must not be 0000H.
         vmcs.write_field(
             vmcs::VmcsField::VirtualProcessorId,
-            percore::read_core_idx() + 1,
+            (percore::read_core_id().raw as u64) + 1,
         )?;
 
         vmcs.write_with_fixed(
@@ -542,6 +542,9 @@ impl VCpu {
                                 let mut vm = self.vm.write();
                                 vm.config.physical_devices_mut().serial =
                                     Some(serial);
+                            }
+                            vm::VirtualMachineMsg::CancelTimer(timer_id) => {
+                                time::cancel_timer(&timer_id)?;
                             }
                         }
                     }

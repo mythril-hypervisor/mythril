@@ -51,7 +51,6 @@ impl Uart8250 {
     pub fn new(base: u16) -> Result<Self> {
         let mut uart = Self { base };
         uart.write_ier(IerFlags::RECV_DATA_AVAIL_INTERRUPT);
-        info!("{:?}", uart.read_ier());
         Ok(uart)
     }
 

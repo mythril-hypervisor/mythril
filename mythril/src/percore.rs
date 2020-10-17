@@ -8,9 +8,12 @@
 //! invocation of `init_sections` by the BSP.
 
 use crate::error::Result;
+use crate::lock::ro_after_init::RoAfterInit;
 use alloc::vec::Vec;
+use core::fmt;
 
-static mut AP_PER_CORE_SECTIONS: Option<Vec<u8>> = None;
+static AP_PER_CORE_SECTIONS: RoAfterInit<Vec<u8>> =
+    RoAfterInit::uninitialized();
 
 extern "C" {
     // The _value_ of the first/last byte of the .per_core section. The
@@ -31,11 +34,9 @@ unsafe fn per_core_address(symbol_addr: *const u8, core: usize) -> *const u8 {
     }
     let section_len = per_core_section_len();
     let offset = symbol_addr as u64 - (&PER_CORE_START as *const _ as u64);
-    let ap_sections = AP_PER_CORE_SECTIONS
-        .as_ref()
-        .expect("Per-core sections not initialized");
 
-    &ap_sections[(section_len * (core - 1)) + offset as usize] as *const u8
+    &AP_PER_CORE_SECTIONS[(section_len * (core - 1)) + offset as usize]
+        as *const u8
 }
 
 /// Initialize the per-core sections
@@ -53,19 +54,37 @@ pub unsafe fn init_sections(ncores: usize) -> Result<()> {
         ap_sections.extend_from_slice(per_core_section);
     }
 
-    AP_PER_CORE_SECTIONS = Some(ap_sections);
-
+    RoAfterInit::init(&AP_PER_CORE_SECTIONS, ap_sections);
     Ok(())
 }
 
+/// The sequential index of a core
+#[derive(Copy, Clone, Debug, Ord, PartialEq, PartialOrd, Eq)]
+pub struct CoreId {
+    /// The raw ID as an integer
+    pub raw: u32,
+}
+
+impl From<u32> for CoreId {
+    fn from(value: u32) -> Self {
+        CoreId { raw: value }
+    }
+}
+
+impl fmt::Display for CoreId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "0x{:x}", self.raw)
+    }
+}
+
 /// Get this current core's sequential index
-pub fn read_core_idx() -> u64 {
+pub fn read_core_id() -> CoreId {
     unsafe {
         let value: u64;
         llvm_asm!("mov [%fs], %rax"
                   : "={rax}"(value)
                   ::: "volatile");
-        value >> 3 // Shift away the RPL and TI bits (they will always be 0)
+        ((value >> 3) as u32).into() // Shift away the RPL and TI bits (they will always be 0)
     }
 }
 
@@ -73,7 +92,7 @@ pub fn read_core_idx() -> u64 {
 pub unsafe fn get_pre_core_impl<T>(t: &T) -> &T {
     core::mem::transmute(per_core_address(
         t as *const T as *const u8,
-        read_core_idx() as usize,
+        read_core_id().raw as usize,
     ))
 }
 
@@ -81,7 +100,7 @@ pub unsafe fn get_pre_core_impl<T>(t: &T) -> &T {
 pub unsafe fn get_pre_core_mut_impl<T>(t: &mut T) -> &mut T {
     core::mem::transmute(per_core_address(
         t as *const T as *const u8,
-        read_core_idx() as usize,
+        read_core_id().raw as usize,
     ))
 }
 

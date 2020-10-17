@@ -6,6 +6,8 @@ use crate::{declare_per_core, get_per_core, get_per_core_mut};
 use raw_cpuid::CpuId;
 use x86::msr;
 
+use core::fmt;
+
 /// APIC base physical address mask.
 const IA32_APIC_BASE_MASK: u64 = 0xffff_f000;
 /// xAPIC global enable mask
@@ -103,6 +105,32 @@ pub unsafe fn get_local_apic_mut() -> &'static mut LocalApic {
         .expect("Attempt to get local APIC before initialization")
 }
 
+/// A representation of a APIC ID
+#[derive(Copy, Clone, Debug, Ord, PartialEq, PartialOrd, Eq)]
+pub struct ApicId {
+    /// The raw ID as an integer
+    pub raw: u32,
+}
+
+impl ApicId {
+    /// Returns whether this is the BSP core
+    pub fn is_bsp(&self) -> bool {
+        self.raw == 0
+    }
+}
+
+impl From<u32> for ApicId {
+    fn from(value: u32) -> Self {
+        ApicId { raw: value }
+    }
+}
+
+impl fmt::Display for ApicId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "0x{:x}", self.raw)
+    }
+}
+
 /// Structure defining the interface for a local x2APIC
 #[derive(Debug)]
 pub struct LocalApic {
@@ -188,8 +216,10 @@ impl LocalApic {
     }
 
     /// The APIC ID
-    pub fn id(&self) -> u32 {
-        unsafe { msr::rdmsr(msr::IA32_X2APIC_APICID) as u32 }
+    pub fn id(&self) -> ApicId {
+        ApicId {
+            raw: unsafe { msr::rdmsr(msr::IA32_X2APIC_APICID) as u32 },
+        }
     }
 
     /// The Logical APIC ID
@@ -249,7 +279,7 @@ impl LocalApic {
     /// Set the Interrupt Command Register
     pub fn send_ipi(
         &mut self,
-        dst: u32,
+        dst: ApicId,
         dst_short: DstShorthand,
         trigger: TriggerMode,
         level: Level,
@@ -257,7 +287,7 @@ impl LocalApic {
         delivery_mode: DeliveryMode,
         vector: u8,
     ) {
-        let mut icr: u64 = (dst as u64) << 32;
+        let mut icr: u64 = (dst.raw as u64) << 32;
         icr |= (dst_short as u64) << 18;
         icr |= (trigger as u64) << 15;
         icr |= (level as u64) << 14;

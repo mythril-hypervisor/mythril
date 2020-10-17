@@ -219,7 +219,7 @@ impl DeviceMap {
     }
 }
 
-pub trait EmulatedDevice {
+pub trait EmulatedDevice: Send + Sync {
     fn services(&self) -> Vec<DeviceRegion>;
 
     fn on_event(&mut self, _event: Event) -> Result<()> {

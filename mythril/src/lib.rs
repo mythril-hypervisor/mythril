@@ -36,6 +36,7 @@ pub mod interrupt;
 pub mod ioapic;
 pub mod kmain;
 pub mod linux;
+pub mod lock;
 pub mod logger;
 pub mod memory;
 pub mod multiboot2;
