@@ -8,6 +8,7 @@ TEST_INITRAMFS_URL=$(TEST_IMAGE_REPO)/releases/download/$(BUILD_REPO_TAG)/test-i
 TEST_KERNEL_URL=$(TEST_IMAGE_REPO)/releases/download/$(BUILD_REPO_TAG)/test-bzImage
 
 CARGO_BUILD_JOBS?=$(shell grep -c '^processor' /proc/cpuinfo)
+KVM_GROUP_ID?=$(shell grep kvm /etc/group | cut -f 3 -d:)
 
 mythril_binary = mythril/target/mythril_target/$(BUILD_TYPE)/mythril
 mythril_src = $(shell find mythril* -type f -name '*.rs' -or -name '*.S' -or -name '*.ld' \
@@ -52,6 +53,7 @@ $(guest_initramfs):
 docker-%:
 	docker run --privileged -ti --rm -w $(CURDIR) -v $(CURDIR):$(CURDIR) \
 	   -u $(shell id -u):$(shell id -g) \
+	   --group-add=$(KVM_GROUP_ID) \
 	   -e CARGO_BUILD_JOBS=$(CARGO_BUILD_JOBS) \
 	   $(DOCKER_IMAGE) /bin/bash -c '$(MAKE) $*'
 
