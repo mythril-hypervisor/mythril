@@ -115,6 +115,7 @@ pub struct ApicId {
 impl ApicId {
     /// Returns whether this is the BSP core
     pub fn is_bsp(&self) -> bool {
+        //TODO(alschwalm): This is not correct for multi socket systems
         self.raw == 0
     }
 }
