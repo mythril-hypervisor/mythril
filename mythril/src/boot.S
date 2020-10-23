@@ -9,7 +9,7 @@ PAGE_HIERARCHY:
    align PAGE_SIZE
    resb PAGE_HIERARCHY_SIZE
 
-extern kmain_multiboot2
+extern kmain_early
 
 ; The stack used before launching the guests. After that, the
 ; stack will be the one set up in the VMCS
@@ -66,6 +66,14 @@ global GDT64_DATA
 GDT64_DATA:
      dq GDT64.data
 
+global IS_MULTIBOOT_BOOT
+IS_MULTIBOOT_BOOT:
+     db 0
+
+global IS_MULTIBOOT2_BOOT
+IS_MULTIBOOT2_BOOT:
+     db 0
+
 [BITS 32]
 
 section .text.map_page_directory
@@ -93,6 +101,17 @@ _start:
     lea edi, [PAGE_HIERARCHY]
 
     push ebx
+
+
+    cmp eax, 0x36d76289         ; Multiboot2 indicator
+    je .multiboot2_boot_type
+    mov byte [IS_MULTIBOOT_BOOT], 1
+    jmp .post_boot_type
+
+.multiboot2_boot_type:
+    mov byte [IS_MULTIBOOT2_BOOT], 1
+
+.post_boot_type:
 
     ; Zero out the buffer.
     ; Since we are doing a rep stosd, count should be bytes/4.
@@ -215,4 +234,4 @@ trampoline:
     mov edx, 0
     mov fs, edx
 
-    jmp kmain_multiboot2
+    jmp kmain_early

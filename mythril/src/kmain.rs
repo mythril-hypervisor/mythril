@@ -7,6 +7,7 @@ use crate::ioapic;
 use crate::linux;
 use crate::logger;
 use crate::memory;
+use crate::multiboot;
 use crate::multiboot2;
 use crate::percore;
 use crate::physdev;
@@ -25,6 +26,9 @@ extern "C" {
     static mut AP_STACK_ADDR: u64;
     static mut AP_IDX: u64;
     static mut AP_READY: u8;
+
+    static IS_MULTIBOOT_BOOT: u8;
+    static IS_MULTIBOOT2_BOOT: u8;
 }
 
 // Temporary helper function to create a vm for a single core
@@ -158,15 +162,26 @@ pub extern "C" fn ap_entry(_ap_data: &ap::ApData) -> ! {
 static LOGGER: logger::DirectLogger = logger::DirectLogger::new();
 
 #[no_mangle]
-pub unsafe extern "C" fn kmain_multiboot2(multiboot_info_addr: usize) -> ! {
+pub unsafe extern "C" fn kmain_early(multiboot_info_addr: usize) -> ! {
     // Setup our (com0) logger
     log::set_logger(&LOGGER)
         .map(|()| log::set_max_level(log::LevelFilter::Debug))
         .expect("Failed to set logger");
 
-    let boot_info = multiboot2::early_init_multiboot2(
-        memory::HostPhysAddr::new(multiboot_info_addr as u64),
-    );
+    let boot_info = if IS_MULTIBOOT_BOOT == 1 {
+        debug!("Multiboot1 detected");
+        multiboot::early_init_multiboot(memory::HostPhysAddr::new(
+            multiboot_info_addr as u64,
+        ))
+    } else if IS_MULTIBOOT2_BOOT == 1 {
+        debug!("Multiboot2 detected");
+        multiboot2::early_init_multiboot2(memory::HostPhysAddr::new(
+            multiboot_info_addr as u64,
+        ))
+    } else {
+        panic!("Unknown boot method");
+    };
+
     kmain(boot_info)
 }
 
