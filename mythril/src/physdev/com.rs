@@ -58,12 +58,6 @@ impl Uart8250 {
         self.base
     }
 
-    fn read_ier(&self) -> IerFlags {
-        IerFlags::from_bits_truncate(unsafe {
-            inb(self.base + SerialOffset::IER)
-        })
-    }
-
     fn write_ier(&mut self, ier: IerFlags) {
         unsafe {
             outb(self.base + SerialOffset::IER, ier.bits());
