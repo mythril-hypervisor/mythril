@@ -1,6 +1,8 @@
-use crate::device::{MemReadRequest, MemWriteRequest};
 use crate::error::{Error, Result};
 use crate::memory;
+use crate::virtdev::{
+    DeviceEvent, MemReadRequest, MemWriteRequest, ResponseEventArray,
+};
 use crate::{vcpu, vmcs, vmexit};
 use arrayvec::ArrayVec;
 use iced_x86;
@@ -15,10 +17,15 @@ macro_rules! read_register {
 }
 
 macro_rules! write_register {
-    ($vm:ident, $vcpu:ident, $addr:ident, $value:expr, $type:ty, $mask:expr) => {{
+    ($vm:ident, $vcpu:ident, $addr:expr, $responses:ident, $value:expr, $type:ty, $mask:expr) => {{
         let mut buff = <$type>::default().to_be_bytes();
         let request = MemReadRequest::new(&mut buff[..]);
-        $vm.on_mem_read($vcpu, $addr, request)?;
+        $vm.dispatch_event(
+            $addr,
+            DeviceEvent::MemRead($addr, request),
+            $vcpu,
+            $responses,
+        )?;
         $value = ($value & $mask) | <$type>::from_be_bytes(buff) as u64;
     }};
 }
@@ -141,6 +148,7 @@ fn do_mmio_write(
     addr: memory::GuestPhysAddr,
     vcpu: &mut vcpu::VCpu,
     guest_cpu: &mut vmexit::GuestCpuState,
+    responses: &mut ResponseEventArray,
     instr: iced_x86::Instruction,
 ) -> Result<()> {
     let mut res = ArrayVec::<[u8; 8]>::new();
@@ -174,202 +182,541 @@ fn do_mmio_write(
     let request = MemWriteRequest::new(&data[..]);
 
     let mut vm = vcpu.vm.write();
-    vm.on_mem_write(vcpu, addr, request)?;
-
-    Ok(())
+    vm.dispatch_event(
+        addr,
+        crate::virtdev::DeviceEvent::MemWrite(addr, request),
+        vcpu,
+        responses,
+    )
 }
 
 fn do_mmio_read(
     addr: memory::GuestPhysAddr,
     vcpu: &mut vcpu::VCpu,
     guest_cpu: &mut vmexit::GuestCpuState,
+    responses: &mut ResponseEventArray,
     instr: iced_x86::Instruction,
 ) -> Result<()> {
     let mut vm = vcpu.vm.write();
-
     match instr.op0_kind() {
         iced_x86::OpKind::Register => match instr.op_register(0) {
-            iced_x86::Register::AL => {
-                write_register!(vm, vcpu, addr, guest_cpu.rax, u8, !0xff)
-            }
-            iced_x86::Register::AX => {
-                write_register!(vm, vcpu, addr, guest_cpu.rax, u16, !0xffff)
-            }
-            iced_x86::Register::EAX => {
-                write_register!(vm, vcpu, addr, guest_cpu.rax, u32, !0xffffffff)
-            }
-            iced_x86::Register::RAX => {
-                write_register!(vm, vcpu, addr, guest_cpu.rax, u64, 0x00)
-            }
+            iced_x86::Register::AL => write_register!(
+                vm,
+                vcpu,
+                addr,
+                responses,
+                guest_cpu.rax,
+                u8,
+                !0xff
+            ),
+            iced_x86::Register::AX => write_register!(
+                vm,
+                vcpu,
+                addr,
+                responses,
+                guest_cpu.rax,
+                u16,
+                !0xffff
+            ),
+            iced_x86::Register::EAX => write_register!(
+                vm,
+                vcpu,
+                addr,
+                responses,
+                guest_cpu.rax,
+                u32,
+                !0xffffffff
+            ),
+            iced_x86::Register::RAX => write_register!(
+                vm,
+                vcpu,
+                addr,
+                responses,
+                guest_cpu.rax,
+                u64,
+                0x00
+            ),
 
-            iced_x86::Register::BL => {
-                write_register!(vm, vcpu, addr, guest_cpu.rbx, u8, !0xff)
-            }
-            iced_x86::Register::BX => {
-                write_register!(vm, vcpu, addr, guest_cpu.rbx, u16, !0xffff)
-            }
-            iced_x86::Register::EBX => {
-                write_register!(vm, vcpu, addr, guest_cpu.rbx, u32, !0xffffffff)
-            }
-            iced_x86::Register::RBX => {
-                write_register!(vm, vcpu, addr, guest_cpu.rbx, u64, 0x00)
-            }
+            iced_x86::Register::BL => write_register!(
+                vm,
+                vcpu,
+                addr,
+                responses,
+                guest_cpu.rbx,
+                u8,
+                !0xff
+            ),
+            iced_x86::Register::BX => write_register!(
+                vm,
+                vcpu,
+                addr,
+                responses,
+                guest_cpu.rbx,
+                u16,
+                !0xffff
+            ),
+            iced_x86::Register::EBX => write_register!(
+                vm,
+                vcpu,
+                addr,
+                responses,
+                guest_cpu.rbx,
+                u32,
+                !0xffffffff
+            ),
+            iced_x86::Register::RBX => write_register!(
+                vm,
+                vcpu,
+                addr,
+                responses,
+                guest_cpu.rbx,
+                u64,
+                0x00
+            ),
 
-            iced_x86::Register::CL => {
-                write_register!(vm, vcpu, addr, guest_cpu.rcx, u8, !0xff)
-            }
-            iced_x86::Register::CX => {
-                write_register!(vm, vcpu, addr, guest_cpu.rcx, u16, !0xffff)
-            }
-            iced_x86::Register::ECX => {
-                write_register!(vm, vcpu, addr, guest_cpu.rcx, u32, !0xffffffff)
-            }
-            iced_x86::Register::RCX => {
-                write_register!(vm, vcpu, addr, guest_cpu.rdx, u64, 0x00)
-            }
+            iced_x86::Register::CL => write_register!(
+                vm,
+                vcpu,
+                addr,
+                responses,
+                guest_cpu.rcx,
+                u8,
+                !0xff
+            ),
+            iced_x86::Register::CX => write_register!(
+                vm,
+                vcpu,
+                addr,
+                responses,
+                guest_cpu.rcx,
+                u16,
+                !0xffff
+            ),
+            iced_x86::Register::ECX => write_register!(
+                vm,
+                vcpu,
+                addr,
+                responses,
+                guest_cpu.rcx,
+                u32,
+                !0xffffffff
+            ),
+            iced_x86::Register::RCX => write_register!(
+                vm,
+                vcpu,
+                addr,
+                responses,
+                guest_cpu.rdx,
+                u64,
+                0x00
+            ),
 
-            iced_x86::Register::DL => {
-                write_register!(vm, vcpu, addr, guest_cpu.rdx, u8, !0xff)
-            }
-            iced_x86::Register::DX => {
-                write_register!(vm, vcpu, addr, guest_cpu.rdx, u16, !0xffff)
-            }
-            iced_x86::Register::EDX => {
-                write_register!(vm, vcpu, addr, guest_cpu.rdx, u32, !0xffffffff)
-            }
-            iced_x86::Register::RDX => {
-                write_register!(vm, vcpu, addr, guest_cpu.rdx, u64, 0x00)
-            }
+            iced_x86::Register::DL => write_register!(
+                vm,
+                vcpu,
+                addr,
+                responses,
+                guest_cpu.rdx,
+                u8,
+                !0xff
+            ),
+            iced_x86::Register::DX => write_register!(
+                vm,
+                vcpu,
+                addr,
+                responses,
+                guest_cpu.rdx,
+                u16,
+                !0xffff
+            ),
+            iced_x86::Register::EDX => write_register!(
+                vm,
+                vcpu,
+                addr,
+                responses,
+                guest_cpu.rdx,
+                u32,
+                !0xffffffff
+            ),
+            iced_x86::Register::RDX => write_register!(
+                vm,
+                vcpu,
+                addr,
+                responses,
+                guest_cpu.rdx,
+                u64,
+                0x00
+            ),
 
-            iced_x86::Register::R8L => {
-                write_register!(vm, vcpu, addr, guest_cpu.r8, u8, !0xff)
-            }
-            iced_x86::Register::R8W => {
-                write_register!(vm, vcpu, addr, guest_cpu.r8, u16, !0xffff)
-            }
-            iced_x86::Register::R8D => {
-                write_register!(vm, vcpu, addr, guest_cpu.r8, u32, !0xffffffff)
-            }
-            iced_x86::Register::R8 => {
-                write_register!(vm, vcpu, addr, guest_cpu.r8, u64, 0x00)
-            }
+            iced_x86::Register::R8L => write_register!(
+                vm,
+                vcpu,
+                addr,
+                responses,
+                guest_cpu.r8,
+                u8,
+                !0xff
+            ),
+            iced_x86::Register::R8W => write_register!(
+                vm,
+                vcpu,
+                addr,
+                responses,
+                guest_cpu.r8,
+                u16,
+                !0xffff
+            ),
+            iced_x86::Register::R8D => write_register!(
+                vm,
+                vcpu,
+                addr,
+                responses,
+                guest_cpu.r8,
+                u32,
+                !0xffffffff
+            ),
+            iced_x86::Register::R8 => write_register!(
+                vm,
+                vcpu,
+                addr,
+                responses,
+                guest_cpu.r8,
+                u64,
+                0x00
+            ),
 
-            iced_x86::Register::R9L => {
-                write_register!(vm, vcpu, addr, guest_cpu.r9, u8, !0xff)
-            }
-            iced_x86::Register::R9W => {
-                write_register!(vm, vcpu, addr, guest_cpu.r9, u16, !0xffff)
-            }
-            iced_x86::Register::R9D => {
-                write_register!(vm, vcpu, addr, guest_cpu.r9, u32, !0xffffffff)
-            }
-            iced_x86::Register::R9 => {
-                write_register!(vm, vcpu, addr, guest_cpu.r9, u64, 0x00)
-            }
+            iced_x86::Register::R9L => write_register!(
+                vm,
+                vcpu,
+                addr,
+                responses,
+                guest_cpu.r9,
+                u8,
+                !0xff
+            ),
+            iced_x86::Register::R9W => write_register!(
+                vm,
+                vcpu,
+                addr,
+                responses,
+                guest_cpu.r9,
+                u16,
+                !0xffff
+            ),
+            iced_x86::Register::R9D => write_register!(
+                vm,
+                vcpu,
+                addr,
+                responses,
+                guest_cpu.r9,
+                u32,
+                !0xffffffff
+            ),
+            iced_x86::Register::R9 => write_register!(
+                vm,
+                vcpu,
+                addr,
+                responses,
+                guest_cpu.r9,
+                u64,
+                0x00
+            ),
 
-            iced_x86::Register::R10L => {
-                write_register!(vm, vcpu, addr, guest_cpu.r10, u8, !0xff)
-            }
-            iced_x86::Register::R10W => {
-                write_register!(vm, vcpu, addr, guest_cpu.r10, u16, !0xffff)
-            }
-            iced_x86::Register::R10D => {
-                write_register!(vm, vcpu, addr, guest_cpu.r10, u32, !0xffffffff)
-            }
-            iced_x86::Register::R10 => {
-                write_register!(vm, vcpu, addr, guest_cpu.r10, u64, 0x00)
-            }
+            iced_x86::Register::R10L => write_register!(
+                vm,
+                vcpu,
+                addr,
+                responses,
+                guest_cpu.r10,
+                u8,
+                !0xff
+            ),
+            iced_x86::Register::R10W => write_register!(
+                vm,
+                vcpu,
+                addr,
+                responses,
+                guest_cpu.r10,
+                u16,
+                !0xffff
+            ),
+            iced_x86::Register::R10D => write_register!(
+                vm,
+                vcpu,
+                addr,
+                responses,
+                guest_cpu.r10,
+                u32,
+                !0xffffffff
+            ),
+            iced_x86::Register::R10 => write_register!(
+                vm,
+                vcpu,
+                addr,
+                responses,
+                guest_cpu.r10,
+                u64,
+                0x00
+            ),
 
-            iced_x86::Register::R11L => {
-                write_register!(vm, vcpu, addr, guest_cpu.r11, u8, !0xff)
-            }
-            iced_x86::Register::R11W => {
-                write_register!(vm, vcpu, addr, guest_cpu.r11, u16, !0xffff)
-            }
-            iced_x86::Register::R11D => {
-                write_register!(vm, vcpu, addr, guest_cpu.r11, u32, !0xffffffff)
-            }
-            iced_x86::Register::R11 => {
-                write_register!(vm, vcpu, addr, guest_cpu.r11, u64, 0x00)
-            }
+            iced_x86::Register::R11L => write_register!(
+                vm,
+                vcpu,
+                addr,
+                responses,
+                guest_cpu.r11,
+                u8,
+                !0xff
+            ),
+            iced_x86::Register::R11W => write_register!(
+                vm,
+                vcpu,
+                addr,
+                responses,
+                guest_cpu.r11,
+                u16,
+                !0xffff
+            ),
+            iced_x86::Register::R11D => write_register!(
+                vm,
+                vcpu,
+                addr,
+                responses,
+                guest_cpu.r11,
+                u32,
+                !0xffffffff
+            ),
+            iced_x86::Register::R11 => write_register!(
+                vm,
+                vcpu,
+                addr,
+                responses,
+                guest_cpu.r11,
+                u64,
+                0x00
+            ),
 
-            iced_x86::Register::R12L => {
-                write_register!(vm, vcpu, addr, guest_cpu.r12, u8, !0xff)
-            }
-            iced_x86::Register::R12W => {
-                write_register!(vm, vcpu, addr, guest_cpu.r12, u16, !0xffff)
-            }
-            iced_x86::Register::R12D => {
-                write_register!(vm, vcpu, addr, guest_cpu.r12, u32, !0xffffffff)
-            }
-            iced_x86::Register::R12 => {
-                write_register!(vm, vcpu, addr, guest_cpu.r12, u64, 0x00)
-            }
+            iced_x86::Register::R12L => write_register!(
+                vm,
+                vcpu,
+                addr,
+                responses,
+                guest_cpu.r12,
+                u8,
+                !0xff
+            ),
+            iced_x86::Register::R12W => write_register!(
+                vm,
+                vcpu,
+                addr,
+                responses,
+                guest_cpu.r12,
+                u16,
+                !0xffff
+            ),
+            iced_x86::Register::R12D => write_register!(
+                vm,
+                vcpu,
+                addr,
+                responses,
+                guest_cpu.r12,
+                u32,
+                !0xffffffff
+            ),
+            iced_x86::Register::R12 => write_register!(
+                vm,
+                vcpu,
+                addr,
+                responses,
+                guest_cpu.r12,
+                u64,
+                0x00
+            ),
 
-            iced_x86::Register::R13L => {
-                write_register!(vm, vcpu, addr, guest_cpu.r13, u8, !0xff)
-            }
-            iced_x86::Register::R13W => {
-                write_register!(vm, vcpu, addr, guest_cpu.r13, u16, !0xffff)
-            }
-            iced_x86::Register::R13D => {
-                write_register!(vm, vcpu, addr, guest_cpu.r13, u32, !0xffffffff)
-            }
-            iced_x86::Register::R13 => {
-                write_register!(vm, vcpu, addr, guest_cpu.r13, u64, 0x00)
-            }
+            iced_x86::Register::R13L => write_register!(
+                vm,
+                vcpu,
+                addr,
+                responses,
+                guest_cpu.r13,
+                u8,
+                !0xff
+            ),
+            iced_x86::Register::R13W => write_register!(
+                vm,
+                vcpu,
+                addr,
+                responses,
+                guest_cpu.r13,
+                u16,
+                !0xffff
+            ),
+            iced_x86::Register::R13D => write_register!(
+                vm,
+                vcpu,
+                addr,
+                responses,
+                guest_cpu.r13,
+                u32,
+                !0xffffffff
+            ),
+            iced_x86::Register::R13 => write_register!(
+                vm,
+                vcpu,
+                addr,
+                responses,
+                guest_cpu.r13,
+                u64,
+                0x00
+            ),
 
-            iced_x86::Register::R14L => {
-                write_register!(vm, vcpu, addr, guest_cpu.r14, u8, !0xff)
-            }
-            iced_x86::Register::R14W => {
-                write_register!(vm, vcpu, addr, guest_cpu.r14, u16, !0xffff)
-            }
-            iced_x86::Register::R14D => {
-                write_register!(vm, vcpu, addr, guest_cpu.r14, u32, !0xffffffff)
-            }
-            iced_x86::Register::R14 => {
-                write_register!(vm, vcpu, addr, guest_cpu.r14, u64, 0x00)
-            }
+            iced_x86::Register::R14L => write_register!(
+                vm,
+                vcpu,
+                addr,
+                responses,
+                guest_cpu.r14,
+                u8,
+                !0xff
+            ),
+            iced_x86::Register::R14W => write_register!(
+                vm,
+                vcpu,
+                addr,
+                responses,
+                guest_cpu.r14,
+                u16,
+                !0xffff
+            ),
+            iced_x86::Register::R14D => write_register!(
+                vm,
+                vcpu,
+                addr,
+                responses,
+                guest_cpu.r14,
+                u32,
+                !0xffffffff
+            ),
+            iced_x86::Register::R14 => write_register!(
+                vm,
+                vcpu,
+                addr,
+                responses,
+                guest_cpu.r14,
+                u64,
+                0x00
+            ),
 
-            iced_x86::Register::R15L => {
-                write_register!(vm, vcpu, addr, guest_cpu.r15, u8, !0xff)
-            }
-            iced_x86::Register::R15W => {
-                write_register!(vm, vcpu, addr, guest_cpu.r15, u16, !0xffff)
-            }
-            iced_x86::Register::R15D => {
-                write_register!(vm, vcpu, addr, guest_cpu.r15, u32, !0xffffffff)
-            }
-            iced_x86::Register::R15 => {
-                write_register!(vm, vcpu, addr, guest_cpu.r15, u64, 0x00)
-            }
+            iced_x86::Register::R15L => write_register!(
+                vm,
+                vcpu,
+                addr,
+                responses,
+                guest_cpu.r15,
+                u8,
+                !0xff
+            ),
+            iced_x86::Register::R15W => write_register!(
+                vm,
+                vcpu,
+                addr,
+                responses,
+                guest_cpu.r15,
+                u16,
+                !0xffff
+            ),
+            iced_x86::Register::R15D => write_register!(
+                vm,
+                vcpu,
+                addr,
+                responses,
+                guest_cpu.r15,
+                u32,
+                !0xffffffff
+            ),
+            iced_x86::Register::R15 => write_register!(
+                vm,
+                vcpu,
+                addr,
+                responses,
+                guest_cpu.r15,
+                u64,
+                0x00
+            ),
 
-            iced_x86::Register::DIL => {
-                write_register!(vm, vcpu, addr, guest_cpu.rdi, u8, !0xff)
-            }
-            iced_x86::Register::DI => {
-                write_register!(vm, vcpu, addr, guest_cpu.rdi, u16, !0xffff)
-            }
-            iced_x86::Register::EDI => {
-                write_register!(vm, vcpu, addr, guest_cpu.rdi, u32, !0xffffffff)
-            }
-            iced_x86::Register::RDI => {
-                write_register!(vm, vcpu, addr, guest_cpu.rdi, u64, 0x00)
-            }
+            iced_x86::Register::DIL => write_register!(
+                vm,
+                vcpu,
+                addr,
+                responses,
+                guest_cpu.rdi,
+                u8,
+                !0xff
+            ),
+            iced_x86::Register::DI => write_register!(
+                vm,
+                vcpu,
+                addr,
+                responses,
+                guest_cpu.rdi,
+                u16,
+                !0xffff
+            ),
+            iced_x86::Register::EDI => write_register!(
+                vm,
+                vcpu,
+                addr,
+                responses,
+                guest_cpu.rdi,
+                u32,
+                !0xffffffff
+            ),
+            iced_x86::Register::RDI => write_register!(
+                vm,
+                vcpu,
+                addr,
+                responses,
+                guest_cpu.rdi,
+                u64,
+                0x00
+            ),
 
-            iced_x86::Register::SIL => {
-                write_register!(vm, vcpu, addr, guest_cpu.rsi, u8, !0xff)
-            }
-            iced_x86::Register::SI => {
-                write_register!(vm, vcpu, addr, guest_cpu.rsi, u16, !0xffff)
-            }
-            iced_x86::Register::ESI => {
-                write_register!(vm, vcpu, addr, guest_cpu.rsi, u32, !0xffffffff)
-            }
-            iced_x86::Register::RSI => {
-                write_register!(vm, vcpu, addr, guest_cpu.rsi, u64, 0x00)
-            }
+            iced_x86::Register::SIL => write_register!(
+                vm,
+                vcpu,
+                addr,
+                responses,
+                guest_cpu.rsi,
+                u8,
+                !0xff
+            ),
+            iced_x86::Register::SI => write_register!(
+                vm,
+                vcpu,
+                addr,
+                responses,
+                guest_cpu.rsi,
+                u16,
+                !0xffff
+            ),
+            iced_x86::Register::ESI => write_register!(
+                vm,
+                vcpu,
+                addr,
+                responses,
+                guest_cpu.rsi,
+                u32,
+                !0xffffffff
+            ),
+            iced_x86::Register::RSI => write_register!(
+                vm,
+                vcpu,
+                addr,
+                responses,
+                guest_cpu.rsi,
+                u64,
+                0x00
+            ),
 
             register => {
                 return Err(Error::InvalidValue(format!(
@@ -388,6 +735,7 @@ pub fn handle_ept_violation(
     vcpu: &mut vcpu::VCpu,
     guest_cpu: &mut vmexit::GuestCpuState,
     _exit: vmexit::EptInformation,
+    responses: &mut ResponseEventArray,
 ) -> Result<()> {
     let instruction_len = vcpu
         .vmcs
@@ -427,17 +775,19 @@ pub fn handle_ept_violation(
     if instr.op0_kind() == iced_x86::OpKind::Memory
         || instr.op0_kind() == iced_x86::OpKind::Memory64
     {
-        do_mmio_write(addr, vcpu, guest_cpu, instr)
+        do_mmio_write(addr, vcpu, guest_cpu, responses, instr)?;
     } else if instr.op1_kind() == iced_x86::OpKind::Memory
         || instr.op1_kind() == iced_x86::OpKind::Memory64
     {
-        do_mmio_read(addr, vcpu, guest_cpu, instr)
+        do_mmio_read(addr, vcpu, guest_cpu, responses, instr)?;
     } else {
-        Err(Error::InvalidValue(format!(
+        return Err(Error::InvalidValue(format!(
             "Unsupported mmio instruction: {:?} (rip=0x{:x}, bytes={:?})",
             instr.code(),
             ip,
             bytes,
-        )))
+        )));
     }
+
+    Ok(())
 }

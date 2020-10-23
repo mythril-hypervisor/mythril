@@ -1,14 +1,15 @@
-use crate::device::{
-    DeviceRegion, EmulatedDevice, Port, PortReadRequest, PortWriteRequest,
-};
 use crate::error::{Error, Result};
-use crate::memory::GuestAddressSpaceViewMut;
-use crate::pit::*;
+use crate::physdev::pit::*;
 use crate::time;
+use crate::virtdev::{
+    DeviceEvent, DeviceRegion, EmulatedDevice, Event, Port, PortReadRequest,
+    PortWriteRequest,
+};
 
-use alloc::boxed::Box;
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::convert::TryFrom;
+use spin::RwLock;
 
 #[derive(Debug)]
 enum OperatingModeState {
@@ -59,24 +60,14 @@ pub struct Pit8254 {
 }
 
 impl Pit8254 {
-    pub fn new() -> Box<Self> {
-        Box::new(Pit8254::default())
-    }
-}
-
-impl EmulatedDevice for Pit8254 {
-    fn services(&self) -> Vec<DeviceRegion> {
-        vec![
-            DeviceRegion::PortIo(PIT_COUNTER_0..=PIT_MODE_CONTROL),
-            DeviceRegion::PortIo(PIT_PS2_CTRL_B..=PIT_PS2_CTRL_B),
-        ]
+    pub fn new() -> Arc<RwLock<Self>> {
+        Arc::new(RwLock::new(Pit8254::default()))
     }
 
     fn on_port_read(
         &mut self,
         port: Port,
         mut val: PortReadRequest,
-        _space: GuestAddressSpaceViewMut,
     ) -> Result<()> {
         match port {
             //FIXME: much of this 'PS2' handling is a hack. I'm not aware of
@@ -112,7 +103,6 @@ impl EmulatedDevice for Pit8254 {
         &mut self,
         port: Port,
         val: PortWriteRequest,
-        _space: GuestAddressSpaceViewMut,
     ) -> Result<()> {
         match port {
             PIT_MODE_CONTROL => {
@@ -264,6 +254,26 @@ impl EmulatedDevice for Pit8254 {
             }
         }
 
+        Ok(())
+    }
+}
+
+impl EmulatedDevice for Pit8254 {
+    fn services(&self) -> Vec<DeviceRegion> {
+        vec![
+            DeviceRegion::PortIo(PIT_COUNTER_0..=PIT_MODE_CONTROL),
+            DeviceRegion::PortIo(PIT_PS2_CTRL_B..=PIT_PS2_CTRL_B),
+        ]
+    }
+
+    fn on_event(&mut self, event: Event) -> Result<()> {
+        match event.kind {
+            DeviceEvent::PortRead(port, val) => self.on_port_read(port, val)?,
+            DeviceEvent::PortWrite(port, val) => {
+                self.on_port_write(port, val)?
+            }
+            _ => (),
+        }
         Ok(())
     }
 }

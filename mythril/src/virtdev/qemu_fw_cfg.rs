@@ -1,16 +1,18 @@
-use crate::device::{
-    DeviceRegion, EmulatedDevice, Port, PortReadRequest, PortWriteRequest,
-};
 use crate::error::{Error, Result};
 use crate::memory::{
     GuestAccess, GuestAddressSpaceViewMut, GuestPhysAddr, GuestVirtAddr,
     PrivilegeLevel,
 };
-use alloc::boxed::Box;
+use crate::virtdev::{
+    DeviceEvent, DeviceRegion, EmulatedDevice, Event, Port, PortReadRequest,
+    PortWriteRequest,
+};
 use alloc::collections::BTreeMap;
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 use bitflags::bitflags;
 use core::convert::TryInto;
+use spin::RwLock;
 
 // This is _almost_ an enum, but there are 'file' selectors
 // between 0x20 and 0x7fff inclusive that make it impractical to actually
@@ -134,7 +136,7 @@ impl QemuFwCfgBuilder {
         s
     }
 
-    pub fn build(mut self) -> Box<QemuFwCfg> {
+    pub fn build(mut self) -> Arc<RwLock<QemuFwCfg>> {
         // Now that we are done building the fwcfg device, we need to make the
         // FileDir buffer, which has the following structure:
         //
@@ -165,12 +167,12 @@ impl QemuFwCfgBuilder {
 
         self.data.insert(FwCfgSelector::FILE_DIR, buffer);
 
-        Box::new(QemuFwCfg {
+        Arc::new(RwLock::new(QemuFwCfg {
             selector: FwCfgSelector::SIGNATURE,
             data: self.data,
             data_idx: 0,
             dma_addr: 0,
-        })
+        }))
     }
 
     fn next_file_selector(&self) -> u16 {
@@ -313,25 +315,11 @@ impl QemuFwCfg {
             None
         }
     }
-}
-
-impl EmulatedDevice for QemuFwCfg {
-    fn services(&self) -> Vec<DeviceRegion> {
-        vec![
-            DeviceRegion::PortIo(
-                Self::FW_CFG_PORT_SEL..=Self::FW_CFG_PORT_DATA,
-            ),
-            DeviceRegion::PortIo(
-                Self::FW_CFG_PORT_DMA_HIGH..=Self::FW_CFG_PORT_DMA_LOW,
-            ),
-        ]
-    }
 
     fn on_port_read(
         &mut self,
         port: Port,
         mut val: PortReadRequest,
-        _space: GuestAddressSpaceViewMut,
     ) -> Result<()> {
         let len = val.len();
         match port {
@@ -394,6 +382,30 @@ impl EmulatedDevice for QemuFwCfg {
                 self.dma_addr = (high as u64) << 32;
             }
             _ => unreachable!(),
+        }
+        Ok(())
+    }
+}
+
+impl EmulatedDevice for QemuFwCfg {
+    fn services(&self) -> Vec<DeviceRegion> {
+        vec![
+            DeviceRegion::PortIo(
+                Self::FW_CFG_PORT_SEL..=Self::FW_CFG_PORT_DATA,
+            ),
+            DeviceRegion::PortIo(
+                Self::FW_CFG_PORT_DMA_HIGH..=Self::FW_CFG_PORT_DMA_LOW,
+            ),
+        ]
+    }
+
+    fn on_event(&mut self, event: Event) -> Result<()> {
+        match event.kind {
+            DeviceEvent::PortRead(port, val) => self.on_port_read(port, val)?,
+            DeviceEvent::PortWrite(port, val) => {
+                self.on_port_write(port, val, event.space)?
+            }
+            _ => (),
         }
         Ok(())
     }

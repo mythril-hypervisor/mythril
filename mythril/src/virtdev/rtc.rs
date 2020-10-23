@@ -1,12 +1,13 @@
-use crate::device::{
-    DeviceRegion, EmulatedDevice, Port, PortReadRequest, PortWriteRequest,
-};
 use crate::error::Result;
-use crate::memory::GuestAddressSpaceViewMut;
-use alloc::boxed::Box;
+use crate::virtdev::{
+    DeviceEvent, DeviceRegion, EmulatedDevice, Event, Port, PortReadRequest,
+    PortWriteRequest,
+};
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::convert::{TryFrom, TryInto};
 use num_enum::TryFromPrimitive;
+use spin::RwLock;
 
 #[derive(Copy, Clone, Debug, TryFromPrimitive)]
 #[repr(u8)]
@@ -75,11 +76,11 @@ impl CmosRtc {
     const RTC_ADDRESS: Port = 0x0070;
     const RTC_DATA: Port = 0x0071;
 
-    pub fn new(mem: u64) -> Box<Self> {
-        Box::new(Self {
+    pub fn new(mem: u64) -> Arc<RwLock<Self>> {
+        Arc::new(RwLock::new(Self {
             addr: CmosRegister::Seconds, // For now, just set the default reg as seconds
             data: Self::default_register_values(mem),
-        })
+        }))
     }
 
     fn default_register_values(mem: u64) -> [u8; 256] {
@@ -106,19 +107,11 @@ impl CmosRtc {
         }
         data
     }
-}
-
-//TODO: support the NMI masking stuff
-impl EmulatedDevice for CmosRtc {
-    fn services(&self) -> Vec<DeviceRegion> {
-        vec![DeviceRegion::PortIo(Self::RTC_ADDRESS..=Self::RTC_DATA)]
-    }
 
     fn on_port_read(
         &mut self,
         port: Port,
         mut val: PortReadRequest,
-        _space: GuestAddressSpaceViewMut,
     ) -> Result<()> {
         match port {
             Self::RTC_ADDRESS => val.copy_from_u32(self.addr as u8 as u32),
@@ -137,7 +130,6 @@ impl EmulatedDevice for CmosRtc {
         &mut self,
         port: Port,
         val: PortWriteRequest,
-        _space: GuestAddressSpaceViewMut,
     ) -> Result<()> {
         // For now, just ignore the NMI masking
         let val: u8 = val.try_into()?;
@@ -168,6 +160,24 @@ impl EmulatedDevice for CmosRtc {
                 }
             }
             _ => unreachable!(),
+        }
+        Ok(())
+    }
+}
+
+//TODO: support the NMI masking stuff
+impl EmulatedDevice for CmosRtc {
+    fn services(&self) -> Vec<DeviceRegion> {
+        vec![DeviceRegion::PortIo(Self::RTC_ADDRESS..=Self::RTC_DATA)]
+    }
+
+    fn on_event(&mut self, event: Event) -> Result<()> {
+        match event.kind {
+            DeviceEvent::PortRead(port, val) => self.on_port_read(port, val)?,
+            DeviceEvent::PortWrite(port, val) => {
+                self.on_port_write(port, val)?
+            }
+            _ => (),
         }
         Ok(())
     }

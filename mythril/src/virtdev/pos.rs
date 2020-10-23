@@ -1,10 +1,8 @@
-use crate::device::{
-    DeviceRegion, EmulatedDevice, Port, PortReadRequest, PortWriteRequest,
-};
 use crate::error::Result;
-use crate::memory::GuestAddressSpaceViewMut;
-use alloc::boxed::Box;
+use crate::virtdev::{DeviceEvent, DeviceRegion, EmulatedDevice, Event, Port};
+use alloc::sync::Arc;
 use alloc::vec::Vec;
+use spin::RwLock;
 
 #[derive(Default, Debug)]
 pub struct ProgrammableOptionSelect;
@@ -18,8 +16,8 @@ impl ProgrammableOptionSelect {
     const _POS_RESERVED_2: Port = 0x95;
     const POS_ADAPTER_ENABLE_SETUP: Port = 0x96;
 
-    pub fn new() -> Box<Self> {
-        Box::new(ProgrammableOptionSelect::default())
+    pub fn new() -> Arc<RwLock<Self>> {
+        Arc::new(RwLock::new(ProgrammableOptionSelect::default()))
     }
 }
 
@@ -32,22 +30,13 @@ impl EmulatedDevice for ProgrammableOptionSelect {
         )]
     }
 
-    fn on_port_read(
-        &mut self,
-        _port: Port,
-        mut val: PortReadRequest,
-        _space: GuestAddressSpaceViewMut,
-    ) -> Result<()> {
-        val.copy_from_u32(0);
-        Ok(())
-    }
-
-    fn on_port_write(
-        &mut self,
-        _port: Port,
-        _val: PortWriteRequest,
-        _space: GuestAddressSpaceViewMut,
-    ) -> Result<()> {
+    fn on_event(&mut self, event: Event) -> Result<()> {
+        match event.kind {
+            DeviceEvent::PortRead(_port, mut val) => {
+                val.copy_from_u32(0);
+            }
+            _ => (),
+        }
         Ok(())
     }
 }

@@ -1,12 +1,14 @@
 use crate::apic;
 use crate::emulate;
 use crate::error::{self, Error, Result};
+use crate::interrupt;
+use crate::ioapic;
 use crate::memory::Raw4kPage;
 use crate::percore;
 use crate::registers::{GdtrBase, IdtrBase};
 use crate::time;
 use crate::vm::VirtualMachine;
-use crate::{vm, vmcs, vmexit, vmx};
+use crate::{virtdev, vm, vmcs, vmexit, vmx};
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
@@ -33,14 +35,11 @@ pub fn mp_entry_point() -> ! {
     }
 
     let vm = unsafe {
-        vm::VM_MAP
-            .as_ref()
-            .unwrap()
-            .get(&apic::get_local_apic().id())
-            .expect("Failed to find VM for core")
-            .clone()
+        let id = percore::read_core_id();
+        vm::get_vm_for_core_id(id)
+            .expect(&format!("Failed to find VM associated with {}", id))
     };
-    let vcpu = VCpu::new(vm.clone()).expect("Failed to create vcpu");
+    let vcpu = VCpu::new(vm).expect("Failed to create vcpu");
     vcpu.launch().expect("Failed to launch vm")
 }
 
@@ -163,7 +162,7 @@ impl VCpu {
 
         vmcs.write_field(
             vmcs::VmcsField::HostFsSelector,
-            percore::read_core_idx() << 3, // Skip the RPL and TI flags
+            (percore::read_core_id().raw as u64) << 3, // Skip the RPL and TI flags
         )?;
 
         vmcs.write_field(vmcs::VmcsField::HostFsBase, unsafe {
@@ -283,6 +282,7 @@ impl VCpu {
             vmcs::VmcsField::SecondaryVmExecControl,
             (vmcs::SecondaryExecFlags::VIRTUALIZE_APIC_ACCESSES
                 | vmcs::SecondaryExecFlags::ENABLE_EPT
+                | vmcs::SecondaryExecFlags::ENABLE_RDTSCP
                 | vmcs::SecondaryExecFlags::ENABLE_VPID
                 | vmcs::SecondaryExecFlags::ENABLE_INVPCID
                 | vmcs::SecondaryExecFlags::UNRESTRICTED_GUEST)
@@ -298,7 +298,7 @@ impl VCpu {
         //   VM-execution control field must not be 0000H.
         vmcs.write_field(
             vmcs::VmcsField::VirtualProcessorId,
-            percore::read_core_idx() + 1,
+            (percore::read_core_id().raw as u64) + 1,
         )?;
 
         vmcs.write_with_fixed(
@@ -310,8 +310,6 @@ impl VCpu {
         vmcs.write_with_fixed(
             vmcs::VmcsField::VmExitControls,
             (vmcs::VmExitCtrlFlags::IA32E_MODE
-                | vmcs::VmExitCtrlFlags::LOAD_HOST_EFER
-                | vmcs::VmExitCtrlFlags::SAVE_GUEST_EFER
                 | vmcs::VmExitCtrlFlags::ACK_INTR_ON_EXIT)
                 .bits(),
             msr::IA32_VMX_EXIT_CTLS,
@@ -319,11 +317,21 @@ impl VCpu {
 
         vmcs.write_with_fixed(
             vmcs::VmcsField::VmEntryControls,
-            vmcs::VmEntryCtrlFlags::LOAD_GUEST_EFER.bits(),
+            0,
             msr::IA32_VMX_ENTRY_CTLS,
         )?;
 
-        let msr_bitmap = Box::into_raw(Box::new(Raw4kPage::default()));
+        let mut msr_page = Raw4kPage::default();
+
+        // For now, we need to exit on MSR_IA32_APICBASE (msr=0x1b)
+        // so we can tell the kernel the platform it's running on
+        // doesn't support x2apic
+        // TODO(alschwalm): remove this once we support x2apic in
+        // the guest
+        msr_page.0[3] |= 1 << 3;
+
+        let msr_bitmap = Box::into_raw(Box::new(msr_page));
+
         vmcs.write_field(vmcs::VmcsField::MsrBitmap, msr_bitmap as u64)?;
 
         // Do not VMEXIT on any exceptions
@@ -424,34 +432,51 @@ impl VCpu {
             )?;
         }
 
-        // If there are still pending interrupts, we need to exit immediately,
-        // so set the vmx-preemption timer to 0. According to the docs, this will
-        // still do the event injection:
-        //
-        //   26.7.4
-        //   It is possible for the VMX-preemption timer to expire during VM entry
-        //   (e.g., if the value in the VMX-preemption timer-value field is zero).
-        //   If this happens (and if the VM entry was not to the wait-for-SIPI state),
-        //   a VM exit occurs with its normal priority after any event injection and
-        //   before execution of any instruction following VM entry.
-        let field = self
-            .vmcs
-            .read_field(vmcs::VmcsField::PinBasedVmExecControl)?;
+        // If there are still pending interrupts, set the interrupt window so
+        // we should get a chance to do the injection once the guest is finished
+        // handling the one we just injected.
         if !self.pending_interrupts.is_empty() {
-            self.vmcs
-                .write_field(vmcs::VmcsField::VmxPreemptionTimerValue, 0)?;
             self.vmcs.write_field(
-                vmcs::VmcsField::PinBasedVmExecControl,
-                field | vmcs::PinBasedCtrlFlags::PREEMPT_TIMER.bits(),
+                vmcs::VmcsField::CpuBasedVmExecControl,
+                field
+                    | vmcs::CpuBasedCtrlFlags::INTERRUPT_WINDOW_EXITING.bits(),
             )?;
         } else {
             self.vmcs.write_field(
-                vmcs::VmcsField::PinBasedVmExecControl,
-                field & !(vmcs::PinBasedCtrlFlags::PREEMPT_TIMER.bits()),
+                vmcs::VmcsField::CpuBasedVmExecControl,
+                field
+                    & !vmcs::CpuBasedCtrlFlags::INTERRUPT_WINDOW_EXITING.bits(),
             )?;
         }
 
         Ok(())
+    }
+
+    fn handle_uart_keypress(
+        &mut self,
+        responses: &mut virtdev::ResponseEventArray,
+    ) -> Result<()> {
+        let vm = self.vm.read();
+
+        let serial_info = vm
+            .config
+            .physical_devices()
+            .serial
+            .as_ref()
+            .map(|serial| (serial.read(), serial.base_port()));
+        drop(vm);
+
+        let mut vm = self.vm.write();
+        if let Some((key, port)) = serial_info {
+            vm.dispatch_event(
+                port,
+                virtdev::DeviceEvent::HostUartReceived(key),
+                self,
+                responses,
+            )
+        } else {
+            Ok(())
+        }
     }
 
     fn handle_vmexit_impl(
@@ -459,56 +484,25 @@ impl VCpu {
         guest_cpu: &mut vmexit::GuestCpuState,
         exit: vmexit::ExitReason,
     ) -> Result<()> {
-        match exit.info {
-            vmexit::ExitInformation::CrAccess(info) => {
-                match info.cr_num {
-                    0 => match info.access_type {
-                        vmexit::CrAccessType::Clts => {
-                            let cr0 = self
-                                .vmcs
-                                .read_field(vmcs::VmcsField::GuestCr0)?;
-                            self.vmcs.write_field(
-                                vmcs::VmcsField::GuestCr0,
-                                cr0 & !0b1000,
-                            )?;
-                        }
-                        vmexit::CrAccessType::MovToCr => {
-                            let reg = info.register.unwrap();
-                            let val = reg.read(&self.vmcs, guest_cpu)?;
-                            self.vmcs
-                                .write_field(vmcs::VmcsField::GuestCr0, val)?;
-                        }
-                        op => panic!(
-                            "Unsupported MovToCr cr0 operation: {:?}",
-                            op
-                        ),
-                    },
-                    3 => match info.access_type {
-                        vmexit::CrAccessType::MovToCr => {
-                            let reg = info.register.unwrap();
-                            let val = reg.read(&self.vmcs, guest_cpu)?;
-                            self.vmcs
-                                .write_field(vmcs::VmcsField::GuestCr3, val)?;
-                        }
-                        vmexit::CrAccessType::MovFromCr => {
-                            let reg = info.register.unwrap();
-                            let val = self
-                                .vmcs
-                                .read_field(vmcs::VmcsField::GuestCr3)?;
-                            reg.write(val, &mut self.vmcs, guest_cpu)?;
-                        }
-                        op => panic!(
-                            "Unsupported MovFromCr cr0 operation: {:?}",
-                            op
-                        ),
-                    },
-                    _ => {
-                        return Err(Error::InvalidValue(format!(
-                            "Unsupported CR number access"
-                        )))
-                    }
-                }
+        let mut responses = virtdev::ResponseEventArray::default();
 
+        match exit.info {
+            //TODO(alschwalm): Once we have guest x2apic support, remove this
+            vmexit::ExitInformation::RdMsr => {
+                match guest_cpu.rcx as u32 {
+                    msr::IA32_APIC_BASE => {
+                        let mut real_apic_base =
+                            unsafe { msr::rdmsr(msr::IA32_APIC_BASE) };
+                        real_apic_base &= !(1 << 10); // mask X2APIC_ENABLE
+                        guest_cpu.rdx = real_apic_base >> 32;
+                        guest_cpu.rax = real_apic_base & 0xffffffff;
+                    }
+                    _ => unreachable!(),
+                }
+                self.skip_emulated_instruction()?;
+            }
+            vmexit::ExitInformation::CrAccess(info) => {
+                emulate::controlreg::emulate_access(self, guest_cpu, info)?;
                 self.skip_emulated_instruction()?;
             }
 
@@ -517,31 +511,102 @@ impl VCpu {
                 self.skip_emulated_instruction()?;
             }
             vmexit::ExitInformation::IoInstruction(info) => {
-                emulate::portio::emulate_portio(self, guest_cpu, info)?;
+                emulate::portio::emulate_portio(
+                    self,
+                    guest_cpu,
+                    info,
+                    &mut responses,
+                )?;
                 self.skip_emulated_instruction()?;
             }
             vmexit::ExitInformation::EptViolation(info) => {
-                emulate::memio::handle_ept_violation(self, guest_cpu, info)?;
+                emulate::memio::handle_ept_violation(
+                    self,
+                    guest_cpu,
+                    info,
+                    &mut responses,
+                )?;
                 self.skip_emulated_instruction()?;
             }
-            vmexit::ExitInformation::WrMsr => {
-                info!(
-                    "wrmsr: {:x}:{:x} to register 0x{:x}",
-                    guest_cpu.rdx as u32,
-                    guest_cpu.rax as u32,
-                    guest_cpu.rcx as u32
-                );
-            }
-            vmexit::ExitInformation::ExternalInterrupt(_info) => unsafe {
-                // FIXME: For now, the only external interrupt would be the
-                // timers we setup in the vPIT, so we can just ack them. In
-                // the future this will not be true.
+            vmexit::ExitInformation::InterruptWindow => {}
+            vmexit::ExitInformation::ExternalInterrupt(info) => unsafe {
+                match info.vector {
+                    interrupt::UART_VECTOR => {
+                        self.handle_uart_keypress(&mut responses)?
+                    }
+                    interrupt::IPC_VECTOR => {
+                        let msg =
+                            vm::recv_vm_msg().ok_or_else(|| Error::NotFound)?;
+                        match msg {
+                            vm::VirtualMachineMsg::GrantConsole(serial) => {
+                                let mut vm = self.vm.write();
+                                vm.config.physical_devices_mut().serial =
+                                    Some(serial);
+                            }
+                            vm::VirtualMachineMsg::CancelTimer(timer_id) => {
+                                time::cancel_timer(&timer_id)?;
+                            }
+                        }
+                    }
+                    _ => (),
+                }
+
+                // We don't use the PIC, so any interrupt must be ACKed through
+                // the local apic
                 apic::get_local_apic_mut().eoi();
             },
-            vmexit::ExitInformation::InterruptWindow => {}
             _ => {
                 info!("{}", self.vmcs);
                 panic!("No handler for exit reason: {:?}", exit);
+            }
+        }
+
+        for response in responses {
+            match response {
+                virtdev::DeviceEventResponse::Interrupt((vector, kind)) => {
+                    self.inject_interrupt(vector, kind);
+                }
+                virtdev::DeviceEventResponse::NextConsole => {
+                    info!("Received Ctrl-a three times. Switching console to next VM");
+
+                    let mut vm = self.vm.write();
+                    let serial = vm
+                        .config
+                        .physical_devices_mut()
+                        .serial
+                        .take()
+                        .ok_or_else(|| Error::NotFound)?;
+                    let vmid = vm.id;
+                    drop(vm);
+
+                    let next_vmid = (vmid + 1) % vm::max_vm_id();
+
+                    vm::send_vm_msg(
+                        vm::VirtualMachineMsg::GrantConsole(serial),
+                        next_vmid,
+                    )?;
+
+                    //FIXME(alschwalm): this should use the vm's bsp apicid
+                    ioapic::map_gsi_vector(
+                        4,
+                        interrupt::UART_VECTOR,
+                        next_vmid as u8,
+                    )
+                    .map_err(|_| {
+                        Error::DeviceError(
+                            "Failed to update console GSI mapping".into(),
+                        )
+                    })?;
+                }
+                virtdev::DeviceEventResponse::GuestUartTransmitted(val) => {
+                    let vm = self.vm.read();
+                    if vm.config.physical_devices().serial.is_some() {
+                        //TODO: This should be a write to the physical serial device
+                        let buff = &[val];
+                        let s = alloc::string::String::from_utf8_lossy(buff);
+                        crate::logger::write_console(&s);
+                    }
+                }
             }
         }
 

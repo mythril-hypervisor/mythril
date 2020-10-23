@@ -1,12 +1,13 @@
-use crate::device::{
-    DeviceRegion, EmulatedDevice, Port, PortReadRequest, PortWriteRequest,
-};
 use crate::error::{Error, Result};
-use crate::memory::GuestAddressSpaceViewMut;
-use alloc::boxed::Box;
+use crate::virtdev::{
+    DeviceEvent, DeviceRegion, EmulatedDevice, Event, Port, PortReadRequest,
+    PortWriteRequest,
+};
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::convert::{TryFrom, TryInto};
 use num_enum::TryFromPrimitive;
+use spin::RwLock;
 
 #[derive(Clone, Copy, Debug, TryFromPrimitive)]
 #[repr(u8)]
@@ -41,8 +42,8 @@ impl VgaController {
     const VGA_INDEX: Port = 0x03D4;
     const VGA_DATA: Port = 0x03D5;
 
-    pub fn new() -> Box<Self> {
-        Box::new(Self {
+    pub fn new() -> Arc<RwLock<Self>> {
+        Arc::new(RwLock::new(Self {
             index: VgaRegister::HorizontalTotalChars,
 
             registers: [
@@ -63,23 +64,13 @@ impl VgaController {
                 0x00, // CursorAddrMsb
                 0x00, // CursorAddrLsb
             ],
-        })
-    }
-}
-
-impl EmulatedDevice for VgaController {
-    fn services(&self) -> Vec<DeviceRegion> {
-        vec![
-            // vga stuff
-            DeviceRegion::PortIo(Self::VGA_INDEX..=Self::VGA_DATA),
-        ]
+        }))
     }
 
     fn on_port_read(
         &mut self,
         port: Port,
         mut val: PortReadRequest,
-        _space: GuestAddressSpaceViewMut,
     ) -> Result<()> {
         match port {
             Self::VGA_DATA => {
@@ -99,7 +90,6 @@ impl EmulatedDevice for VgaController {
         &mut self,
         port: Port,
         val: PortWriteRequest,
-        _space: GuestAddressSpaceViewMut,
     ) -> Result<()> {
         match port {
             Self::VGA_INDEX => match val {
@@ -132,6 +122,26 @@ impl EmulatedDevice for VgaController {
                     port
                 )))
             }
+        }
+        Ok(())
+    }
+}
+
+impl EmulatedDevice for VgaController {
+    fn services(&self) -> Vec<DeviceRegion> {
+        vec![
+            // vga stuff
+            DeviceRegion::PortIo(Self::VGA_INDEX..=Self::VGA_DATA),
+        ]
+    }
+
+    fn on_event(&mut self, event: Event) -> Result<()> {
+        match event.kind {
+            DeviceEvent::PortRead(port, val) => self.on_port_read(port, val)?,
+            DeviceEvent::PortWrite(port, val) => {
+                self.on_port_write(port, val)?
+            }
+            _ => (),
         }
         Ok(())
     }

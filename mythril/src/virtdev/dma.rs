@@ -1,10 +1,8 @@
-use crate::device::{
-    DeviceRegion, EmulatedDevice, Port, PortReadRequest, PortWriteRequest,
-};
 use crate::error::Result;
-use crate::memory::GuestAddressSpaceViewMut;
-use alloc::boxed::Box;
+use crate::virtdev::{DeviceRegion, EmulatedDevice, Event, Port};
+use alloc::sync::Arc;
 use alloc::vec::Vec;
+use spin::RwLock;
 
 #[derive(Default, Debug)]
 pub struct Dma8237;
@@ -27,8 +25,8 @@ impl Dma8237 {
     const DMA2_MODE: Port = 0x00d6;
     const DMA2_MASTER_CLEAR: Port = 0x00da;
 
-    pub fn new() -> Box<Self> {
-        Box::new(Dma8237::default())
+    pub fn new() -> Arc<RwLock<Self>> {
+        Arc::new(RwLock::new(Dma8237::default()))
     }
 }
 
@@ -45,21 +43,7 @@ impl EmulatedDevice for Dma8237 {
         ]
     }
 
-    fn on_port_read(
-        &mut self,
-        _port: Port,
-        _val: PortReadRequest,
-        _space: GuestAddressSpaceViewMut,
-    ) -> Result<()> {
-        Ok(())
-    }
-
-    fn on_port_write(
-        &mut self,
-        _port: Port,
-        _val: PortWriteRequest,
-        _space: GuestAddressSpaceViewMut,
-    ) -> Result<()> {
+    fn on_event(&mut self, _event: Event) -> Result<()> {
         Ok(())
     }
 }

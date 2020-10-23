@@ -402,7 +402,7 @@ impl Vmcs {
 
 pub struct ActiveVmcs {
     vmcs: Vmcs,
-    vmx: vmx::Vmx,
+    pub vmx: vmx::Vmx,
 }
 
 impl ActiveVmcs {
@@ -549,13 +549,13 @@ impl fmt::Display for ActiveVmcs {
 
 pub struct TemporaryActiveVmcs<'a> {
     vmcs: &'a mut Vmcs,
-    _vmx: &'a mut vmx::Vmx,
+    pub vmx: &'a mut vmx::Vmx,
 }
 
 impl<'a> TemporaryActiveVmcs<'a> {
     fn new(vmcs: &'a mut Vmcs, vmx: &'a mut vmx::Vmx) -> Result<Self> {
         vmcs_activate(vmcs, vmx)?;
-        Ok(Self { vmcs, _vmx: vmx })
+        Ok(Self { vmcs, vmx: vmx })
     }
 
     pub fn read_field(&mut self, field: VmcsField) -> Result<u64> {

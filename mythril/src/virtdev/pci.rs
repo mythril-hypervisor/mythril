@@ -1,13 +1,11 @@
-use crate::device::{
-    DeviceRegion, EmulatedDevice, Port, PortReadRequest, PortWriteRequest,
-};
 use crate::error::{Error, Result};
-use crate::memory::GuestAddressSpaceViewMut;
-use alloc::boxed::Box;
+use crate::virtdev::{DeviceEvent, DeviceRegion, EmulatedDevice, Event, Port};
 use alloc::collections::btree_map::BTreeMap;
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::convert::TryInto;
 use num_enum::TryFromPrimitive;
+use spin::RwLock;
 use ux;
 
 #[derive(Clone, Copy, Debug, TryFromPrimitive)]
@@ -156,7 +154,7 @@ impl PciRootComplex {
     const PCI_CONFIG_DATA: Port = 0xcfc;
     const PCI_CONFIG_DATA_MAX: Port = Self::PCI_CONFIG_DATA + 3;
 
-    pub fn new() -> Box<Self> {
+    pub fn new() -> Arc<RwLock<Self>> {
         let mut devices = BTreeMap::new();
 
         let host_bridge = PciDevice {
@@ -183,10 +181,10 @@ impl PciRootComplex {
         };
         devices.insert(ich9.bdf.into(), ich9);
 
-        Box::new(Self {
+        Arc::new(RwLock::new(Self {
             current_address: 0,
             devices: devices,
-        })
+        }))
     }
 }
 
@@ -202,67 +200,61 @@ impl EmulatedDevice for PciRootComplex {
             DeviceRegion::PortIo(Self::PCI_CONFIG_TYPE..=Self::PCI_CONFIG_TYPE),
         ]
     }
-    fn on_port_read(
-        &mut self,
-        port: Port,
-        mut val: PortReadRequest,
-        _space: GuestAddressSpaceViewMut,
-    ) -> Result<()> {
-        match port {
-            Self::PCI_CONFIG_ADDRESS => {
-                // For now, always set the enable bit
-                let addr = 0x80000000 | self.current_address;
-                val.copy_from_u32(addr);
-            }
-            Self::PCI_CONFIG_DATA..=Self::PCI_CONFIG_DATA_MAX => {
-                let bdf = ((self.current_address & 0xffff00) >> 8) as u16;
-                let register = (self.current_address & 0xff >> 2) as u8;
-                let offset = (port - Self::PCI_CONFIG_DATA) as u8;
 
-                match self.devices.get(&bdf) {
-                    Some(device) => {
-                        let res = device.config_space.read_register(register)
-                            >> (offset * 8);
-                        val.copy_from_u32(res);
-                        info!(
-                            "port=0x{:x}, register=0x{:x}, offset=0x{:x}, val={}",
-                            port, register, offset, val
-                        );
+    fn on_event(&mut self, event: Event) -> Result<()> {
+        match event.kind {
+            DeviceEvent::PortRead(port, mut val) => {
+                match port {
+                    Self::PCI_CONFIG_ADDRESS => {
+                        // For now, always set the enable bit
+                        let addr = 0x80000000 | self.current_address;
+                        val.copy_from_u32(addr);
                     }
-                    None => {
-                        // If no device is present, just return all 0xFFs
-                        let res = 0xffffffffu32;
-                        val.copy_from_u32(res);
+                    Self::PCI_CONFIG_DATA..=Self::PCI_CONFIG_DATA_MAX => {
+                        let bdf =
+                            ((self.current_address & 0xffff00) >> 8) as u16;
+                        let register = (self.current_address & 0xff >> 2) as u8;
+                        let offset = (port - Self::PCI_CONFIG_DATA) as u8;
+
+                        match self.devices.get(&bdf) {
+                            Some(device) => {
+                                let res =
+                                    device.config_space.read_register(register)
+                                        >> (offset * 8);
+                                val.copy_from_u32(res);
+                                info!(
+                                    "port=0x{:x}, register=0x{:x}, offset=0x{:x}, val={}",
+                                    port, register, offset, val
+                                );
+                            }
+                            None => {
+                                // If no device is present, just return all 0xFFs
+                                let res = 0xffffffffu32;
+                                val.copy_from_u32(res);
+                            }
+                        }
+                    }
+                    _ => {
+                        return Err(Error::InvalidValue(format!(
+                            "Invalid PCI port read 0x{:x}",
+                            port
+                        )))
                     }
                 }
             }
-            _ => {
-                return Err(Error::InvalidValue(format!(
-                    "Invalid PCI port read 0x{:x}",
-                    port
-                )))
-            }
-        }
-        Ok(())
-    }
-
-    fn on_port_write(
-        &mut self,
-        port: Port,
-        val: PortWriteRequest,
-        _space: GuestAddressSpaceViewMut,
-    ) -> Result<()> {
-        match port {
-            Self::PCI_CONFIG_ADDRESS => {
-                let addr: u32 = val.try_into()?;
-                self.current_address = addr & 0x7fffffffu32;
-            }
-            _ => {
-                info!(
-                    "Attempt to write to port=0x{:x} (addr=0x{:x}). Ignoring.",
-                    port, self.current_address
-                );
-            }
+            DeviceEvent::PortWrite(port, val) => match port {
+                Self::PCI_CONFIG_ADDRESS => {
+                    let addr: u32 = val.try_into()?;
+                    self.current_address = addr & 0x7fffffffu32;
+                }
+                _ => {
+                    info!(
+                            "Attempt to write to port=0x{:x} (addr=0x{:x}). Ignoring.",
+                            port, self.current_address
+                        );
+                }
+            },
+            _ => (),
         }
         Ok(())
     }
@@ -274,6 +266,8 @@ mod test {
     use crate::memory::{
         GuestAddressSpace, GuestAddressSpaceViewMut, GuestPhysAddr,
     };
+    use crate::virtdev::*;
+    use alloc::boxed::Box;
 
     fn define_test_view() -> GuestAddressSpaceViewMut<'static> {
         let space: &'static mut GuestAddressSpace =
@@ -281,28 +275,40 @@ mod test {
         GuestAddressSpaceViewMut::new(GuestPhysAddr::new(0), space)
     }
 
-    fn complex_ready_for_reg_read(reg: u8) -> Box<PciRootComplex> {
-        use core::convert::TryFrom;
-
+    fn complex_ready_for_reg_read(reg: u8) -> Arc<RwLock<PciRootComplex>> {
         let view = define_test_view();
-        let mut complex = PciRootComplex::new();
+        let complex = PciRootComplex::new();
         let addr = ((reg << 2) as u32).to_be_bytes();
         let request = PortWriteRequest::try_from(&addr[..]).unwrap();
-        complex
-            .on_port_write(PciRootComplex::PCI_CONFIG_ADDRESS, request, view)
-            .unwrap();
+        let mut responses = ResponseEventArray::default();
+        let event = Event::new(
+            DeviceEvent::PortWrite(PciRootComplex::PCI_CONFIG_ADDRESS, request),
+            view,
+            &mut responses,
+        )
+        .unwrap();
+        {
+            let mut complex = complex.write();
+            complex.on_event(event).unwrap();
+        }
         complex
     }
 
     #[test]
     fn test_full_register_read() {
         let view = define_test_view();
-        let mut complex = complex_ready_for_reg_read(0);
+        let complex = complex_ready_for_reg_read(0);
         let mut buff = [0u8; 4];
         let val = PortReadRequest::FourBytes(&mut buff);
-        complex
-            .on_port_read(PciRootComplex::PCI_CONFIG_DATA, val, view)
-            .unwrap();
+        let mut responses = ResponseEventArray::default();
+        let mut complex = complex.write();
+        let event = Event::new(
+            DeviceEvent::PortRead(PciRootComplex::PCI_CONFIG_DATA, val),
+            view,
+            &mut responses,
+        )
+        .unwrap();
+        complex.on_event(event).unwrap();
 
         assert_eq!(u32::from_be_bytes(buff), 0x29c08086);
     }
@@ -310,55 +316,82 @@ mod test {
     #[test]
     fn test_half_register_read() {
         let view = define_test_view();
-        let mut complex = complex_ready_for_reg_read(0);
+        let complex = complex_ready_for_reg_read(0);
         let mut buff = [0u8; 2];
         let val = PortReadRequest::TwoBytes(&mut buff);
-
-        complex
-            .on_port_read(PciRootComplex::PCI_CONFIG_DATA, val, view)
-            .unwrap();
+        let mut responses = ResponseEventArray::default();
+        let mut complex = complex.write();
+        let event = Event::new(
+            DeviceEvent::PortRead(PciRootComplex::PCI_CONFIG_DATA, val),
+            view,
+            &mut responses,
+        )
+        .unwrap();
+        complex.on_event(event).unwrap();
         assert_eq!(u16::from_be_bytes(buff), 0x8086);
 
         let view = define_test_view();
         let val = PortReadRequest::TwoBytes(&mut buff);
-        complex
-            .on_port_read(PciRootComplex::PCI_CONFIG_DATA + 2, val, view)
-            .unwrap();
+        let event = Event::new(
+            DeviceEvent::PortRead(PciRootComplex::PCI_CONFIG_DATA + 2, val),
+            view,
+            &mut responses,
+        )
+        .unwrap();
+        complex.on_event(event).unwrap();
         assert_eq!(u16::from_be_bytes(buff), 0x29c0);
     }
 
     #[test]
     fn test_register_byte_read() {
-        let mut complex = complex_ready_for_reg_read(0);
+        let complex = complex_ready_for_reg_read(0);
         let mut buff = [0u8; 1];
+        let mut responses = ResponseEventArray::default();
+        let mut complex = complex.write();
 
         let view = define_test_view();
         let val = PortReadRequest::OneByte(&mut buff);
 
-        complex
-            .on_port_read(PciRootComplex::PCI_CONFIG_DATA, val, view)
-            .unwrap();
+        let event = Event::new(
+            DeviceEvent::PortRead(PciRootComplex::PCI_CONFIG_DATA, val),
+            view,
+            &mut responses,
+        )
+        .unwrap();
+        complex.on_event(event).unwrap();
         assert_eq!(u8::from_be_bytes(buff), 0x86);
 
         let view = define_test_view();
         let val = PortReadRequest::OneByte(&mut buff);
-        complex
-            .on_port_read(PciRootComplex::PCI_CONFIG_DATA + 1, val, view)
-            .unwrap();
+        let event = Event::new(
+            DeviceEvent::PortRead(PciRootComplex::PCI_CONFIG_DATA + 1, val),
+            view,
+            &mut responses,
+        )
+        .unwrap();
+        complex.on_event(event).unwrap();
         assert_eq!(u8::from_be_bytes(buff), 0x80);
 
         let view = define_test_view();
         let val = PortReadRequest::OneByte(&mut buff);
-        complex
-            .on_port_read(PciRootComplex::PCI_CONFIG_DATA + 2, val, view)
-            .unwrap();
+        let event = Event::new(
+            DeviceEvent::PortRead(PciRootComplex::PCI_CONFIG_DATA + 2, val),
+            view,
+            &mut responses,
+        )
+        .unwrap();
+        complex.on_event(event).unwrap();
         assert_eq!(u8::from_be_bytes(buff), 0xc0);
 
         let view = define_test_view();
         let val = PortReadRequest::OneByte(&mut buff);
-        complex
-            .on_port_read(PciRootComplex::PCI_CONFIG_DATA + 3, val, view)
-            .unwrap();
+        let event = Event::new(
+            DeviceEvent::PortRead(PciRootComplex::PCI_CONFIG_DATA + 3, val),
+            view,
+            &mut responses,
+        )
+        .unwrap();
+        complex.on_event(event).unwrap();
         assert_eq!(u8::from_be_bytes(buff), 0x29);
     }
 }

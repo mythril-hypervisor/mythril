@@ -1,11 +1,9 @@
-use crate::device::{
-    DeviceRegion, EmulatedDevice, Port, PortReadRequest, PortWriteRequest,
-};
 use crate::error::Result;
-use crate::memory::GuestAddressSpaceViewMut;
-use alloc::boxed::Box;
+use crate::virtdev::{DeviceEvent, DeviceRegion, EmulatedDevice, Event, Port};
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::convert::TryInto;
+use spin::RwLock;
 
 #[derive(Default, Debug)]
 pub struct PicState {
@@ -26,8 +24,8 @@ impl Pic8259 {
     const PIC_ECLR_COMMAND: Port = 0x4d0;
     const PIC_ECLR_DATA: Port = Self::PIC_ECLR_COMMAND + 1;
 
-    pub fn new() -> Box<Self> {
-        Box::new(Pic8259::default())
+    pub fn new() -> Arc<RwLock<Self>> {
+        Arc::new(RwLock::new(Pic8259::default()))
     }
 }
 
@@ -44,36 +42,27 @@ impl EmulatedDevice for Pic8259 {
         ]
     }
 
-    fn on_port_read(
-        &mut self,
-        port: Port,
-        mut val: PortReadRequest,
-        _space: GuestAddressSpaceViewMut,
-    ) -> Result<()> {
-        let data = match port {
-            Self::PIC_MASTER_DATA => self.master_state.imr,
-            Self::PIC_SLAVE_DATA => self.master_state.imr,
-            _ => {
-                return Ok(());
+    fn on_event(&mut self, event: Event) -> Result<()> {
+        match event.kind {
+            DeviceEvent::PortRead(port, mut val) => {
+                let data = match port {
+                    Self::PIC_MASTER_DATA => self.master_state.imr,
+                    Self::PIC_SLAVE_DATA => self.master_state.imr,
+                    _ => {
+                        return Ok(());
+                    }
+                };
+                val.copy_from_u32(data as u32);
             }
-        };
-        val.copy_from_u32(data as u32);
-        Ok(())
-    }
-
-    fn on_port_write(
-        &mut self,
-        port: Port,
-        val: PortWriteRequest,
-        _space: GuestAddressSpaceViewMut,
-    ) -> Result<()> {
-        match port {
-            Self::PIC_MASTER_DATA => {
-                self.master_state.imr = val.try_into()?;
-            }
-            Self::PIC_SLAVE_DATA => {
-                self.master_state.imr = val.try_into()?;
-            }
+            DeviceEvent::PortWrite(port, val) => match port {
+                Self::PIC_MASTER_DATA => {
+                    self.master_state.imr = val.try_into()?;
+                }
+                Self::PIC_SLAVE_DATA => {
+                    self.master_state.imr = val.try_into()?;
+                }
+                _ => (),
+            },
             _ => (),
         }
         Ok(())

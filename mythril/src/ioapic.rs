@@ -12,12 +12,14 @@
 //! by converting a previously obtained I/O APIC Interrupt Controller
 //! Structure entry in the Multiple APIC Descriptor Table.
 
-use crate::acpi::madt::Ics;
+use crate::acpi::madt::{Ics, MADT};
 use crate::error::{Error, Result};
+use crate::lock::ro_after_init::RoAfterInit;
 use core::convert::TryFrom;
 use core::fmt;
 use core::ptr;
 
+use arrayvec::ArrayVec;
 use spin::Mutex;
 
 const IOREDTBL_KNOWN_BITS_MASK: u64 = 0xff000000_0001ffff;
@@ -37,6 +39,72 @@ mod reg {
     pub const IOREDTBL_OFFSET: u8 = 0x10;
 }
 
+const MAX_IOAPIC_COUNT: usize = 16;
+
+static IOAPICS: RoAfterInit<ArrayVec<[IoApic; MAX_IOAPIC_COUNT]>> =
+    RoAfterInit::uninitialized();
+
+// Get the IoApic and redirection table entry index corresponding to a given GSI.
+// Returns None if there is no such IoApic
+// TODO(alschwalm): Support InterruptSourceOverride
+fn ioapic_for_gsi(gsi: u32) -> Option<(&'static IoApic, u8)> {
+    for ioapic in IOAPICS.iter() {
+        let entries = ioapic.max_redirection_entry() as u32;
+        let base = ioapic.gsi_base;
+        if gsi > base && gsi < base + entries {
+            return Some((ioapic, (gsi - base) as u8));
+        }
+    }
+    None
+}
+
+/// Map a given GSI to an interrupt vector on the core with the associated apic_id
+pub fn map_gsi_vector(gsi: u32, vector: u8, apic_id: u8) -> Result<()> {
+    match ioapic_for_gsi(gsi) {
+        Some((ioapic, entry)) => {
+            debug!(
+                "Mapping gsi=0x{:x} to vector 0x{:x} on apic id = 0x{:x}",
+                gsi, vector, apic_id
+            );
+            ioapic.write_ioredtbl(
+                entry,
+                IoRedTblEntry::new(
+                    vector,
+                    DeliveryMode::Fixed,
+                    DestinationMode::Physical,
+                    PinPolarity::ActiveHigh,
+                    TriggerMode::Edge,
+                    false,
+                    apic_id,
+                )?,
+            )?;
+            Ok(())
+        }
+        None => Err(Error::NotFound),
+    }
+}
+
+/// Initialize the system I/O APICS
+///
+/// This function should only be called by the BSP
+pub unsafe fn init_ioapics(madt: &MADT) -> Result<()> {
+    let mut ioapics = ArrayVec::new();
+    for ioapic in madt.structures().filter_map(|ics| match ics {
+        Ok(ioapic @ Ics::IoApic { .. }) => match IoApic::try_from(ioapic) {
+            Ok(ioapic) => Some(ioapic),
+            Err(e) => {
+                warn!("Invalid IOAPIC in MADT: {:?}", e);
+                None
+            }
+        },
+        _ => None,
+    }) {
+        ioapics.push(ioapic);
+    }
+    RoAfterInit::init(&IOAPICS, ioapics);
+    Ok(())
+}
+
 /// The raw interface for the I/O APIC.
 pub struct IoApic {
     /// 32-bit physical address to access this I/O APIC.
@@ -45,6 +113,11 @@ pub struct IoApic {
     /// input starts.
     pub gsi_base: u32,
 }
+
+// IoApics are actually Send/Sync. This will not be correctly derived
+// because raw pointers are not send (even when protected by a mutex).
+unsafe impl Send for IoApic {}
+unsafe impl Sync for IoApic {}
 
 impl IoApic {
     /// Create a new raw IoApic structure from the given

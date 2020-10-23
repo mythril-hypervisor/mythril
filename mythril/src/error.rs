@@ -82,6 +82,7 @@ pub enum Error {
     InvalidValue(String),
     InvalidDevice(String),
     NotImplemented(String),
+    DeviceError(String),
 }
 
 impl<T: TryFromPrimitive> From<TryFromPrimitiveError<T>> for Error {
