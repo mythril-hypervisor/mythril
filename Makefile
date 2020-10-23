@@ -54,6 +54,7 @@ docker-%:
 	docker run --privileged -ti --rm -w $(CURDIR) -v $(CURDIR):$(CURDIR) \
 	   -u $(shell id -u):$(shell id -g) \
 	   --group-add=$(KVM_GROUP_ID) \
+	   -e CARGO_HOME=$(CURDIR)/mythril/.cargo \
 	   -e CARGO_BUILD_JOBS=$(CARGO_BUILD_JOBS) \
 	   $(DOCKER_IMAGE) /bin/bash -c '$(MAKE) $*'
 
