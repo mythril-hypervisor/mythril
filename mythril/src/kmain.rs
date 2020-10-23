@@ -49,9 +49,6 @@ fn default_vm(
     let mut config =
         vm::VirtualMachineConfig::new(vec![core], mem, physical_config);
 
-    // FIXME: When `map_bios` may return an error, log the error.
-    config.map_bios("seabios.bin".into()).unwrap_or(());
-
     let device_map = config.virtual_devices_mut();
     device_map
         .register_device(virtdev::acpi::AcpiRuntime::new(0xb000).unwrap())
@@ -100,10 +97,7 @@ fn default_vm(
     // The 'linuxboot' file is an option rom that loads the linux kernel
     // via qemu_fw_cfg
     fw_cfg_builder
-        .add_file(
-            "genroms/linuxboot_dma.bin",
-            info.find_module("linuxboot_dma.bin").unwrap().data(),
-        )
+        .add_file("genroms/linuxboot_dma.bin", linux::LINUXBOOT_DMA_ROM)
         .unwrap();
 
     // Passing the bootorder file automatically selects the option rom

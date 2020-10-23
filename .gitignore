@@ -1,6 +1,7 @@
 /boot
 /target
 mythril/target
+mythril/src/blob/bios.bin
 _boot.img
 **/*.rs.bk
 debug.log

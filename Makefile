@@ -7,6 +7,7 @@ mythril_src = $(shell find mythril* -type f -name '*.rs' -or -name '*.S' -or -na
 	                   -name 'Cargo.toml')
 kernel = linux/arch/x86_64/boot/bzImage
 seabios = seabios/out/bios.bin
+seabios_blob = mythril/src/blob/bios.bin
 git_hooks_src = $(wildcard .mythril_githooks/*)
 git_hooks = $(subst .mythril_githooks,.git/hooks,$(git_hooks_src))
 
@@ -40,20 +41,23 @@ $(seabios):
 	cp scripts/seabios.config seabios/.config
 	make -C seabios
 
+$(seabios_blob): $(seabios)
+	cp $(seabios) $(seabios_blob)
+
 $(kernel):
 	cp scripts/kernel.config linux/.config
 	make -C linux bzImage
 
 .PHONY: qemu
-qemu: mythril $(seabios) $(kernel)
+qemu: mythril $(kernel)
 	./scripts/mythril-run.sh $(mythril_binary) $(QEMU_EXTRA)
 
 .PHONY: qemu-debug
-qemu-debug: mythril-debug $(seabios) $(kernel)
+qemu-debug: mythril-debug $(kernel)
 	./scripts/mythril-run.sh $(mythril_binary) \
 	    -gdb tcp::1234 -S $(QEMU_EXTRA)
 
-$(mythril_binary): $(mythril_src)
+$(mythril_binary): $(mythril_src) $(seabios_blob)
 	$(CARGO) build $(CARGO_BUILD_FLAGS) $(CARGO_MANIFEST) \
 	    -Z build-std=core,alloc \
 	    --target mythril/mythril_target.json \
@@ -67,7 +71,7 @@ fmt:
 	$(CARGO) fmt $(CARGO_MANIFEST) --all
 
 .PHONY: test_core
-test_common:
+test_common: $(seabios_blob)
 	$(CARGO) test $(CARGO_MANIFEST) --lib \
 	    --features=test \
 
@@ -77,6 +81,7 @@ test: test_common
 .PHONY: clean
 clean:
 	$(CARGO) clean $(CARGO_MANIFEST)
+	rm $(seabios_blob)
 	make -C seabios clean
 	make -C linux clean
 

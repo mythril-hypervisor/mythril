@@ -21,6 +21,8 @@ jobs:
       options: "-u 0:0"
     steps:
     - uses: actions/checkout@v1
+      with:
+        submodules: true
     - name: Unit Tests
       run: |
         make test

@@ -21,6 +21,8 @@ use alloc::vec::Vec;
 use arraydeque::ArrayDeque;
 use spin::RwLock;
 
+static BIOS_BLOB: &'static [u8] = include_bytes!("blob/bios.bin");
+
 static VIRTUAL_MACHINES: RoAfterInit<VirtualMachines> =
     RoAfterInit::uninitialized();
 
@@ -218,7 +220,6 @@ pub struct PhysicalDeviceConfig {
 pub struct VirtualMachineConfig {
     cpus: Vec<percore::CoreId>,
     images: Vec<(String, GuestPhysAddr)>,
-    bios: Option<String>,
     virtual_devices: DeviceMap,
     physical_devices: PhysicalDeviceConfig,
     memory: u64, // in MB
@@ -241,7 +242,6 @@ impl VirtualMachineConfig {
             images: vec![],
             virtual_devices: DeviceMap::default(),
             physical_devices: physical_devices,
-            bios: None,
             memory: memory,
         }
     }
@@ -256,18 +256,6 @@ impl VirtualMachineConfig {
         addr: GuestPhysAddr,
     ) -> Result<()> {
         self.images.push((image, addr));
-        Ok(())
-    }
-
-    /// Specify that the given image 'path' should be mapped as the BIOS
-    ///
-    /// The precise meaning of `image` will vary by platform. This will be a
-    /// value suitable to be passed to `VmServices::read_file`.
-    ///
-    /// The BIOS image will be mapped such that the end of the image is at
-    /// 0xffffffff and 0xfffff (i.e., it will be mapped in two places)
-    pub fn map_bios(&mut self, bios: String) -> Result<()> {
-        self.bios = Some(bios);
         Ok(())
     }
 
@@ -398,25 +386,15 @@ impl VirtualMachine {
         Self::map_data(data, addr, space)
     }
 
-    fn map_bios(
-        bios: &str,
-        space: &mut GuestAddressSpace,
-        info: &BootInfo,
-    ) -> Result<()> {
-        let data = info
-            .find_module(bios)
-            .ok_or_else(|| {
-                Error::InvalidValue(format!("No such bios '{}'", bios))
-            })?
-            .data();
-        let bios_size = data.len() as u64;
+    fn map_bios(space: &mut GuestAddressSpace) -> Result<()> {
+        let bios_size = BIOS_BLOB.len() as u64;
         Self::map_data(
-            data,
+            BIOS_BLOB,
             &memory::GuestPhysAddr::new((1024 * 1024) - bios_size),
             space,
         )?;
         Self::map_data(
-            data,
+            BIOS_BLOB,
             &memory::GuestPhysAddr::new((4 * 1024 * 1024 * 1024) - bios_size),
             space,
         )
@@ -429,9 +407,7 @@ impl VirtualMachine {
         let mut guest_space = GuestAddressSpace::new()?;
 
         // First map the bios
-        if let Some(ref bios) = config.bios {
-            Self::map_bios(&bios, &mut guest_space, info)?;
-        }
+        Self::map_bios(&mut guest_space)?;
 
         // Now map any guest iamges
         for image in config.images.iter() {
