@@ -4,6 +4,10 @@ A rust-based hypervisor currently requiring multiboot2 boot (e.g. grub), and VT-
 
 ## Building and Testing
 
+Don't forget to clone using `--recurse-submodules` or if you've
+already cloned `git submodule update --init --recursive` to get the
+dependencies.
+
 `mythril` should be built and tested using the provided docker image
 `adamschwalm/hypervisor-build`. There are convenience `make` rules for
 using this image. For example, to build the multiboot application, run:

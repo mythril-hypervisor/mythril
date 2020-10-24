@@ -16,6 +16,7 @@ use crate::acpi::madt::{Ics, MADT};
 use crate::error::{Error, Result};
 use crate::lock::ro_after_init::RoAfterInit;
 use core::convert::TryFrom;
+use core::ops::Range;
 use core::fmt;
 use core::ptr;
 
@@ -49,10 +50,8 @@ static IOAPICS: RoAfterInit<ArrayVec<[IoApic; MAX_IOAPIC_COUNT]>> =
 // TODO(alschwalm): Support InterruptSourceOverride
 fn ioapic_for_gsi(gsi: u32) -> Option<(&'static IoApic, u8)> {
     for ioapic in IOAPICS.iter() {
-        let entries = ioapic.max_redirection_entry() as u32;
-        let base = ioapic.gsi_base;
-        if gsi > base && gsi < base + entries {
-            return Some((ioapic, (gsi - base) as u8));
+        if ioapic.get_ivec_range().contains(&gsi) {
+            return Some((ioapic, (gsi - ioapic.gsi_base) as u8));
         }
     }
     None
@@ -284,6 +283,13 @@ impl IoApic {
             }
             Ok(())
         }
+    }
+
+    /// convenience function to get a Range of the interrupt vectors
+    /// that should be associated with this IoApic.
+    pub fn get_ivec_range(&self) -> Range<u32> {
+        return Range{ start: self.gsi_base, end: self.gsi_base +
+		                            (self.max_redirection_entry() as u32) };
     }
 }
 
