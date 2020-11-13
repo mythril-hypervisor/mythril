@@ -24,6 +24,9 @@ use spin::RwLock;
 
 static BIOS_BLOB: &'static [u8] = include_bytes!("blob/bios.bin");
 
+//TODO(alschwalm): this should always be reported by the relevant MSR
+const GUEST_LOCAL_APIC_ADDR: GuestPhysAddr = GuestPhysAddr::new(0xfee00000);
+
 static VIRTUAL_MACHINES: RoAfterInit<VirtualMachines> =
     RoAfterInit::uninitialized();
 
@@ -295,6 +298,11 @@ pub struct VirtualMachine {
     ///
     /// This will be shared by all `VCpu`s associated with this VM.
     pub guest_space: GuestAddressSpace,
+
+    /// The APIC access page
+    ///
+    /// See section 29.4 of the Intel software developer's manual
+    pub apic_access_page: Raw4kPage,
 }
 
 impl VirtualMachine {
@@ -309,11 +317,27 @@ impl VirtualMachine {
     ) -> Result<Arc<RwLock<Self>>> {
         let guest_space = Self::setup_ept(&config, info)?;
 
-        Ok(Arc::new(RwLock::new(Self {
+        let vm = Arc::new(RwLock::new(Self {
             id: id,
             config: config,
             guest_space: guest_space,
-        })))
+            apic_access_page: Raw4kPage([0u8; 4096]),
+        }));
+
+        // Map the guest local apic addr to the access page. This will be set in each
+        // core's vmcs
+        let apic_frame = memory::HostPhysFrame::from_start_address(
+            memory::HostPhysAddr::new(
+                vm.read().apic_access_page.as_ptr() as u64
+            ),
+        )?;
+        vm.write().guest_space.map_frame(
+            GUEST_LOCAL_APIC_ADDR,
+            apic_frame,
+            false,
+        )?;
+
+        Ok(vm)
     }
 
     pub fn dispatch_event(

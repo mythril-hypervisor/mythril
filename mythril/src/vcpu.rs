@@ -65,6 +65,7 @@ pub enum InjectedInterruptType {
 pub struct VCpu {
     pub vm: Arc<RwLock<VirtualMachine>>,
     pub vmcs: vmcs::ActiveVmcs,
+    _local_apic: virtdev::lapic::LocalApic,
     pending_interrupts: BTreeMap<u8, InjectedInterruptType>,
     stack: Vec<u8>,
 }
@@ -85,14 +86,21 @@ impl VCpu {
         let mut vcpu = Box::pin(Self {
             vm: vm,
             vmcs: vmcs,
+            _local_apic: virtdev::lapic::LocalApic::new(),
             stack: stack,
             pending_interrupts: BTreeMap::new(),
         });
 
-        // All VCpus in a VM must share the same address space (except for the
-        // local apic)
+        // All VCpus in a VM must share the same address space
         let eptp = vcpu.vm.read().guest_space.eptp();
         vcpu.vmcs.write_field(vmcs::VmcsField::EptPointer, eptp)?;
+
+        // Setup access for our local apic
+        let apic_access_addr = vcpu.vm.read().apic_access_page.as_ptr() as u64;
+        vcpu.vmcs
+            .write_field(vmcs::VmcsField::ApicAccessAddr, apic_access_addr)?;
+
+        //TODO: set a per-core virtual apic page
 
         let stack_base = vcpu.stack.as_ptr() as u64 + vcpu.stack.len() as u64
             - mem::size_of::<*const Self>() as u64;
@@ -272,6 +280,7 @@ impl VCpu {
         vmcs.write_with_fixed(
             vmcs::VmcsField::CpuBasedVmExecControl,
             (vmcs::CpuBasedCtrlFlags::UNCOND_IO_EXITING
+                | vmcs::CpuBasedCtrlFlags::TPR_SHADOW
                 | vmcs::CpuBasedCtrlFlags::ACTIVATE_MSR_BITMAP
                 | vmcs::CpuBasedCtrlFlags::ACTIVATE_SECONDARY_CONTROLS)
                 .bits(),
@@ -310,7 +319,8 @@ impl VCpu {
         vmcs.write_with_fixed(
             vmcs::VmcsField::VmExitControls,
             (vmcs::VmExitCtrlFlags::IA32E_MODE
-                | vmcs::VmExitCtrlFlags::ACK_INTR_ON_EXIT)
+                | vmcs::VmExitCtrlFlags::ACK_INTR_ON_EXIT
+                | vmcs::VmExitCtrlFlags::SAVE_GUEST_EFER)
                 .bits(),
             msr::IA32_VMX_EXIT_CTLS,
         )?;
@@ -499,6 +509,9 @@ impl VCpu {
                     }
                     _ => unreachable!(),
                 }
+                self.skip_emulated_instruction()?;
+            }
+            vmexit::ExitInformation::ApicAccess(_info) => {
                 self.skip_emulated_instruction()?;
             }
             vmexit::ExitInformation::CrAccess(info) => {

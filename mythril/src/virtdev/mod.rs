@@ -16,6 +16,7 @@ pub mod com;
 pub mod debug;
 pub mod dma;
 pub mod ignore;
+pub mod ioapic;
 pub mod keyboard;
 pub mod lapic;
 pub mod pci;

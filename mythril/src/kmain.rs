@@ -117,10 +117,8 @@ fn build_vm(
     device_map
         .register_device(virtdev::rtc::CmosRtc::new(cfg.memory))
         .unwrap();
-
-    //TODO: this should actually be per-vcpu
     device_map
-        .register_device(virtdev::lapic::LocalApic::new())
+        .register_device(virtdev::ioapic::IoApic::new())
         .unwrap();
 
     let mut fw_cfg_builder = virtdev::qemu_fw_cfg::QemuFwCfgBuilder::new();

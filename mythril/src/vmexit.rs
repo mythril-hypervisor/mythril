@@ -116,7 +116,7 @@ pub enum ExitInformation {
     Pause,
     VmEntryMachineCheck,
     TprBelowThreshold,
-    ApicAccess,
+    ApicAccess(ApicAccessInformation),
     VirtualEio,
     AccessGdtridtr,
     AccessLdtrTr,
@@ -196,7 +196,9 @@ impl ExitReason {
             40 => ExitInformation::Pause,
             41 => ExitInformation::VmEntryMachineCheck,
             43 => ExitInformation::TprBelowThreshold,
-            44 => ExitInformation::ApicAccess,
+            44 => ExitInformation::ApicAccess(
+                ApicAccessInformation::from_active_vmcs(vmcs)?,
+            ),
             45 => ExitInformation::VirtualEio,
             46 => ExitInformation::AccessGdtridtr,
             47 => ExitInformation::AccessLdtrTr,
@@ -229,6 +231,49 @@ impl ExitReason {
         Ok(ExitReason {
             flags: flags,
             info: info,
+        })
+    }
+}
+
+#[derive(Clone, Debug, TryFromPrimitive, PartialEq)]
+#[repr(u8)]
+pub enum ApicAccessKind {
+    LinearRead = 0,
+    LinearWrite = 1,
+    LinearFetch = 2,
+    LinearEventDelivery = 3,
+    PhysicalAccessDuringEvent = 10,
+    PhysicalAccessDuringFetch = 15,
+}
+
+#[derive(Clone, Debug)]
+pub struct ApicAccessInformation {
+    pub offset: Option<u16>,
+    pub kind: ApicAccessKind,
+    pub async_instr_exec: bool,
+}
+
+impl ExtendedExitInformation for ApicAccessInformation {
+    fn from_active_vmcs(vmcs: &vmcs::ActiveVmcs) -> Result<Self> {
+        let qualifier = vmcs.read_field(vmcs::VmcsField::ExitQualification)?;
+
+        let kind = ((qualifier >> 12) & 0b1111) as u8;
+        let kind = ApicAccessKind::try_from(kind)?;
+
+        let offset = if kind == ApicAccessKind::LinearRead
+            || kind == ApicAccessKind::LinearWrite
+            || kind == ApicAccessKind::LinearFetch
+            || kind == ApicAccessKind::LinearEventDelivery
+        {
+            Some((qualifier & 0xfff) as u16)
+        } else {
+            None
+        };
+
+        Ok(ApicAccessInformation {
+            kind: kind,
+            async_instr_exec: qualifier & (1 << 16) != 0,
+            offset: offset,
         })
     }
 }

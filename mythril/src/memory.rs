@@ -15,6 +15,12 @@ use x86::controlregs::Cr0;
 
 #[repr(align(4096))]
 pub struct Raw4kPage(pub [u8; BASE_PAGE_SIZE]);
+impl Raw4kPage {
+    pub fn as_ptr(&self) -> *const u8 {
+        self.0.as_ptr()
+    }
+}
+
 impl Default for Raw4kPage {
     fn default() -> Self {
         Raw4kPage([0u8; BASE_PAGE_SIZE])
@@ -148,7 +154,7 @@ impl Add<usize> for Guest4LevelPagingAddr {
 pub struct GuestPhysAddr(u64);
 
 impl GuestPhysAddr {
-    pub fn new(addr: u64) -> Self {
+    pub const fn new(addr: u64) -> Self {
         Self(addr)
     }
 
