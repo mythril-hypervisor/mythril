@@ -4,6 +4,11 @@ use crate::virtdev::qemu_fw_cfg::{FwCfgSelector, QemuFwCfgBuilder};
 use bitflags::bitflags;
 use byteorder::{ByteOrder, LittleEndian};
 
+// This blob is taken from QEMU. See:
+// https://github.com/qemu/qemu/blob/887adde81d1f1f3897f1688d37ec6851b4fdad86/pc-bios/optionrom/linuxboot_dma.c
+pub const LINUXBOOT_DMA_ROM: &'static [u8] =
+    include_bytes!("blob/linuxboot_dma.bin");
+
 bitflags! {
     pub struct XLoadFlags: u32 {
         const KERNEL_64 = 1 << 0;

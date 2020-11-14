@@ -13,9 +13,7 @@ rm -rf _isofiles
 mkdir -p _isofiles/boot/grub
 
 cp scripts/grub.cfg _isofiles/boot/grub/
-cp seabios/out/bios.bin _isofiles/boot/seabios.bin
 cp linux/arch/x86_64/boot/bzImage _isofiles/boot/vmlinuz
-cp scripts/linuxboot_dma.bin _isofiles/boot/linuxboot_dma.bin
 cp scripts/initramfs _isofiles/boot/initramfs
 cp "$1" _isofiles/boot/mythril.bin
 
