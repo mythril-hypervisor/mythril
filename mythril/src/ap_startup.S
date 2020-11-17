@@ -56,6 +56,9 @@ ap_startup_32:
     mov ds, ax
     mov ss, ax
     mov es, ax
+
+    ; Ensure FS/GS are zeroed
+    xor ax, ax
     mov fs, ax
     mov gs, ax
 
@@ -87,12 +90,6 @@ ap_startup_32:
 ap_startup_64:
     ; Load the stack provided by the bsp
     mov rsp, [AP_STACK_ADDR]
-
-    ; Initialize FS with our per-core index, this will be used for the
-    ; fast per-core access later
-    mov rdx, [AP_IDX]
-    shl rdx, 3          ; Shift the AP_IDX to allow the RPL and TI bits to be 0
-    mov fs, rdx
 
     ; See ap::ApData
     push qword [AP_IDX]

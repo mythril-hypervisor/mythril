@@ -285,6 +285,10 @@ impl VirtualMachineConfig {
     pub fn cpus(&self) -> &Vec<percore::CoreId> {
         &self.cpus
     }
+
+    pub fn bsp_id(&self) -> percore::CoreId {
+        self.cpus[0]
+    }
 }
 
 /// A virtual machine

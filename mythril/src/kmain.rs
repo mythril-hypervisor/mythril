@@ -158,8 +158,11 @@ fn build_vm(
 }
 
 #[no_mangle]
-pub extern "C" fn ap_entry(_ap_data: &ap::ApData) -> ! {
-    unsafe { interrupt::idt::ap_init() };
+pub extern "C" fn ap_entry(ap_data: &ap::ApData) -> ! {
+    unsafe {
+        percore::init_segment_for_core(ap_data.idx);
+        interrupt::idt::ap_init()
+    };
 
     let local_apic =
         apic::LocalApic::init().expect("Failed to initialize local APIC");
@@ -170,8 +173,6 @@ pub extern "C" fn ap_entry(_ap_data: &ap::ApData) -> ! {
         local_apic.raw_base(),
         local_apic.version()
     );
-
-    unsafe { interrupt::enable_interrupts() };
 
     vcpu::mp_entry_point()
 }
@@ -221,10 +222,6 @@ unsafe fn kmain(mut boot_info: BootInfo) -> ! {
         .rsdt()
         .expect("Failed to read RSDT");
 
-    // Initialize the BSP local APIC
-    let local_apic =
-        apic::LocalApic::init().expect("Failed to initialize local APIC");
-
     let madt_sdt = rsdt.find_entry(b"APIC").expect("No MADT found");
     let madt = acpi::madt::MADT::new(&madt_sdt);
 
@@ -240,12 +237,16 @@ unsafe fn kmain(mut boot_info: BootInfo) -> ! {
         })
         .collect::<Vec<_>>();
 
+    percore::init_sections(apic_ids.len())
+        .expect("Failed to initialize per-core sections");
+
+    // Initialize the BSP local APIC
+    let local_apic =
+        apic::LocalApic::init().expect("Failed to initialize local APIC");
+
     ioapic::init_ioapics(&madt).expect("Failed to initialize IOAPICs");
     ioapic::map_gsi_vector(4, interrupt::UART_VECTOR, 0)
         .expect("Failed to map com0 gsi");
-
-    percore::init_sections(apic_ids.len())
-        .expect("Failed to initialize per-core sections");
 
     let mut builder = vm::VirtualMachineBuilder::new();
 

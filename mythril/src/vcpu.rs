@@ -35,10 +35,11 @@ pub fn mp_entry_point() -> ! {
     }
 
     let vm = unsafe {
-        let id = percore::read_core_id();
-        vm::get_vm_for_core_id(id)
-            .expect(&format!("Failed to find VM associated with {}", id))
+        let core_id = percore::read_core_id();
+        vm::get_vm_for_core_id(core_id)
+            .expect(&format!("Failed to find VM associated with {}", core_id))
     };
+
     let vcpu = VCpu::new(vm).expect("Failed to create vcpu");
     vcpu.launch().expect("Failed to launch vm")
 }
@@ -157,6 +158,7 @@ impl VCpu {
             vmcs.write_field(vmcs::VmcsField::HostSsSelector, GDT64_DATA)?;
             vmcs.write_field(vmcs::VmcsField::HostDsSelector, GDT64_DATA)?;
             vmcs.write_field(vmcs::VmcsField::HostEsSelector, GDT64_DATA)?;
+            vmcs.write_field(vmcs::VmcsField::HostFsSelector, GDT64_DATA)?;
             vmcs.write_field(vmcs::VmcsField::HostGsSelector, GDT64_DATA)?;
             vmcs.write_field(vmcs::VmcsField::HostTrSelector, GDT64_DATA)?;
         }
@@ -167,11 +169,6 @@ impl VCpu {
 
         vmcs.write_field(vmcs::VmcsField::HostIdtrBase, IdtrBase::read())?;
         vmcs.write_field(vmcs::VmcsField::HostGdtrBase, GdtrBase::read())?;
-
-        vmcs.write_field(
-            vmcs::VmcsField::HostFsSelector,
-            (percore::read_core_id().raw as u64) << 3, // Skip the RPL and TI flags
-        )?;
 
         vmcs.write_field(vmcs::VmcsField::HostFsBase, unsafe {
             msr::rdmsr(msr::IA32_FS_BASE)
