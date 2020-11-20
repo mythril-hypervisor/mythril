@@ -39,6 +39,7 @@ pub mod linux;
 pub mod lock;
 pub mod logger;
 pub mod memory;
+pub mod multiboot;
 pub mod multiboot2;
 pub mod percore;
 pub mod physdev;

@@ -12,6 +12,7 @@ fn main() {
     build
         .file("src/vm.S")
         .file("src/boot.S")
+        .file("src/multiboot_header.S")
         .file("src/multiboot2_header.S")
         .file("src/ap_startup.S")
         .include("asm_include/")

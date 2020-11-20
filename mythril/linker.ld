@@ -3,18 +3,18 @@ ENTRY(_start)
 SECTIONS {
     . = 0x8000;
 
+    .boot :
+    {
+        /* ensure that the multiboot header is at the beginning */
+        KEEP(*(.multiboot_header))
+    }
+
     .ap_startup ALIGN(4K) : ALIGN(4K)
     {
        KEEP(*(.ap_startup .ap_startup.*))
     }
 
     . = 1M;
-
-    .boot ALIGN(4K) : ALIGN(4K)
-    {
-        /* ensure that the multiboot header is at the beginning */
-        KEEP(*(.multiboot_header))
-    }
 
     PER_CORE_START = .;
     .per_core :
@@ -47,4 +47,6 @@ SECTIONS {
         *(.bss .bss.*)
         *(COMMON)
     }
+
+    END_OF_BINARY = .;
 }
