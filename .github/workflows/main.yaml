@@ -8,7 +8,7 @@ jobs:
       # Step 1
       # To use this repository's private action,
       # you must check out the repository
-      - name: Checkout test repository 
+      - name: Checkout test repository
         uses: actions/checkout@master
       # Step 2
       - name: Checkout habits repository
@@ -24,11 +24,11 @@ jobs:
       - name: Pipeline run step
         # Where the action is
         # format: {org}/{repo}[/path]@ref ?
-        uses: ./.github/actions/habits_action 
+        uses: ./.github/actions/habits_action
         id: pipeline
         with:
-          owner: 'banjtheman'
-          name: 'test'
+          owner: 'mythril-hypervisor'
+          name: 'mythril'
         env:
           GITHUB_ACCESS_TOKEN: " ${{ secrets.HABITS_NEW }}"
           DO_RC: "ON"
