@@ -31,5 +31,5 @@ jobs:
           name: 'mythril'
         env:
           GITHUB_ACCESS_TOKEN: " ${{ secrets.HABITS_NEW }}"
-          DO_RC: "ON"
+          DO_RC: "OFF"
           #GITHUB_ACCESS_TOKEN: " ${{ secrets.GITHUB_TOKEN }}"
