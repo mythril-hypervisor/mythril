@@ -1,0 +1,32 @@
+on: [workflow_dispatch]
+
+jobs:
+  habits_remove_labels:
+    runs-on: ubuntu-latest
+    name: A job to remove labels
+    steps:
+      # Step 1
+      # To use this repository's private action,
+      # you must check out the repository
+      - name: Checkout test repository 
+        uses: actions/checkout@master
+      # Step 2
+      - name: Checkout habits repository
+        uses: actions/checkout@v2
+        # v1 checks out entire repo
+        # v2 checks out only one commit
+        with:
+          repository: starlab-io/habits
+          ref: enrich_graphql_updates
+          token: ${{ secrets.HABITS_NEW }}
+          path: habits
+      # Step 3
+      - name: Pipeline run step
+        uses: ./.github/actions/habits_remove_pr_labels
+        id: pipeline
+        with:
+          owner: 'banjtheman'  # input your own org
+          name: 'test'         # input your own repo
+        env:
+          GITHUB_ACCESS_TOKEN: " ${{ secrets.HABITS_NEW }}"
+          MY_TOKEN: " ${{ secrets.GITHUB_TOKEN }}"

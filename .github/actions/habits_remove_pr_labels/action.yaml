@@ -1,0 +1,24 @@
+# action.yaml
+name: 'HABITS PR Label Remover'
+description: 'Remove labels from all PRs'
+inputs:
+  gat: # id of input
+    description: 'Github token that has access to habits'
+    required: true
+  owner:
+    description: 'Owner of target repository'
+    required: true
+  name:
+    description: 'Name of target repository'
+    required: true
+
+outputs:
+  label: # id of output
+    description: 'A label assigned for the current repo'
+runs:
+  using: 'docker'
+  image: 'Dockerfile'
+  # Inputs are specified in main.yaml
+  args:
+    - ${{ inputs.owner }}
+    - ${{ inputs.name }}

@@ -1,0 +1,35 @@
+on: [pull_request]
+
+jobs:
+  habits_action_job:
+    runs-on: ubuntu-latest
+    name: A job to run habits-cli labeler
+    steps:
+      # Step 1
+      # To use this repository's private action,
+      # you must check out the repository
+      - name: Checkout test repository 
+        uses: actions/checkout@master
+      # Step 2
+      - name: Checkout habits repository
+        uses: actions/checkout@v2
+        # v1 checks out entire repo
+        # v2 checks out only one commit
+        with:
+          repository: starlab-io/habits
+          ref: enrich_graphql_updates
+          token: ${{ secrets.HABITS_NEW }}
+          path: habits
+      # Step 3
+      - name: Pipeline run step
+        # Where the action is
+        # format: {org}/{repo}[/path]@ref ?
+        uses: ./.github/actions/habits_action 
+        id: pipeline
+        with:
+          owner: 'banjtheman'
+          name: 'test'
+        env:
+          GITHUB_ACCESS_TOKEN: " ${{ secrets.HABITS_NEW }}"
+          DO_RC: "ON"
+          #GITHUB_ACCESS_TOKEN: " ${{ secrets.GITHUB_TOKEN }}"
