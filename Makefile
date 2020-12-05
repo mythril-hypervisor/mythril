@@ -1,15 +1,24 @@
 CARGO?=cargo
 BUILD_TYPE?=release
-DOCKER_IMAGE=adamschwalm/hypervisor-build:12
+BUILD_REPO_TAG=14
+DOCKER_IMAGE=adamschwalm/hypervisor-build:$(BUILD_REPO_TAG)
+
+TEST_IMAGE_REPO=https://github.com/mythril-hypervisor/build
+TEST_INITRAMFS_URL=$(TEST_IMAGE_REPO)/releases/download/$(BUILD_REPO_TAG)/test-initramfs.img
+TEST_KERNEL_URL=$(TEST_IMAGE_REPO)/releases/download/$(BUILD_REPO_TAG)/test-bzImage
 
 mythril_binary = mythril/target/mythril_target/$(BUILD_TYPE)/mythril
 mythril_src = $(shell find mythril* -type f -name '*.rs' -or -name '*.S' -or -name '*.ld' \
 	                   -name 'Cargo.toml')
-kernel = linux/arch/x86_64/boot/bzImage
+
 seabios = seabios/out/bios.bin
 seabios_blob = mythril/src/blob/bios.bin
+guest_kernel = scripts/vmlinuz
+guest_initramfs = scripts/initramfs
 git_hooks_src = $(wildcard .mythril_githooks/*)
 git_hooks = $(subst .mythril_githooks,.git/hooks,$(git_hooks_src))
+
+GUEST_ASSETS=$(guest_kernel) $(guest_initramfs)
 
 ifneq (,$(filter qemu%, $(firstword $(MAKECMDGOALS))))
     QEMU_EXTRA := $(subst :,\:, $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS)))
@@ -23,7 +32,7 @@ ifeq ($(BUILD_TYPE), release)
 endif
 
 .PHONY: all
-all: mythril $(seabios) $(kernel)
+all: mythril $(seabios)
 
 .PHONY: mythril
 mythril: $(mythril_binary)
@@ -31,6 +40,12 @@ mythril: $(mythril_binary)
 .PHONY: mythril-debug
 mythril-debug: BUILD_TYPE=debug
 mythril-debug: $(mythril_binary)
+
+$(guest_kernel):
+	curl -L $(TEST_KERNEL_URL) -o $(guest_kernel)
+
+$(guest_initramfs):
+	curl -L $(TEST_INITRAMFS_URL) -o $(guest_initramfs)
 
 docker-%:
 	docker run --privileged -it --rm -w $(CURDIR) -v $(CURDIR):$(CURDIR) \
@@ -44,16 +59,12 @@ $(seabios):
 $(seabios_blob): $(seabios)
 	cp $(seabios) $(seabios_blob)
 
-$(kernel):
-	cp scripts/kernel.config linux/.config
-	make -C linux bzImage
-
 .PHONY: qemu
-qemu: mythril $(kernel)
+qemu: mythril $(GUEST_ASSETS)
 	./scripts/mythril-run.sh $(mythril_binary) $(QEMU_EXTRA)
 
 .PHONY: qemu-debug
-qemu-debug: mythril-debug $(kernel)
+qemu-debug: mythril-debug $(GUEST_ASSETS)
 	./scripts/mythril-run.sh $(mythril_binary) \
 	    -gdb tcp::1234 -S $(QEMU_EXTRA)
 
@@ -83,7 +94,7 @@ clean:
 	$(CARGO) clean $(CARGO_MANIFEST)
 	rm $(seabios_blob)
 	make -C seabios clean
-	make -C linux clean
+	rm $(GUEST_ASSETS)
 
 .PHONY: dev-init
 dev-init: install-git-hooks
