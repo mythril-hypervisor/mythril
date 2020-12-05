@@ -16,8 +16,8 @@ use crate::acpi::madt::{Ics, MADT};
 use crate::error::{Error, Result};
 use crate::lock::ro_after_init::RoAfterInit;
 use core::convert::TryFrom;
-use core::ops::Range;
 use core::fmt;
+use core::ops::Range;
 use core::ptr;
 
 use arrayvec::ArrayVec;
@@ -288,8 +288,10 @@ impl IoApic {
     /// convenience function to get a Range of the interrupt vectors
     /// that should be associated with this IoApic.
     pub fn get_ivec_range(&self) -> Range<u32> {
-        return Range{ start: self.gsi_base, end: self.gsi_base +
-		                            (self.max_redirection_entry() as u32) };
+        return Range {
+            start: self.gsi_base,
+            end: self.gsi_base + (self.max_redirection_entry() as u32),
+        };
     }
 }
 
