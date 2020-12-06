@@ -26,9 +26,7 @@ make docker-test
 
 ## Running the Hypervisor
 
-After running the build steps as described above, an initramfs must be added to the
-`scripts/` directory with the name `initramfs`. Once in place, the hypervisor
-can be executed with:
+After running the build steps as described above, the hypervisor can be executed with:
 
 ```
 make docker-qemu
