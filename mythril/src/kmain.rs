@@ -34,10 +34,9 @@ extern "C" {
     static IS_MULTIBOOT2_BOOT: u8;
 }
 
-// Temporary helper function to create a vm for a single core
-fn default_vm(
-    core: percore::CoreId,
-    cfg: &config::VmConfig,
+// Temporary helper function to create a vm
+fn build_vm(
+    cfg: &config::UserVmConfig,
     info: &BootInfo,
     add_uart: bool,
 ) -> Arc<RwLock<vm::VirtualMachine>> {
@@ -53,8 +52,11 @@ fn default_vm(
         }
     };
 
-    let mut config =
-        vm::VirtualMachineConfig::new(vec![core], cfg.memory, physical_config);
+    let mut config = vm::VirtualMachineConfig::new(
+        cfg.cpus.clone(),
+        cfg.memory,
+        physical_config,
+    );
 
     let mut acpi = acpi::rsdp::RSDPBuilder::<[_; 1024]>::new(
         ManagedMap::Owned(BTreeMap::new()),
@@ -153,7 +155,7 @@ fn default_vm(
 
     device_map.register_device(fw_cfg_builder.build()).unwrap();
 
-    vm::VirtualMachine::new(core.raw, config, info)
+    vm::VirtualMachine::new(cfg.cpus[0].raw, config, info)
         .expect("Failed to create vm")
 }
 
@@ -254,22 +256,14 @@ unsafe fn kmain(mut boot_info: BootInfo) -> ! {
         .expect("Failed to find 'mythril.cfg' in boot information")
         .data();
 
-    let mythril_cfg: config::Config = serde_json::from_slice(&raw_cfg)
+    let mythril_cfg: config::UserConfig = serde_json::from_slice(&raw_cfg)
         .expect("Failed to parse 'mythril.cfg'");
 
-    info!("mythril.cfg: {:?}", mythril_cfg);
+    debug!("mythril.cfg: {:?}", mythril_cfg);
 
-    for apic_id in apic_ids.iter() {
+    for (num, vm) in mythril_cfg.vms.into_iter().enumerate() {
         builder
-            .insert_machine(default_vm(
-                percore::CoreId::from(apic_id.raw),
-                &mythril_cfg
-                    .vms
-                    .get(0)
-                    .expect("Failed to find vm in mythril.cfg"),
-                &boot_info,
-                apic_id.is_bsp(),
-            ))
+            .insert_machine(build_vm(&vm, &boot_info, num == 0))
             .expect("Failed to insert new vm");
     }
 
@@ -277,6 +271,8 @@ unsafe fn kmain(mut boot_info: BootInfo) -> ! {
 
     debug!("AP_STARTUP address: 0x{:x}", AP_STARTUP_ADDR);
 
+    //TODO(alschwalm): Only the cores that are actually associated with a VM
+    // should be started
     for (idx, apic_id) in apic_ids.into_iter().enumerate() {
         if apic_id == local_apic.id() {
             continue;

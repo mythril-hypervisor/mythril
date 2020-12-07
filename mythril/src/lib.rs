@@ -28,6 +28,7 @@ pub mod ap;
 /// Support for the local APIC.
 pub mod apic;
 pub mod boot_info;
+/// User configuration format
 pub mod config;
 pub mod emulate;
 pub mod error;
