@@ -66,7 +66,7 @@ pub enum InjectedInterruptType {
 pub struct VCpu {
     pub vm: Arc<RwLock<VirtualMachine>>,
     pub vmcs: vmcs::ActiveVmcs,
-    _local_apic: virtdev::lapic::LocalApic,
+    local_apic: virtdev::lapic::LocalApic,
     pending_interrupts: BTreeMap<u8, InjectedInterruptType>,
     stack: Vec<u8>,
 }
@@ -87,7 +87,7 @@ impl VCpu {
         let mut vcpu = Box::pin(Self {
             vm: vm,
             vmcs: vmcs,
-            _local_apic: virtdev::lapic::LocalApic::new(),
+            local_apic: virtdev::lapic::LocalApic::new(),
             stack: stack,
             pending_interrupts: BTreeMap::new(),
         });
@@ -113,7 +113,7 @@ impl VCpu {
         }
 
         Self::initialize_host_vmcs(&mut vcpu.vmcs, stack_base)?;
-        Self::initialize_guest_vmcs(&mut vcpu.vmcs)?;
+        Self::initialize_guest_vmcs(&mut vcpu)?;
         Self::initialize_ctrl_vmcs(&mut vcpu.vmcs)?;
 
         Ok(vcpu)
@@ -190,7 +190,8 @@ impl VCpu {
         Ok(())
     }
 
-    fn initialize_guest_vmcs(vmcs: &mut vmcs::ActiveVmcs) -> Result<()> {
+    fn initialize_guest_vmcs(vcpu: &mut VCpu) -> Result<()> {
+        let vmcs = &mut vcpu.vmcs;
         vmcs.write_field(vmcs::VmcsField::GuestEsSelector, 0x00)?;
         vmcs.write_field(vmcs::VmcsField::GuestCsSelector, 0xf000)?;
         vmcs.write_field(vmcs::VmcsField::GuestSsSelector, 0x00)?;
@@ -230,7 +231,6 @@ impl VCpu {
         vmcs.write_field(vmcs::VmcsField::GuestTrArBytes, 0x008b)?; // TSS (busy)
 
         vmcs.write_field(vmcs::VmcsField::GuestInterruptibilityInfo, 0x00)?;
-        vmcs.write_field(vmcs::VmcsField::GuestActivityState, 0x00)?;
         vmcs.write_field(vmcs::VmcsField::GuestDr7, 0x00)?;
         vmcs.write_field(vmcs::VmcsField::GuestRsp, 0x00)?;
         vmcs.write_field(vmcs::VmcsField::GuestRflags, 1 << 1)?; // Reserved rflags
@@ -269,6 +269,17 @@ impl VCpu {
         vmcs.write_field(vmcs::VmcsField::GuestCr3, 0x00)?;
 
         vmcs.write_field(vmcs::VmcsField::GuestRip, 0xfff0)?;
+
+        // If this is a VM BSP core, start it as active, otherwise
+        // it should be waiting for IPI
+        vmcs.write_field(
+            vmcs::VmcsField::GuestActivityState,
+            if vcpu.vm.read().config.bsp_id() == percore::read_core_id() {
+                vmcs::ActivityState::Active
+            } else {
+                vmcs::ActivityState::WaitForSipi
+            } as u64,
+        )?;
 
         Ok(())
     }
@@ -508,7 +519,21 @@ impl VCpu {
                 }
                 self.skip_emulated_instruction()?;
             }
-            vmexit::ExitInformation::ApicAccess(_info) => {
+            vmexit::ExitInformation::ApicAccess(info) => {
+                match info.kind {
+                    vmexit::ApicAccessKind::LinearRead => {
+                        self.local_apic.register_read(
+                            info.offset.expect("LAPIC read with no offset"),
+                        )?;
+                    }
+                    vmexit::ApicAccessKind::LinearWrite => {
+                        self.local_apic.register_write(
+                            info.offset.expect("LAPIC write with no offset"),
+                            0,
+                        )?;
+                    }
+                    _ => (),
+                }
                 self.skip_emulated_instruction()?;
             }
             vmexit::ExitInformation::CrAccess(info) => {
@@ -596,11 +621,14 @@ impl VCpu {
                         next_vmid,
                     )?;
 
-                    //FIXME(alschwalm): this should use the vm's bsp apicid
+                    let next_bsp = vm::get_vm_bsp_core_id(next_vmid)
+                        .ok_or_else(|| Error::NotFound)?;
+
+                    //FIXME(alschwalm): this should be the APIC id of the bsp, not the core id
                     ioapic::map_gsi_vector(
                         4,
                         interrupt::UART_VECTOR,
-                        next_vmid as u8,
+                        next_bsp.raw as u8,
                     )
                     .map_err(|_| {
                         Error::DeviceError(

@@ -36,6 +36,7 @@ extern "C" {
 
 // Temporary helper function to create a vm
 fn build_vm(
+    vm_id: u32,
     cfg: &config::UserVmConfig,
     info: &BootInfo,
     add_uart: bool,
@@ -153,8 +154,7 @@ fn build_vm(
 
     device_map.register_device(fw_cfg_builder.build()).unwrap();
 
-    vm::VirtualMachine::new(cfg.cpus[0].raw, config, info)
-        .expect("Failed to create vm")
+    vm::VirtualMachine::new(vm_id, config, info).expect("Failed to create vm")
 }
 
 #[no_mangle]
@@ -262,7 +262,7 @@ unsafe fn kmain(mut boot_info: BootInfo) -> ! {
 
     for (num, vm) in mythril_cfg.vms.into_iter().enumerate() {
         builder
-            .insert_machine(build_vm(&vm, &boot_info, num == 0))
+            .insert_machine(build_vm(num as u32, &vm, &boot_info, num == 0))
             .expect("Failed to insert new vm");
     }
 

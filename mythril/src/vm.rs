@@ -50,6 +50,12 @@ pub fn send_vm_msg(msg: VirtualMachineMsg, vmid: u32) -> Result<()> {
     VIRTUAL_MACHINES.send_msg(msg, vmid)
 }
 
+pub fn get_vm_bsp_core_id(vmid: u32) -> Option<percore::CoreId> {
+    VIRTUAL_MACHINES
+        .get_by_vm_id(vmid)
+        .map(|vm| vm.read().config.bsp_id())
+}
+
 pub fn send_vm_msg_core(
     msg: VirtualMachineMsg,
     core_id: percore::CoreId,
@@ -62,7 +68,7 @@ pub fn recv_vm_msg() -> Option<VirtualMachineMsg> {
 }
 
 pub fn max_vm_id() -> u32 {
-    VIRTUAL_MACHINES.len() as u32
+    VIRTUAL_MACHINES.count()
 }
 
 const MAX_PENDING_MSG: usize = 100;
@@ -78,6 +84,7 @@ struct VirtualMachineContext {
 }
 
 pub struct VirtualMachines {
+    machine_count: u32,
     map: BTreeMap<percore::CoreId, VirtualMachineContext>,
 }
 
@@ -102,8 +109,8 @@ impl VirtualMachines {
             .next()
     }
 
-    pub fn len(&self) -> usize {
-        self.map.len()
+    pub fn count(&self) -> u32 {
+        self.machine_count
     }
 
     pub fn get_by_core_id(
@@ -152,8 +159,13 @@ impl VirtualMachines {
     }
 
     pub fn send_msg(&self, msg: VirtualMachineMsg, vm_id: u32) -> Result<()> {
-        //TODO(alschwalm): this should actually be the BSP core_id of the other vm
-        self.send_msg_core(msg, vm_id.into())
+        let vm_bsp = get_vm_bsp_core_id(vm_id).ok_or_else(|| {
+            Error::InvalidValue(format!(
+                "Unable to find BSP for VM id '{}'",
+                vm_id
+            ))
+        })?;
+        self.send_msg_core(msg, vm_bsp)
     }
 
     pub fn resv_msg(&self) -> Option<VirtualMachineMsg> {
@@ -165,13 +177,17 @@ impl VirtualMachines {
 }
 
 pub struct VirtualMachineBuilder {
-    // Mapping of core_id to VirtualMachine
+    /// The number of virtual machines added to the builder
+    machine_count: u32,
+
+    /// Mapping of core_id to VirtualMachine
     map: BTreeMap<percore::CoreId, Arc<RwLock<VirtualMachine>>>,
 }
 
 impl VirtualMachineBuilder {
     pub fn new() -> Self {
         VirtualMachineBuilder {
+            machine_count: 0,
             map: BTreeMap::new(),
         }
     }
@@ -180,6 +196,7 @@ impl VirtualMachineBuilder {
         &mut self,
         vm: Arc<RwLock<VirtualMachine>>,
     ) -> Result<()> {
+        self.machine_count += 1;
         for cpu in vm.read().config.cpus() {
             self.map.insert(percore::CoreId::from(*cpu), vm.clone());
         }
@@ -195,6 +212,7 @@ impl VirtualMachineBuilder {
 
     pub fn finalize(self) -> VirtualMachines {
         VirtualMachines {
+            machine_count: self.machine_count,
             map: self
                 .map
                 .into_iter()
