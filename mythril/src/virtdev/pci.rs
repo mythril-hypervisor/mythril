@@ -222,8 +222,8 @@ impl EmulatedDevice for PciRootComplex {
                                     device.config_space.read_register(register)
                                         >> (offset * 8);
                                 val.copy_from_u32(res);
-                                info!(
-                                    "port=0x{:x}, register=0x{:x}, offset=0x{:x}, val={}",
+                                debug!(
+                                    "pci: port=0x{:x}, register=0x{:x}, offset=0x{:x}, val={}",
                                     port, register, offset, val
                                 );
                             }
@@ -248,8 +248,8 @@ impl EmulatedDevice for PciRootComplex {
                     self.current_address = addr & 0x7fffffffu32;
                 }
                 _ => {
-                    info!(
-                            "Attempt to write to port=0x{:x} (addr=0x{:x}). Ignoring.",
+                    debug!(
+                            "pci: Attempt to write to port=0x{:x} (addr=0x{:x}). Ignoring.",
                             port, self.current_address
                         );
                 }
