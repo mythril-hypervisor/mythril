@@ -159,7 +159,7 @@ static LOGGER: logger::DirectLogger = logger::DirectLogger::new();
 pub unsafe extern "C" fn kmain_early(multiboot_info_addr: usize) -> ! {
     // Setup our (com0) logger
     log::set_logger(&LOGGER)
-        .map(|()| log::set_max_level(log::LevelFilter::Debug))
+        .map(|()| log::set_max_level(log::LevelFilter::Info))
         .expect("Failed to set logger");
 
     let boot_info = if IS_MULTIBOOT_BOOT == 1 {
