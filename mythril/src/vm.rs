@@ -404,39 +404,6 @@ impl VirtualMachineConfig {
         self.images.push((image, addr));
         Ok(())
     }
-<<<<<<< HEAD
-=======
-
-    /// Access the configurations virtual `DeviceMap`
-    pub fn virtual_devices(&self) -> &DeviceMap {
-        &self.virtual_devices
-    }
-
-    /// Access the configurations virtual `DeviceMap` mutably
-    pub fn virtual_devices_mut(&mut self) -> &mut DeviceMap {
-        &mut self.virtual_devices
-    }
-
-    /// Access the configurations physical hardware
-    pub fn physical_devices(&self) -> &PhysicalDeviceConfig {
-        &self.physical_devices
-    }
-
-    /// Get the list of CoreIds assicated with this VM
-    pub fn cpus(&self) -> &ArrayVec<[percore::CoreId; MAX_PER_VM_CORE_COUNT]> {
-        &self.cpus
-    }
-
-    /// Get the CoreId of the BSP for this VM
-    pub fn bsp_id(&self) -> percore::CoreId {
-        self.cpus[0]
-    }
-
-
-    pub fn override_cpu_name(&self) -> bool {
-        self.override_cpu_name
-    }
->>>>>>> a sort of initial skeleton for cpuid.
 }
 
 /// A virtual machine
