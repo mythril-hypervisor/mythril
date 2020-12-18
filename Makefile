@@ -7,6 +7,9 @@ TEST_IMAGE_REPO=https://github.com/mythril-hypervisor/build
 TEST_INITRAMFS_URL=$(TEST_IMAGE_REPO)/releases/download/$(BUILD_REPO_TAG)/test-initramfs.img
 TEST_KERNEL_URL=$(TEST_IMAGE_REPO)/releases/download/$(BUILD_REPO_TAG)/test-bzImage
 
+CARGO_BUILD_JOBS?=$(shell grep -c '^processor' /proc/cpuinfo)
+KVM_GROUP_ID?=$(shell grep kvm /etc/group | cut -f 3 -d:)
+
 mythril_binary = mythril/target/mythril_target/$(BUILD_TYPE)/mythril
 mythril_src = $(shell find mythril* -type f -name '*.rs' -or -name '*.S' -or -name '*.ld' \
 	                   -name 'Cargo.toml')
@@ -48,13 +51,16 @@ $(guest_initramfs):
 	curl -L $(TEST_INITRAMFS_URL) -o $(guest_initramfs)
 
 docker-%:
-	docker run --privileged -it --rm -w $(CURDIR) -v $(CURDIR):$(CURDIR) \
-	   -u $(shell id -u):$(shell id -g) $(DOCKER_IMAGE) \
-	   /bin/bash -c '$(MAKE) $*'
+	docker run --privileged -ti --rm -w $(CURDIR) -v $(CURDIR):$(CURDIR) \
+	   -u $(shell id -u):$(shell id -g) \
+	   --group-add=$(KVM_GROUP_ID) \
+	   -e CARGO_HOME=$(CURDIR)/mythril/.cargo \
+	   -e CARGO_BUILD_JOBS=$(CARGO_BUILD_JOBS) \
+	   $(DOCKER_IMAGE) /bin/bash -c '$(MAKE) $*'
 
 $(seabios):
 	cp scripts/seabios.config seabios/.config
-	make -C seabios
+	make -j $(CARGO_BUILD_JOBS) -C seabios
 
 $(seabios_blob): $(seabios)
 	cp $(seabios) $(seabios_blob)

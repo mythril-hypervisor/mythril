@@ -2,6 +2,7 @@
 /target
 mythril/target
 mythril/src/blob/bios.bin
+mythril/.cargo
 _boot.img
 **/*.rs.bk
 debug.log

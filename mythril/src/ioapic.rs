@@ -616,26 +616,26 @@ impl TryFrom<u64> for IoRedTblEntry {
     }
 }
 
-impl Into<u64> for IoRedTblEntry {
-    fn into(self) -> u64 {
-        let mut bits = self.vector as u64;
+impl From<IoRedTblEntry> for u64 {
+    fn from(entry: IoRedTblEntry) -> u64 {
+        let mut bits = entry.vector as u64;
 
-        bits |= (self.delivery_mode as u64) << 8;
-        bits |= (self.destination_mode as u64) << 11;
-        bits |= (self.delivery_status as u64) << 12;
-        bits |= (self.pin_polarity as u64) << 13;
+        bits |= (entry.delivery_mode as u64) << 8;
+        bits |= (entry.destination_mode as u64) << 11;
+        bits |= (entry.delivery_status as u64) << 12;
+        bits |= (entry.pin_polarity as u64) << 13;
 
-        if self.remote_irr {
+        if entry.remote_irr {
             bits |= 1 << 14;
         }
 
-        bits |= (self.trigger_mode as u64) << 15;
+        bits |= (entry.trigger_mode as u64) << 15;
 
-        if self.interrupt_mask {
+        if entry.interrupt_mask {
             bits |= 1 << 16;
         }
 
-        bits |= (self.destination as u64) << 56;
+        bits |= (entry.destination as u64) << 56;
         bits
     }
 }
@@ -657,16 +657,19 @@ mod test {
     #[test]
     fn ioredtblentry_roundtrip() {
         let all_edge = IOREDTBL_KNOWN_BITS_MASK ^ (1 << 15);
-        assert_eq!(all_edge, IoRedTblEntry::try_from(all_edge).unwrap().into());
+        assert_eq!(
+            all_edge,
+            u64::from(IoRedTblEntry::try_from(all_edge).unwrap())
+        );
 
         let all_level = IOREDTBL_KNOWN_BITS_MASK ^ 0x700;
         assert_eq!(
             all_level,
-            IoRedTblEntry::try_from(all_level).unwrap().into()
+            u64::from(IoRedTblEntry::try_from(all_level).unwrap())
         );
 
         let none = 0x00000000_00000000;
-        assert_eq!(none, IoRedTblEntry::try_from(none).unwrap().into());
+        assert_eq!(none, u64::from(IoRedTblEntry::try_from(none).unwrap()));
     }
 
     #[test]

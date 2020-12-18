@@ -2,6 +2,7 @@ use crate::acpi;
 use crate::ap;
 use crate::apic;
 use crate::boot_info::BootInfo;
+use crate::config;
 use crate::interrupt;
 use crate::ioapic;
 use crate::linux;
@@ -33,10 +34,9 @@ extern "C" {
     static IS_MULTIBOOT2_BOOT: u8;
 }
 
-// Temporary helper function to create a vm for a single core
-fn default_vm(
-    core: percore::CoreId,
-    mem: u64,
+// Temporary helper function to create a vm
+fn build_vm(
+    cfg: &config::UserVmConfig,
     info: &BootInfo,
     add_uart: bool,
 ) -> Arc<RwLock<vm::VirtualMachine>> {
@@ -52,8 +52,11 @@ fn default_vm(
         }
     };
 
-    let mut config =
-        vm::VirtualMachineConfig::new(vec![core], mem, physical_config);
+    let mut config = vm::VirtualMachineConfig::new(
+        cfg.cpus.clone(),
+        cfg.memory,
+        physical_config,
+    );
 
     let mut acpi = acpi::rsdp::RSDPBuilder::<[_; 1024]>::new(
         ManagedMap::Owned(BTreeMap::new()),
@@ -112,7 +115,7 @@ fn default_vm(
         .register_device(virtdev::pos::ProgrammableOptionSelect::new())
         .unwrap();
     device_map
-        .register_device(virtdev::rtc::CmosRtc::new(mem))
+        .register_device(virtdev::rtc::CmosRtc::new(cfg.memory))
         .unwrap();
 
     //TODO: this should actually be per-vcpu
@@ -141,16 +144,10 @@ fn default_vm(
         .expect("Failed to build ACPI tables");
 
     linux::load_linux(
-        "kernel",
-        "initramfs",
-        core::concat!(
-            "rodata=0 nopti disableapic ",
-            "earlyprintk=serial,0x3f8,115200 ",
-            "console=ttyS0 debug nokaslr noapic mitigations=off ",
-            "root=/dev/ram0 rdinit=/bin/sh\0"
-        )
-        .as_bytes(),
-        mem,
+        &cfg.kernel,
+        &cfg.initramfs,
+        cfg.cmdline.as_bytes(),
+        cfg.memory,
         &mut fw_cfg_builder,
         info,
     )
@@ -158,7 +155,7 @@ fn default_vm(
 
     device_map.register_device(fw_cfg_builder.build()).unwrap();
 
-    vm::VirtualMachine::new(core.raw, config, info)
+    vm::VirtualMachine::new(cfg.cpus[0].raw, config, info)
         .expect("Failed to create vm")
 }
 
@@ -254,14 +251,19 @@ unsafe fn kmain(mut boot_info: BootInfo) -> ! {
 
     let mut builder = vm::VirtualMachineBuilder::new();
 
-    for apic_id in apic_ids.iter() {
+    let raw_cfg = boot_info
+        .find_module("mythril.cfg")
+        .expect("Failed to find 'mythril.cfg' in boot information")
+        .data();
+
+    let mythril_cfg: config::UserConfig = serde_json::from_slice(&raw_cfg)
+        .expect("Failed to parse 'mythril.cfg'");
+
+    debug!("mythril.cfg: {:?}", mythril_cfg);
+
+    for (num, vm) in mythril_cfg.vms.into_iter().enumerate() {
         builder
-            .insert_machine(default_vm(
-                percore::CoreId::from(apic_id.raw),
-                256,
-                &boot_info,
-                apic_id.is_bsp(),
-            ))
+            .insert_machine(build_vm(&vm, &boot_info, num == 0))
             .expect("Failed to insert new vm");
     }
 
@@ -269,6 +271,8 @@ unsafe fn kmain(mut boot_info: BootInfo) -> ! {
 
     debug!("AP_STARTUP address: 0x{:x}", AP_STARTUP_ADDR);
 
+    //TODO(alschwalm): Only the cores that are actually associated with a VM
+    // should be started
     for (idx, apic_id) in apic_ids.into_iter().enumerate() {
         if apic_id == local_apic.id() {
             continue;
