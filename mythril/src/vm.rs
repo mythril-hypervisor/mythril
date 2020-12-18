@@ -349,7 +349,6 @@ pub struct HostPhysicalDevices {
 
 /// A configuration for a `VirtualMachine`
 pub struct VirtualMachineConfig {
-<<<<<<< HEAD
     /// The cores assigned as part of this configuration
     pub cpus: ArrayVec<[percore::CoreId; MAX_PER_VM_CORE_COUNT]>,
 
@@ -366,13 +365,6 @@ pub struct VirtualMachineConfig {
 
     /// The size of this machines physical address space in MiB
     pub memory: u64,
-=======
-    cpus: ArrayVec<[percore::CoreId; MAX_PER_VM_CORE_COUNT]>,
-    images: Vec<(String, GuestPhysAddr)>,
-    virtual_devices: DeviceMap,
-    physical_devices: PhysicalDeviceConfig,
-    memory: u64, // in MB
->>>>>>> a sort of initial skeleton for cpuid.
     override_cpu_name: bool
 }
 
