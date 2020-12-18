@@ -7,26 +7,24 @@ use bitfield::bitfield;
 use crate::apic::get_local_apic;
 use crate::vcpu::VCpu;
 
-//Used https://c9x.me/x86/html/file_module_x86_id_45.html as guid for implementing this.
 const CPUID_NAME: u32 = 0;
 const CPUID_MODEL_FAMILY_STEPPING: u32 = 1;
 const CPUID_CACHE_TLB_INFO: u32 = 2;
 const INTEL_CORE_CACHE_TOPOLOGY: u32 = 4;
+const THERMAL_AND_POWER_MANAGEMENT: u32 = 6;
+const STRUCTURED_EXTENDED_FEATURE_FLAGS: u32 = 7;
+const ARCHITECTURAL_PERFORMANCE: u32 = 0xA;
+const EXTENDED_TOPOLOGY_ENUMERATION: u32 = 0xB;
+const PROCESSOR_EXTENDED_STATE_ENUMERATION: u32 = 0xD;
+const V2_EXTENDED_TOPOLOGY_ENUMERATION: u32 = 0x1F;
+const EXTENDED_FUNCTION_CPUID_INFORMATION: u32 = 0x80000000;
 const CPUID_BRAND_STRING_1: u32 = 0x80000002;
 const CPUID_BRAND_STRING_2: u32 = 0x80000003;
 const CPUID_BRAND_STRING_3: u32 = 0x80000004;
-const MAX_CPUID_INPUT: u32 = 0x80000004;
+const MAX_CPUID_INPUT: u32 = 0x80000008;
 //todo //CPUID leaves above 2 and below 80000000H are visible only when
 //     // IA32_MISC_ENABLE[bit 22] has its default value of 0.
 
-
-//
-// bitfield! {
-//     pub struct IntelCoreCacheTopologyEaxRes(u32)
-//     impl Debug;
-//     impl Copy;
-//
-// }
 
 
 
@@ -42,13 +40,43 @@ fn get_cpu_id_result(vcpu: &vcpu::VCpu, eax_in: u32, ecx_in: u32) -> CpuIdResult
 
     match eax_in {
         CPUID_NAME => cpuid_name(vcpu, actual),
-        CPUID_MODEL_FAMILY_STEPPING => cpuid_model_family_stepping(actual)
-        INTEL_CORE_CACHE_TOPOLOGY => {
-            let core_cpus = vcpu.vm.read().config.cpus();
-
-            todo!()
+        CPUID_MODEL_FAMILY_STEPPING => cpuid_model_family_stepping(actual),
+        INTEL_CORE_CACHE_TOPOLOGY => intel_cache_topo(actual),
+        THERMAL_AND_POWER_MANAGEMENT => {
+            todo!("Portions of this output are per core, but presumably we don't support this. Additionally there is stuff about APIC timers here, also unsure if supported.")
         }
-        CPUID_BRAND_STRING_1..=CPUID_BRAND_STRING_2 => {
+        STRUCTURED_EXTENDED_FEATURE_FLAGS => {
+            // nothing here seems to suspicious so just return actual:
+            actual
+        }
+        ARCHITECTURAL_PERFORMANCE => {
+            // For now I assume performance counters are unsupported, but if one wanted
+            // to support performance counters this would need to be handled here, and other places
+            actual
+        }
+        EXTENDED_TOPOLOGY_ENUMERATION => {
+            todo!("This basically requires APIC stuff to be done.")
+        }
+        PROCESSOR_EXTENDED_STATE_ENUMERATION => {
+            actual
+        }
+        // There are bunch more leaves after PROCESSOR_EXTENDED_STATE_ENUMERATION, however most of them seem unlikely to be used/ not relevant
+        V2_EXTENDED_TOPOLOGY_ENUMERATION => {
+            todo!("Requires APIC")
+        }
+        0x40000000..=0x4FFFFFFF=> {
+            // these are software reserved.
+            actual
+        }
+        EXTENDED_FUNCTION_CPUID_INFORMATION => {
+            CpuIdResult{
+                eax: MAX_CPUID_INPUT,
+                ebx: 0,
+                ecx: 0,
+                edx: 0
+            }
+        }
+        CPUID_BRAND_STRING_1..=CPUID_BRAND_STRING_3 => {
             if vcpu.vm.read().config.override_cpu_name() { todo!("CPU Brand string not implemented yet") }
             actual
         }
@@ -57,6 +85,33 @@ fn get_cpu_id_result(vcpu: &vcpu::VCpu, eax_in: u32, ecx_in: u32) -> CpuIdResult
             // I would perhaps prefer to put a todo!() and explicitly implement stuff.
             actual
         }
+    }
+}
+
+bitfield! {
+    pub struct IntelCoreCacheTopologyEaxRes(u32);
+    impl Debug;
+    cache_type,_:4,0;
+    cache_level,_:7,5;
+    self_init_cache_level,_:8;
+    fully_associative,_:9;
+    max_addressable_ids_logical,_:14,25;
+    max_addressable_ids_physical,_:26,31;
+}
+
+
+
+fn intel_cache_topo(mut actual: CpuIdResult) -> CpuIdResult {
+    let mut cache_topo_eax = IntelCoreCacheTopologyEaxRes(actual.eax);
+    cache_topo_eax.set_max_addressable_ids_logical(todo!("waiting on apics"));
+    cache_topo_eax.set_max_addressable_ids_physical(todo!("waiting on apics"));
+    let eax = cache_topo_eax.0;
+    CpuIdResult {
+        eax,
+        //no changes should be required for these:
+        ebx: actual.ebx,
+        ecx: actual.ecx,
+        edx: actual.edx
     }
 }
 
@@ -82,15 +137,17 @@ bitfield! {
 
 bitfield! {
     pub struct FeatureInformationECX(u32);
+    impl Debug;
     //there are a lot of features here, so only add the ones we care about for now.
-    xsave, _: 27,26;
-    hypervissor, _: 32,31;
+    xsave, _: 26;
+    hypervissor, _: 31;
 }
 
 bitfield! {
     pub struct FeatureInformationEDX(u32);
+    impl Debug;
     //there are a lot of features here, so only add the ones we care about for now.
-    mtrr, _: 13,12;
+    mtrr, _: 12;
 }
 
 fn cpuid_model_family_stepping(actual: CpuIdResult) -> CpuIdResult {
@@ -161,6 +218,7 @@ pub fn emulate_cpuid(
     } else if guest_cpu.rax as u32 == 0x0b {
         res.edx = crate::percore::read_core_id().raw as u32;
     }
+
 
     guest_cpu.rax = res.eax as u64 | (guest_cpu.rax & 0xffffffff00000000);
     guest_cpu.rbx = res.ebx as u64 | (guest_cpu.rbx & 0xffffffff00000000);
