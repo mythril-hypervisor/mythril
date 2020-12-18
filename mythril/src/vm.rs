@@ -365,6 +365,7 @@ pub struct VirtualMachineConfig {
 
     /// The size of this machines physical address space in MiB
     pub memory: u64,
+    override_cpu_name: bool
 }
 
 impl VirtualMachineConfig {
@@ -387,6 +388,7 @@ impl VirtualMachineConfig {
             virtual_devices: ArrayVec::new(),
             host_devices: physical_devices,
             memory: memory,
+            override_cpu_name: todo!()
         })
     }
 
@@ -462,7 +464,7 @@ impl VirtualMachine {
         // Prepare the portion of per-core local apic state that is stored at the
         // VM level (as needed for logical addressing)
         let mut logical_apic_states = BTreeMap::new();
-        for core in config.cpus.iter() {
+        for core in config.cpus.as_slice() {
             logical_apic_states.insert(
                 core.clone(),
                 virtdev::lapic::LogicalApicState::default(),
