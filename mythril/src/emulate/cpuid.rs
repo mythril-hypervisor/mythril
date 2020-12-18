@@ -4,8 +4,8 @@ use raw_cpuid::CpuIdResult;
 use arrayvec::ArrayVec;
 use core::convert::TryInto;
 use bitfield::bitfield;
-use bitflags::_core::num::flt2dec::to_shortest_exp_str;
 use crate::apic::get_local_apic;
+use crate::vcpu::VCpu;
 
 //Used https://c9x.me/x86/html/file_module_x86_id_45.html as guid for implementing this.
 const CPUID_NAME: u32 = 0;
@@ -28,6 +28,38 @@ const MAX_CPUID_INPUT: u32 = 0x80000004;
 //
 // }
 
+
+
+
+fn get_cpu_id_result(vcpu: &vcpu::VCpu, eax_in: u32, ecx_in: u32) -> CpuIdResult {
+    const NAME_CREATION_ERROR_MESSAGE: &'static str = "Somehow bytes was not actually a 12 element array";
+
+
+    let mut actual = raw_cpuid::native_cpuid::cpuid_count(
+        guest_cpu.rax as u32,
+        guest_cpu.rcx as u32,
+    );
+
+    match eax_in {
+        CPUID_NAME => cpuid_name(vcpu, actual),
+        CPUID_MODEL_FAMILY_STEPPING => cpuid_model_family_stepping(actual)
+        INTEL_CORE_CACHE_TOPOLOGY => {
+            let core_cpus = vcpu.vm.read().config.cpus();
+
+            todo!()
+        }
+        CPUID_BRAND_STRING_1..=CPUID_BRAND_STRING_2 => {
+            if vcpu.vm.read().config.override_cpu_name() { todo!("CPU Brand string not implemented yet") }
+            actual
+        }
+        _ => {
+            //TODO for code review. Idk how I feel about silently fallingback on real cpuid here.
+            // I would perhaps prefer to put a todo!() and explicitly implement stuff.
+            actual
+        }
+    }
+}
+
 bitfield! {
     pub struct IntelTypeFamilyModelSteppingIDEaxRes(u32);
     impl Debug;
@@ -48,62 +80,51 @@ bitfield! {
     apic_id,_:31,24;
 }
 
+bitfield! {
+    pub struct FeatureInformationECX(u32);
+    //there are a lot of features here, so only add the ones we care about for now.
+    xsave, _: 27,26;
+    hypervissor, _: 32,31;
+}
 
-fn get_cpu_id_result(vcpu: &vcpu::VCpu, eax_in: u32, ecx_in: u32) -> CpuIdResult {
-    const NAME_CREATION_ERROR_MESSAGE: &'static str = "Somehow bytes was not actually a 12 element array";
+bitfield! {
+    pub struct FeatureInformationEDX(u32);
+    //there are a lot of features here, so only add the ones we care about for now.
+    mtrr, _: 13,12;
+}
 
+fn cpuid_model_family_stepping(actual: CpuIdResult) -> CpuIdResult {
+    let family_model_stepping = IntelTypeFamilyModelSteppingIDEaxRes(actual.eax);
+    //we can change family_model_stepping, but for now just use actual.
+    let eax = family_model_stepping.0;
+    let mut brand_cflush_max_initial = BrandCFlushMaxIDsInitialAPIC(actual.ebx);
+    brand_cflush_max_initial.set_apic_id(todo!("Waiting on virtual APICs"));
+    brand_cflush_max_initial.set_max_processor_ids(todo!("Waiting on virtual APICs"));
+    let ebx = brand_cflush_max_initial.0;
+    let mut features_ecx = FeatureInformationECX(actual.ecx);
+    let mut features_edx = FeatureInformationEDX(actual.edx);
+    // I would have made type safe bindings for this but then I saw how many fields there where...
 
-    let mut actual = raw_cpuid::native_cpuid::cpuid_count(
-        guest_cpu.rax as u32,
-        guest_cpu.rcx as u32,
-    );
+    // Disable MTRR
+    features_edx.set_mtrr(0);
 
-    match eax_in {
-        CPUID_NAME => cpuid_name(vcpu, &mut actual),
-        CPUID_MODEL_FAMILY_STEPPING => {
-            let family_model_stepping = IntelTypeFamilyModelSteppingIDEaxRes(actual.eax);
-            //we can change family_model_stepping, but for now just use actual.
-            let eax = family_model_stepping.0;
-            let mut brand_cflush_max_initial = BrandCFlushMaxIDsInitialAPIC(actual.ebx);
-            brand_cflush_max_initial.set_apic_id(get_local_apic().id());//in principle this is redundant
-            let ebx = brand_cflush_max_initial.0;
-            let mut ecx = actual.ecx;
-            let mut edx = actual.edx;
-            // I would have made type safe bindings for this but then I saw how many fields there where...
+    // Disable XSAVE
+    // ecx &= !(1 << 26);
+    features_ecx.set_xsave(0);
 
-            // Disable MTRR
-            edx &= !(1 << 12);
-
-            // Disable XSAVE
-            ecx &= !(1 << 26);
-
-            // Hide hypervisor feature
-            ecx &= !(1 << 31);
-            CpuIdResult{
-                eax,
-                ebx,
-                ecx,
-                edx
-            }
-        }
-        INTEL_CORE_CACHE_TOPOLOGY => {
-            let core_cpus = vcpu.vm.read().config.cpus();
-
-            todo!()
-        }
-        CPUID_BRAND_STRING_1..=CPUID_BRAND_STRING_2 => {
-            if vcpu.vm.read().config.override_cpu_name() { todo!("CPU Brand string not implemented yet") }
-            actual
-        }
-        _ => {
-            //TODO for code review. Idk how I feel about silently fallingback on real cpuid here.
-            // I would perhaps prefer to put a todo!() and explicitly implement stuff.
-            actual
-        }
+    // Hide hypervisor feature
+    features_ecx.set_hypervisor(0);
+    let ecx = features_ecx.0;
+    let edx = features_edx.0;
+    CpuIdResult {
+        eax,
+        ebx,
+        ecx,
+        edx
     }
 }
 
-fn cpuid_name(vcpu: &VCpu, actual: &mut CpuIdResult) -> CpuIdResult {
+fn cpuid_name(vcpu: &VCpu, actual: CpuIdResult) -> CpuIdResult {
     if vcpu.vm.read().config.override_cpu_name() {
         let cpu_name = "MythrilCPU__";
         let bytes = cpu_name.chars().map(|char| char as u8).collect::<ArrayVec<[u8; 12]>>();

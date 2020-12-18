@@ -104,6 +104,7 @@ pub struct VCpu {
     pub local_apic: virtdev::lapic::LocalApic,
     pending_interrupts: BTreeMap<u8, InjectedInterruptType>,
     stack: &'static mut [u8; PER_CORE_HOST_STACK_SIZE],
+    vcpu_apic_id: usize
 }
 
 impl VCpu {
