@@ -1,11 +1,12 @@
-use crate::error::Result;
-use crate::{vcpu, vmexit};
-use raw_cpuid::CpuIdResult;
-use arrayvec::ArrayVec;
-use core::convert::TryInto;
-use bitfield::bitfield;
 use crate::apic::get_local_apic;
+use crate::error::Result;
 use crate::vcpu::VCpu;
+use crate::{vcpu, vmexit};
+use arrayvec::ArrayVec;
+use bitfield::bitfield;
+use bitflags::_core::num::flt2dec::to_shortest_exp_str;
+use core::convert::TryInto;
+use raw_cpuid::CpuIdResult;
 
 const CPUID_NAME: u32 = 0;
 const CPUID_MODEL_FAMILY_STEPPING: u32 = 1;
@@ -25,13 +26,13 @@ const MAX_CPUID_INPUT: u32 = 0x80000008;
 //todo //CPUID leaves above 2 and below 80000000H are visible only when
 //     // IA32_MISC_ENABLE[bit 22] has its default value of 0.
 
-
-
-
-
-fn get_cpu_id_result(vcpu: &vcpu::VCpu, eax_in: u32, ecx_in: u32) -> CpuIdResult {
-    const NAME_CREATION_ERROR_MESSAGE: &'static str = "Somehow bytes was not actually a 12 element array";
-
+fn get_cpu_id_result(
+    vcpu: &vcpu::VCpu,
+    eax_in: u32,
+    ecx_in: u32,
+) -> CpuIdResult {
+    const NAME_CREATION_ERROR_MESSAGE: &'static str =
+        "Somehow bytes was not actually a 12 element array";
 
     let mut actual = raw_cpuid::native_cpuid::cpuid_count(
         guest_cpu.rax as u32,
@@ -99,8 +100,6 @@ bitfield! {
     max_addressable_ids_physical,_:26,31;
 }
 
-
-
 fn intel_cache_topo(mut actual: CpuIdResult) -> CpuIdResult {
     let mut cache_topo_eax = IntelCoreCacheTopologyEaxRes(actual.eax);
     cache_topo_eax.set_max_addressable_ids_logical(todo!("waiting on apics"));
@@ -111,7 +110,7 @@ fn intel_cache_topo(mut actual: CpuIdResult) -> CpuIdResult {
         //no changes should be required for these:
         ebx: actual.ebx,
         ecx: actual.ecx,
-        edx: actual.edx
+        edx: actual.edx,
     }
 }
 
@@ -151,12 +150,14 @@ bitfield! {
 }
 
 fn cpuid_model_family_stepping(actual: CpuIdResult) -> CpuIdResult {
-    let family_model_stepping = IntelTypeFamilyModelSteppingIDEaxRes(actual.eax);
+    let family_model_stepping =
+        IntelTypeFamilyModelSteppingIDEaxRes(actual.eax);
     //we can change family_model_stepping, but for now just use actual.
     let eax = family_model_stepping.0;
     let mut brand_cflush_max_initial = BrandCFlushMaxIDsInitialAPIC(actual.ebx);
     brand_cflush_max_initial.set_apic_id(todo!("Waiting on virtual APICs"));
-    brand_cflush_max_initial.set_max_processor_ids(todo!("Waiting on virtual APICs"));
+    brand_cflush_max_initial
+        .set_max_processor_ids(todo!("Waiting on virtual APICs"));
     let ebx = brand_cflush_max_initial.0;
     let mut features_ecx = FeatureInformationECX(actual.ecx);
     let mut features_edx = FeatureInformationEDX(actual.edx);
@@ -173,21 +174,22 @@ fn cpuid_model_family_stepping(actual: CpuIdResult) -> CpuIdResult {
     features_ecx.set_hypervisor(0);
     let ecx = features_ecx.0;
     let edx = features_edx.0;
-    CpuIdResult {
-        eax,
-        ebx,
-        ecx,
-        edx
-    }
+    CpuIdResult { eax, ebx, ecx, edx }
 }
 
 fn cpuid_name(vcpu: &VCpu, actual: CpuIdResult) -> CpuIdResult {
     if vcpu.vm.read().config.override_cpu_name() {
         let cpu_name = "MythrilCPU__";
-        let bytes = cpu_name.chars().map(|char| char as u8).collect::<ArrayVec<[u8; 12]>>();
-        let first_bytes: [u8; 4] = bytes[0..4].try_into().expect(NAME_CREATION_ERROR_MESSAGE);
-        let second_bytes: [u8; 4] = bytes[4..8].try_into().expect(NAME_CREATION_ERROR_MESSAGE);
-        let third_bytes: [u8; 4] = bytes[8..12].try_into().expect(NAME_CREATION_ERROR_MESSAGE);
+        let bytes = cpu_name
+            .chars()
+            .map(|char| char as u8)
+            .collect::<ArrayVec<[u8; 12]>>();
+        let first_bytes: [u8; 4] =
+            bytes[0..4].try_into().expect(NAME_CREATION_ERROR_MESSAGE);
+        let second_bytes: [u8; 4] =
+            bytes[4..8].try_into().expect(NAME_CREATION_ERROR_MESSAGE);
+        let third_bytes: [u8; 4] =
+            bytes[8..12].try_into().expect(NAME_CREATION_ERROR_MESSAGE);
         return CpuIdResult {
             eax: MAX_CPUID_INPUT,
             ebx: u32::from_le_bytes(first_bytes),
