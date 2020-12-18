@@ -25,6 +25,7 @@ raw-cpuid = "8.1.1"
 rlibc = "1.0.0"
 spin = "0.5"
 ux = { version = "0.1.3", default-features = false }
+managed = { version = "0.8.0", features = ["map", "alloc"], default-features = false }
 
 [dependencies.iced-x86]
 version = "1.8.0"
