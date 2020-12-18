@@ -192,30 +192,3 @@ fn cpuid_name(vcpu: &VCpu, actual: CpuIdResult) -> CpuIdResult {
     }
     actual
 }
-
-pub fn emulate_cpuid(
-    vcpu: &mut vcpu::VCpu,
-    guest_cpu: &mut vmexit::GuestCpuState,
-) -> Result<()> {
-    let eax = guest_cpu.rax as u32;
-
-    let ecx = guest_cpu.rcx as u32;
-    let mut res = get_cpu_id_result(vcpu, eax, ecx);
-
-    //todo move this into get_cpu_id_result
-    if guest_cpu.rax as u32 == 1 {
-        // Hide hypervisor feature
-        res.ecx &= !(1 << 31);
-
-        // Hide TSC deadline timer
-        res.ecx &= !(1 << 24);
-    } else if guest_cpu.rax as u32 == 0x0b {
-        res.edx = crate::percore::read_core_id().raw as u32;
-    }
-
-    guest_cpu.rax = res.eax as u64 | (guest_cpu.rax & 0xffffffff00000000);
-    guest_cpu.rbx = res.ebx as u64 | (guest_cpu.rbx & 0xffffffff00000000);
-    guest_cpu.rcx = res.ecx as u64 | (guest_cpu.rcx & 0xffffffff00000000);
-    guest_cpu.rdx = res.edx as u64 | (guest_cpu.rdx & 0xffffffff00000000);
-    Ok(())
-}
