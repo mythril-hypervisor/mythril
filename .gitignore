@@ -1,5 +1,6 @@
 /boot
 /target
+mythril/.cargo
 mythril/src/blob/bios.bin
 mythril/target
 mythril/vendor

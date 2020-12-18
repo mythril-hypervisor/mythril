@@ -1,6 +1,8 @@
 use crate::vmcs;
 use alloc::string::String;
+use arrayvec::CapacityError;
 use core::convert::TryFrom;
+use core::num::TryFromIntError;
 use num_enum::{TryFromPrimitive, TryFromPrimitiveError};
 use x86::bits64::rflags;
 use x86::bits64::rflags::RFlags;
@@ -78,6 +80,8 @@ pub enum Error {
     NullPtr(String),
     NotSupported,
     NotFound,
+    Exists,
+    Exhausted,
     Uefi(String),
     InvalidValue(String),
     InvalidDevice(String),
@@ -88,6 +92,24 @@ pub enum Error {
 impl<T: TryFromPrimitive> From<TryFromPrimitiveError<T>> for Error {
     fn from(error: TryFromPrimitiveError<T>) -> Error {
         Error::InvalidValue(format!("{}", error))
+    }
+}
+
+impl From<TryFromIntError> for Error {
+    fn from(error: TryFromIntError) -> Error {
+        Error::InvalidValue(format!("{}", error))
+    }
+}
+
+impl From<core::str::Utf8Error> for Error {
+    fn from(error: core::str::Utf8Error) -> Error {
+        Error::InvalidValue(format!("{}", error))
+    }
+}
+
+impl<T> From<CapacityError<T>> for Error {
+    fn from(_error: CapacityError<T>) -> Error {
+        Error::Exhausted
     }
 }
 

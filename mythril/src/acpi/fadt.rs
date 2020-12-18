@@ -548,7 +548,7 @@ mod test {
         assert_eq!(fadt.century, Some(0x32));
         assert_eq!(fadt.boot_architecture_flags, Some(0x10));
         assert_eq!(fadt.flags, Some(0x384a5));
-        let gas_bytes = vec![
+        let gas_bytes = [
             0x01, 0x08, 0x00, 0x00, 0xf9, 0x0c, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00,
         ];
@@ -559,49 +559,49 @@ mod test {
         assert_eq!(fadt.fadt_minor_version, Some(0x0));
         assert_eq!(fadt.x_firmware_control, Some(0x0));
         assert_eq!(fadt.x_dsdt, Some(0xddca61a0));
-        let gas_bytes = vec![
+        let gas_bytes = [
             0x01, 0x20, 0x00, 0x02, 0x00, 0x18, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00,
         ];
         let gas = GenericAddressStructure::new(&gas_bytes).unwrap();
         assert_eq!(fadt.x_pm1a_event_block, Some(gas));
-        let gas_bytes = vec![
+        let gas_bytes = [
             0x01, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00,
         ];
         let gas = GenericAddressStructure::new(&gas_bytes).unwrap();
         assert_eq!(fadt.x_pm1b_event_block, Some(gas));
-        let gas_bytes = vec![
+        let gas_bytes = [
             0x01, 0x10, 0x00, 0x02, 0x04, 0x18, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00,
         ];
         let gas = GenericAddressStructure::new(&gas_bytes).unwrap();
         assert_eq!(fadt.x_pm1a_control_block, Some(gas));
-        let gas_bytes = vec![
+        let gas_bytes = [
             0x01, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00,
         ];
         let gas = GenericAddressStructure::new(&gas_bytes).unwrap();
         assert_eq!(fadt.x_pm1b_control_block, Some(gas));
-        let gas_bytes = vec![
+        let gas_bytes = [
             0x01, 0x08, 0x00, 0x01, 0x50, 0x18, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00,
         ];
         let gas = GenericAddressStructure::new(&gas_bytes).unwrap();
         assert_eq!(fadt.x_pm2_control_block, Some(gas));
-        let gas_bytes = vec![
+        let gas_bytes = [
             0x01, 0x20, 0x00, 0x03, 0x08, 0x18, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00,
         ];
         let gas = GenericAddressStructure::new(&gas_bytes).unwrap();
         assert_eq!(fadt.x_pm_timerblock, Some(gas));
-        let gas_bytes = vec![
+        let gas_bytes = [
             0x01, 0x80, 0x00, 0x01, 0x20, 0x18, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00,
         ];
         let gas = GenericAddressStructure::new(&gas_bytes).unwrap();
         assert_eq!(fadt.x_gpe0_block, Some(gas));
-        let gas_bytes = vec![
+        let gas_bytes = [
             0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00,
         ];

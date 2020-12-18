@@ -2,6 +2,7 @@ use crate::acpi;
 use crate::ap;
 use crate::apic;
 use crate::boot_info::BootInfo;
+use crate::config;
 use crate::interrupt;
 use crate::ioapic;
 use crate::linux;
@@ -16,9 +17,11 @@ use crate::vcpu;
 use crate::virtdev;
 use crate::vm;
 
+use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use log::{debug, info};
+use managed::ManagedMap;
 use spin::RwLock;
 
 extern "C" {
@@ -31,10 +34,9 @@ extern "C" {
     static IS_MULTIBOOT2_BOOT: u8;
 }
 
-// Temporary helper function to create a vm for a single core
-fn default_vm(
-    core: percore::CoreId,
-    mem: u64,
+// Temporary helper function to create a vm
+fn build_vm(
+    cfg: &config::UserVmConfig,
     info: &BootInfo,
     add_uart: bool,
 ) -> Arc<RwLock<vm::VirtualMachine>> {
@@ -50,12 +52,37 @@ fn default_vm(
         }
     };
 
-    let mut config =
-        vm::VirtualMachineConfig::new(vec![core], mem, physical_config);
+    let mut config = vm::VirtualMachineConfig::new(
+        cfg.cpus.clone(),
+        cfg.memory,
+        physical_config,
+    );
+
+    let mut acpi = acpi::rsdp::RSDPBuilder::<[_; 1024]>::new(
+        ManagedMap::Owned(BTreeMap::new()),
+    );
+
+    let mut madt = acpi::madt::MADTBuilder::<[_; 8]>::new();
+    madt.set_ica(0xfee00000);
+    madt.add_ics(acpi::madt::Ics::LocalApic {
+        apic_id: 0,
+        apic_uid: 0,
+        flags: acpi::madt::LocalApicFlags::ENABLED,
+    })
+    .expect("Failed to add APIC to MADT");
+    madt.add_ics(acpi::madt::Ics::IoApic {
+        ioapic_id: 0,
+        ioapic_addr: 0xfec00000 as *mut u8,
+        gsi_base: 0,
+    })
+    .expect("Failed to add I/O APIC to MADT");
+
+    acpi.add_sdt(madt).unwrap();
 
     let device_map = config.virtual_devices_mut();
+
     device_map
-        .register_device(virtdev::acpi::AcpiRuntime::new(0xb000).unwrap())
+        .register_device(virtdev::acpi::AcpiRuntime::new(0x600).unwrap())
         .unwrap();
     device_map
         .register_device(virtdev::debug::DebugPort::new(0x402))
@@ -88,7 +115,7 @@ fn default_vm(
         .register_device(virtdev::pos::ProgrammableOptionSelect::new())
         .unwrap();
     device_map
-        .register_device(virtdev::rtc::CmosRtc::new(mem))
+        .register_device(virtdev::rtc::CmosRtc::new(cfg.memory))
         .unwrap();
 
     //TODO: this should actually be per-vcpu
@@ -113,24 +140,22 @@ fn default_vm(
         )
         .unwrap();
 
+    acpi.build(&mut fw_cfg_builder)
+        .expect("Failed to build ACPI tables");
+
     linux::load_linux(
-        "kernel",
-        "initramfs",
-        core::concat!(
-            "rodata=0 nopti disableapic acpi=off ",
-            "earlyprintk=serial,0x3f8,115200 ",
-            "console=ttyS0 debug nokaslr noapic mitigations=off ",
-            "root=/dev/ram0 rdinit=/bin/sh\0"
-        )
-        .as_bytes(),
-        mem,
+        &cfg.kernel,
+        &cfg.initramfs,
+        cfg.cmdline.as_bytes(),
+        cfg.memory,
         &mut fw_cfg_builder,
         info,
     )
     .unwrap();
+
     device_map.register_device(fw_cfg_builder.build()).unwrap();
 
-    vm::VirtualMachine::new(core.raw, config, info)
+    vm::VirtualMachine::new(cfg.cpus[0].raw, config, info)
         .expect("Failed to create vm")
 }
 
@@ -226,14 +251,19 @@ unsafe fn kmain(mut boot_info: BootInfo) -> ! {
 
     let mut builder = vm::VirtualMachineBuilder::new();
 
-    for apic_id in apic_ids.iter() {
+    let raw_cfg = boot_info
+        .find_module("mythril.cfg")
+        .expect("Failed to find 'mythril.cfg' in boot information")
+        .data();
+
+    let mythril_cfg: config::UserConfig = serde_json::from_slice(&raw_cfg)
+        .expect("Failed to parse 'mythril.cfg'");
+
+    debug!("mythril.cfg: {:?}", mythril_cfg);
+
+    for (num, vm) in mythril_cfg.vms.into_iter().enumerate() {
         builder
-            .insert_machine(default_vm(
-                percore::CoreId::from(apic_id.raw),
-                256,
-                &boot_info,
-                apic_id.is_bsp(),
-            ))
+            .insert_machine(build_vm(&vm, &boot_info, num == 0))
             .expect("Failed to insert new vm");
     }
 
@@ -241,6 +271,8 @@ unsafe fn kmain(mut boot_info: BootInfo) -> ! {
 
     debug!("AP_STARTUP address: 0x{:x}", AP_STARTUP_ADDR);
 
+    //TODO(alschwalm): Only the cores that are actually associated with a VM
+    // should be started
     for (idx, apic_id) in apic_ids.into_iter().enumerate() {
         if apic_id == local_apic.id() {
             continue;

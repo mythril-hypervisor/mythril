@@ -1,4 +1,5 @@
 #![deny(missing_docs)]
+#![deny(unused)]
 
 //! # ACPI Support for the Mythril Hypervisor
 //!
@@ -24,6 +25,8 @@ pub mod madt;
 pub mod rsdp;
 /// Support for the Root System Descriptor Table (RSDT).
 pub mod rsdt;
+/// Support for the seabios bootloader
+pub mod seabios;
 
 mod offsets {
     use core::ops::Range;
@@ -51,6 +54,13 @@ pub(self) fn verify_checksum(bytes: &[u8], cksum_idx: usize) -> Result<()> {
             result & 0xff,
         )))
     }
+}
+
+/// Calculate the one byte checksum for a given slice.
+pub(self) fn calc_checksum(bytes: &[u8]) -> u8 {
+    // Sum up the bytes in the buffer.
+    let sum = bytes.iter().fold(0u8, |acc, val| acc.wrapping_add(*val));
+    (0x100 - (sum as u16)) as u8
 }
 
 /// The size of a Generic Address Structure in bytes.

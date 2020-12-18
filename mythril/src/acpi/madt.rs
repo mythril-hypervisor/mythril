@@ -1,10 +1,13 @@
 use super::rsdt::SDT;
+use crate::acpi::rsdt::SDTBuilder;
 use crate::error::{Error, Result};
 use bitflags::bitflags;
 use byteorder::{ByteOrder, NativeEndian};
 use core::convert::TryFrom;
 use core::fmt;
 use core::ops::Range;
+
+use arrayvec::{Array, ArrayVec};
 use num_enum::TryFromPrimitive;
 
 /// See Table 5-43 in the ACPI spcification.
@@ -49,11 +52,14 @@ pub enum IcsType {
 }
 
 impl IcsType {
+    /// The largest ICS size currently supported
+    pub const MAX_LEN: usize = 16;
+
     /// Expected length of buffer for ICS type.
     ///
     /// See the Structure definition tables found in
     /// `ACPI § 5.2.12` for details.
-    pub fn expected_len(&self) -> usize {
+    pub fn expected_len(&self) -> u8 {
         match *self {
             IcsType::ProcessorLocalApic => 8,
             IcsType::IoApic => 12,
@@ -71,7 +77,7 @@ impl IcsType {
     /// ICS type.
     pub fn check_len(&self, length: usize) -> Result<()> {
         // The length includes the type and length bytes.
-        if length == self.expected_len() - 2 {
+        if length == self.expected_len() as usize - 2 {
             Ok(())
         } else {
             Err(Error::InvalidValue(format!(
@@ -124,7 +130,7 @@ bitflags! {
 }
 
 /// Interrupt Controller Structures.
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug)]
 pub enum Ics {
     /// Processor Local APIC Structure.
     ///
@@ -192,10 +198,15 @@ pub enum Ics {
         /// Processor Object ID.
         apic_proc_uid: u32,
     },
+    /// Invalid Interrupt Control Structure.
+    ///
+    /// This is used for creating buffers of Interrupt Control Structures
+    /// that are meant to be in an uninitialized state.
+    Invalid,
 }
 
 impl Ics {
-    /// Parse the given
+    /// Parse the given bytes into a decoded Interrupt Control Structure
     fn parse<'a>(ty: IcsType, bytes: &'a [u8]) -> Result<Ics> {
         ty.check_len(bytes.len())?;
         match ty {
@@ -251,6 +262,50 @@ impl Ics {
         }
     }
 
+    /// Encode into the byte sequence
+    pub fn encode<T: Array<Item = u8>>(
+        &self,
+        buffer: &mut ArrayVec<T>,
+    ) -> Result<()> {
+        let ics_type = self.ics_type();
+        let mut tmp_buf = [0u8; IcsType::MAX_LEN];
+        tmp_buf[1] = ics_type.expected_len();
+        tmp_buf[0] = ics_type as u8;
+        match self {
+            &Ics::LocalApic {
+                apic_uid,
+                apic_id,
+                flags,
+            } => {
+                tmp_buf[2] = apic_uid;
+                tmp_buf[3] = apic_id;
+                NativeEndian::write_u32(&mut tmp_buf[4..8], flags.bits());
+            }
+            &Ics::IoApic {
+                ioapic_id,
+                ioapic_addr,
+                gsi_base,
+            } => {
+                tmp_buf[2] = ioapic_id;
+                NativeEndian::write_u32(
+                    &mut tmp_buf[4..8],
+                    u32::try_from(ioapic_addr as usize)?,
+                );
+                NativeEndian::write_u32(&mut tmp_buf[8..12], gsi_base);
+            }
+            _ => {
+                return Err(Error::NotImplemented(format!(
+                    "The ICS Type {:?} has not been implemented",
+                    self.ics_type()
+                )))
+            }
+        }
+        buffer.try_extend_from_slice(
+            &tmp_buf[..ics_type.expected_len() as usize],
+        )?;
+        Ok(())
+    }
+
     /// The controll structure type for the value.
     pub fn ics_type(&self) -> IcsType {
         match self {
@@ -262,6 +317,7 @@ impl Ics {
             &Ics::NmiSource { .. } => IcsType::NmiSource,
             &Ics::LocalApicNmi { .. } => IcsType::LocalApicNmi,
             &Ics::LocalX2Apic { .. } => IcsType::ProcessorLocalX2Apic,
+            &Ics::Invalid => panic!("Invalid ICS type"),
         }
     }
 }
@@ -352,6 +408,11 @@ impl<'a> Iterator for IcsIterator<'a> {
                 len,
                 self.bytes.len()
             ))));
+        } else if len < 3 {
+            return Some(Err(Error::InvalidValue(format!(
+                "length `{}` provided is too small",
+                len,
+            ))));
         }
 
         let bytes = &self.bytes[2..len];
@@ -366,5 +427,67 @@ impl<'a> fmt::Debug for MADT<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{:?}", self.sdt)?;
         write!(f, " ICA={:p} flags=0x{:x}", self.ica, self.flags)
+    }
+}
+
+/// Builder for a MADT SDT
+pub struct MADTBuilder<T: Array> {
+    ica: Option<u32>,
+    flags: Option<MultipleApicFlags>,
+    structures: ArrayVec<T>,
+}
+
+impl<T: Array<Item = Ics>> MADTBuilder<T> {
+    /// Create a new builder for the MADT SDT.
+    pub fn new() -> MADTBuilder<T> {
+        MADTBuilder {
+            ica: None,
+            flags: None,
+            structures: ArrayVec::<T>::new(),
+        }
+    }
+
+    /// Add a Interrupt Controller Address.
+    pub fn set_ica(&mut self, ica: u32) {
+        self.ica = Some(ica)
+    }
+
+    /// Add the multiple APIC flags.
+    pub fn set_flags(&mut self, flags: MultipleApicFlags) {
+        self.flags = Some(flags)
+    }
+
+    /// Add a Interrupt Control Structure to the table.
+    pub fn add_ics(&mut self, ics: Ics) -> Result<()> {
+        self.structures.try_push(ics)?;
+        Ok(())
+    }
+}
+
+impl<U> SDTBuilder for MADTBuilder<U>
+where
+    U: Array<Item = Ics>,
+{
+    const SIGNATURE: [u8; 4] = [b'A', b'P', b'I', b'C'];
+
+    fn revision(&self) -> u8 {
+        // The current revision of the MADT in the spec is listed as `5`.
+        5u8
+    }
+
+    fn encode_table<T: Array<Item = u8>>(
+        &mut self,
+        buffer: &mut ArrayVec<T>,
+    ) -> Result<()> {
+        let mut tmp_buf = [0u8; offsets::INT_CTRL_STRUCTS];
+        let ica = self.ica.unwrap_or(0);
+        NativeEndian::write_u32(&mut tmp_buf[0..4], ica);
+        let flags = self.flags.map(|flags| flags.bits()).unwrap_or(0);
+        NativeEndian::write_u32(&mut tmp_buf[4..8], flags);
+        buffer.try_extend_from_slice(&tmp_buf[..])?;
+        for ics in self.structures.iter() {
+            ics.encode(buffer)?;
+        }
+        Ok(())
     }
 }

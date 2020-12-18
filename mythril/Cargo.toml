@@ -23,8 +23,11 @@ multiboot = "0.3.0"
 multiboot2 = "0.9.0"
 raw-cpuid = "8.1.1"
 rlibc = "1.0.0"
+serde = {version = "^1", default-features = false, features = ["alloc", "derive"] }
+serde_json = {version = "^1", default-features = false, features = ["alloc"] }
 spin = "0.5"
 ux = { version = "0.1.3", default-features = false }
+managed = { version = "0.8.0", features = ["map", "alloc"], default-features = false }
 
 [dependencies.iced-x86]
 version = "1.8.0"
