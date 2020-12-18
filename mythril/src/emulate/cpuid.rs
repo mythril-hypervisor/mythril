@@ -3,13 +3,10 @@ use crate::vcpu::VCpu;
 use crate::{vcpu, vmexit};
 use arrayvec::ArrayVec;
 use bitfield::bitfield;
-<<<<<<< HEAD
 use core::convert::TryInto;
 use raw_cpuid::CpuIdResult;
-=======
 use bitflags::_core::num::flt2dec::to_shortest_exp_str;
 use crate::apic::get_local_apic;
->>>>>>> handle CPUID_MODEL_FAMILY_STEPPING
 
 const CPUID_NAME: u32 = 0;
 const CPUID_MODEL_FAMILY_STEPPING: u32 = 1;
