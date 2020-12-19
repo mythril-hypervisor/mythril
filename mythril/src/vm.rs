@@ -19,6 +19,7 @@ use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use arraydeque::ArrayDeque;
+use core::mem;
 use spin::RwLock;
 
 static BIOS_BLOB: &'static [u8] = include_bytes!("blob/bios.bin");
@@ -345,7 +346,8 @@ impl VirtualMachine {
         addr: &GuestPhysAddr,
         space: &mut GuestAddressSpace,
     ) -> Result<()> {
-        for (i, chunk) in image.chunks(4096 as usize).enumerate() {
+        for (i, chunk) in image.chunks(mem::size_of::<Raw4kPage>()).enumerate()
+        {
             let frame_ptr =
                 Box::into_raw(Box::new(Raw4kPage::default())) as *mut u8;
             let frame = HostPhysFrame::from_start_address(HostPhysAddr::new(
@@ -362,7 +364,8 @@ impl VirtualMachine {
 
             space.map_frame(
                 memory::GuestPhysAddr::new(
-                    addr.as_u64() + (i as u64 * 4096) as u64,
+                    addr.as_u64()
+                        + (i as u64 * mem::size_of::<Raw4kPage>() as u64),
                 ),
                 frame,
                 false,
@@ -417,7 +420,9 @@ impl VirtualMachine {
         // Iterate over each page
         for i in 0..(config.memory << 8) {
             match guest_space.map_new_frame(
-                memory::GuestPhysAddr::new((i as u64 * 4096) as u64),
+                memory::GuestPhysAddr::new(
+                    i as u64 * mem::size_of::<Raw4kPage>() as u64,
+                ),
                 false,
             ) {
                 Ok(_) | Err(Error::DuplicateMapping(_)) => continue,

@@ -14,10 +14,10 @@ use x86::bits64::paging::*;
 use x86::controlregs::Cr0;
 
 #[repr(align(4096))]
-pub struct Raw4kPage(pub [u8; 4096]);
+pub struct Raw4kPage(pub [u8; BASE_PAGE_SIZE]);
 impl Default for Raw4kPage {
     fn default() -> Self {
-        Raw4kPage([0u8; 4096])
+        Raw4kPage([0u8; BASE_PAGE_SIZE])
     }
 }
 
@@ -221,7 +221,7 @@ impl fmt::Debug for HostPhysAddr {
 #[derive(PartialEq, Eq, PartialOrd, Ord, Copy, Clone, Debug)]
 pub struct HostPhysFrame(HostPhysAddr);
 impl HostPhysFrame {
-    pub const SIZE: usize = 4096;
+    pub const SIZE: usize = BASE_PAGE_SIZE;
 
     pub fn from_start_address(addr: HostPhysAddr) -> Result<Self> {
         if !addr.is_frame_aligned() {
@@ -391,7 +391,7 @@ impl GuestAddressSpace {
         addr: GuestVirtAddr,
         access: GuestAccess,
     ) -> Result<FrameIter> {
-        //TODO: align the addr to 4096 boundary
+        //TODO: align the addr to BASE_PAGE_SIZE boundary
         Ok(FrameIter {
             view: GuestAddressSpaceView::new(cr3, self),
             addr: addr,
@@ -561,7 +561,7 @@ impl<'a> Iterator for FrameIter<'a> {
 
         // This is the smallest possible guest page size, so permissions
         // can't change except at this granularity
-        self.addr = self.addr + 4096;
+        self.addr = self.addr + BASE_PAGE_SIZE;
 
         let physaddr =
             match self.view.translate_linear_address(old, self.access) {
@@ -574,7 +574,7 @@ impl<'a> Iterator for FrameIter<'a> {
 
 #[repr(align(4096))]
 pub struct EptTable<T> {
-    entries: [T; 512],
+    entries: [T; PAGE_SIZE_ENTRIES],
 }
 impl<T> Default for EptTable<T>
 where
@@ -582,7 +582,7 @@ where
 {
     fn default() -> Self {
         Self {
-            entries: [T::default(); 512],
+            entries: [T::default(); PAGE_SIZE_ENTRIES],
         }
     }
 }
