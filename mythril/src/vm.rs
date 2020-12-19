@@ -25,7 +25,8 @@ use spin::RwLock;
 static BIOS_BLOB: &'static [u8] = include_bytes!("blob/bios.bin");
 
 //TODO(alschwalm): this should always be reported by the relevant MSR
-const GUEST_LOCAL_APIC_ADDR: GuestPhysAddr = GuestPhysAddr::new(0xfee00000);
+/// The location of the local apic in the guest address space
+pub const GUEST_LOCAL_APIC_ADDR: GuestPhysAddr = GuestPhysAddr::new(0xfee00000);
 
 static VIRTUAL_MACHINES: RoAfterInit<VirtualMachines> =
     RoAfterInit::uninitialized();

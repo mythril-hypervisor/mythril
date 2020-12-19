@@ -63,7 +63,7 @@ fn build_vm(
     );
 
     let mut madt = acpi::madt::MADTBuilder::<[_; 8]>::new();
-    madt.set_ica(0xfee00000);
+    madt.set_ica(vm::GUEST_LOCAL_APIC_ADDR.as_u64() as u32);
     madt.add_ics(acpi::madt::Ics::LocalApic {
         apic_id: 0,
         apic_uid: 0,
