@@ -1,6 +1,5 @@
 use crate::error::{Error, Result};
 use core::convert::TryFrom;
-use core::ops::RangeInclusive;
 use num_enum::TryFromPrimitive;
 
 #[derive(Debug)]
@@ -87,7 +86,7 @@ impl LocalApic {
     }
 
     pub fn register_read(&mut self, offset: u16) -> Result<u32> {
-        info!(
+        debug!(
             "Read from virtual local apic: {:?}",
             ApicRegisterOffset::try_from(offset)
         );
@@ -95,7 +94,7 @@ impl LocalApic {
     }
 
     pub fn register_write(&mut self, offset: u16, _value: u32) -> Result<()> {
-        info!(
+        debug!(
             "Write to virtual local apic: {:?}",
             ApicRegisterOffset::try_from(offset)
         );
