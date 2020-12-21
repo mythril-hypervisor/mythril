@@ -63,7 +63,7 @@ fn build_vm(
     );
 
     let mut madt = acpi::madt::MADTBuilder::<[_; 8]>::new();
-    madt.set_ica(0xfee00000);
+    madt.set_ica(vm::GUEST_LOCAL_APIC_ADDR.as_u64() as u32);
     madt.add_ics(acpi::madt::Ics::LocalApic {
         apic_id: 0,
         apic_uid: 0,
@@ -117,10 +117,8 @@ fn build_vm(
     device_map
         .register_device(virtdev::rtc::CmosRtc::new(cfg.memory))
         .unwrap();
-
-    //TODO: this should actually be per-vcpu
     device_map
-        .register_device(virtdev::lapic::LocalApic::new())
+        .register_device(virtdev::ioapic::IoApic::new())
         .unwrap();
 
     let mut fw_cfg_builder = virtdev::qemu_fw_cfg::QemuFwCfgBuilder::new();

@@ -20,6 +20,9 @@ pub fn emulate_cpuid(
 
         // Hide hypervisor feature
         res.ecx &= !(1 << 31);
+
+        // Hide TSC deadline timer
+        res.ecx &= !(1 << 24);
     }
 
     guest_cpu.rax = res.eax as u64 | (guest_cpu.rax & 0xffffffff00000000);
