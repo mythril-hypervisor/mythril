@@ -270,10 +270,16 @@ unsafe fn kmain(mut boot_info: BootInfo) -> ! {
 
     debug!("AP_STARTUP address: 0x{:x}", AP_STARTUP_ADDR);
 
-    //TODO(alschwalm): Only the cores that are actually associated with a VM
-    // should be started
     for (idx, apic_id) in apic_ids.into_iter().enumerate() {
         if apic_id == local_apic.id() {
+            continue;
+        }
+
+        let core_id = percore::CoreId::from(idx as u32);
+
+        // Do not setup cores that are not allocated to any guest
+        if !vm::is_assigned_core_id(core_id) {
+            debug!("Not starting core ID '{}' because it is not assigned to a guest", core_id);
             continue;
         }
 
@@ -289,7 +295,7 @@ unsafe fn kmain(mut boot_info: BootInfo) -> ! {
         core::ptr::write_volatile(&mut AP_STACK_ADDR as *mut u64, stack_bottom);
 
         // Map the APIC ids to a sequential list and pass it to the AP
-        core::ptr::write_volatile(&mut AP_IDX as *mut u64, idx as u64);
+        core::ptr::write_volatile(&mut AP_IDX as *mut u64, core_id.raw as u64);
 
         // mfence to ensure that the APs see the new stack address
         core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);

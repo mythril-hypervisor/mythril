@@ -71,6 +71,10 @@ pub fn max_vm_id() -> u32 {
     VIRTUAL_MACHINES.count()
 }
 
+pub fn is_assigned_core_id(core_id: percore::CoreId) -> bool {
+    VIRTUAL_MACHINES.is_assigned_core_id(core_id)
+}
+
 const MAX_PENDING_MSG: usize = 100;
 
 pub enum VirtualMachineMsg {
@@ -111,6 +115,10 @@ impl VirtualMachines {
 
     pub fn count(&self) -> u32 {
         self.machine_count
+    }
+
+    pub fn is_assigned_core_id(&self, core_id: percore::CoreId) -> bool {
+        self.map.contains_key(&core_id)
     }
 
     pub fn get_by_core_id(

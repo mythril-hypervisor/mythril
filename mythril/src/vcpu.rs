@@ -34,11 +34,16 @@ pub fn mp_entry_point() -> ! {
             .expect("Failed to initialize per-core timer wheel");
     }
 
+    let core_id = percore::read_core_id();
     let vm = unsafe {
-        let core_id = percore::read_core_id();
         vm::get_vm_for_core_id(core_id)
             .expect(&format!("Failed to find VM associated with {}", core_id))
     };
+    debug!(
+        "Starting core ID '{}' as part of vm id '{}'",
+        core_id,
+        vm.read().id
+    );
 
     let vcpu = VCpu::new(vm).expect("Failed to create vcpu");
     vcpu.launch().expect("Failed to launch vm")
