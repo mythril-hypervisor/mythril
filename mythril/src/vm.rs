@@ -10,6 +10,7 @@ use crate::memory::{
 use crate::percore;
 use crate::physdev;
 use crate::time;
+use crate::vcpu;
 use crate::virtdev::{
     DeviceEvent, DeviceInteraction, DeviceMap, Event, ResponseEventArray,
 };
@@ -46,8 +47,12 @@ pub unsafe fn get_vm_for_core_id(
 }
 
 //FIXME(alschwalm): this breaks if the current VM is already locked
-pub fn send_vm_msg(msg: VirtualMachineMsg, vmid: u32) -> Result<()> {
-    VIRTUAL_MACHINES.send_msg(msg, vmid)
+pub fn send_vm_msg(
+    msg: VirtualMachineMsg,
+    vmid: u32,
+    notify: bool,
+) -> Result<()> {
+    VIRTUAL_MACHINES.send_msg(msg, vmid, notify)
 }
 
 pub fn get_vm_bsp_core_id(vmid: u32) -> Option<percore::CoreId> {
@@ -59,11 +64,12 @@ pub fn get_vm_bsp_core_id(vmid: u32) -> Option<percore::CoreId> {
 pub fn send_vm_msg_core(
     msg: VirtualMachineMsg,
     core_id: percore::CoreId,
+    notify: bool,
 ) -> Result<()> {
-    VIRTUAL_MACHINES.send_msg_core(msg, core_id)
+    VIRTUAL_MACHINES.send_msg_core(msg, core_id, notify)
 }
 
-pub fn recv_vm_msg() -> Option<VirtualMachineMsg> {
+pub fn recv_msg() -> Option<VirtualMachineMsg> {
     VIRTUAL_MACHINES.resv_msg()
 }
 
@@ -80,6 +86,11 @@ const MAX_PENDING_MSG: usize = 100;
 pub enum VirtualMachineMsg {
     GrantConsole(physdev::com::Uart8250),
     CancelTimer(time::TimerId),
+    StartVcpu(GuestPhysAddr),
+    GuestInterrupt {
+        kind: vcpu::InjectedInterruptType,
+        vector: u8,
+    },
 }
 
 struct VirtualMachineContext {
@@ -133,10 +144,14 @@ impl VirtualMachines {
         self.context_by_vm_id(id).map(|context| context.vm.clone())
     }
 
+    /// Send the given message to a specific core
+    ///
+    /// If 'notify' is true, an interrupt will be sent to the recipient.
     pub fn send_msg_core(
         &self,
         msg: VirtualMachineMsg,
         core_id: percore::CoreId,
+        notify: bool,
     ) -> Result<()> {
         let context = self
             .context_by_core_id(core_id)
@@ -147,6 +162,10 @@ impl VirtualMachines {
                 core_id
             ))
         })?;
+
+        if !notify {
+            return Ok(());
+        }
 
         // Transmit the IPC external interrupt vector to the other vm, so it will
         // process the message.
@@ -166,16 +185,27 @@ impl VirtualMachines {
         Ok(())
     }
 
-    pub fn send_msg(&self, msg: VirtualMachineMsg, vm_id: u32) -> Result<()> {
+    /// Send the given message to a specific virtual machine
+    ///
+    /// The sent message will be received by the BSP of the target
+    /// virtual machine. If 'notify' is true, an interrupt will
+    /// be sent to the recipient.
+    pub fn send_msg(
+        &self,
+        msg: VirtualMachineMsg,
+        vm_id: u32,
+        notify: bool,
+    ) -> Result<()> {
         let vm_bsp = get_vm_bsp_core_id(vm_id).ok_or_else(|| {
             Error::InvalidValue(format!(
                 "Unable to find BSP for VM id '{}'",
                 vm_id
             ))
         })?;
-        self.send_msg_core(msg, vm_bsp)
+        self.send_msg_core(msg, vm_bsp, notify)
     }
 
+    /// Receive any pending message for the current core
     pub fn resv_msg(&self) -> Option<VirtualMachineMsg> {
         let context = self
             .context_by_core_id(percore::read_core_id())

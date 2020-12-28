@@ -71,6 +71,12 @@ fn build_vm(
         flags: acpi::madt::LocalApicFlags::ENABLED,
     })
     .expect("Failed to add APIC to MADT");
+    madt.add_ics(acpi::madt::Ics::LocalApic {
+        apic_id: 1,
+        apic_uid: 0,
+        flags: acpi::madt::LocalApicFlags::ENABLED,
+    })
+    .expect("Failed to add APIC to MADT");
     madt.add_ics(acpi::madt::Ics::IoApic {
         ioapic_id: 0,
         ioapic_addr: 0xfec00000 as *mut u8,
@@ -183,7 +189,7 @@ static LOGGER: logger::DirectLogger = logger::DirectLogger::new();
 pub unsafe extern "C" fn kmain_early(multiboot_info_addr: usize) -> ! {
     // Setup our (com0) logger
     log::set_logger(&LOGGER)
-        .map(|()| log::set_max_level(log::LevelFilter::Info))
+        .map(|()| log::set_max_level(log::LevelFilter::Debug))
         .expect("Failed to set logger");
 
     let boot_info = if IS_MULTIBOOT_BOOT == 1 {

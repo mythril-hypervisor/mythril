@@ -1,4 +1,8 @@
+use crate::apic::*;
 use crate::error::{Error, Result};
+use crate::memory;
+use crate::percore;
+use crate::vm;
 use core::convert::TryFrom;
 use num_enum::TryFromPrimitive;
 
@@ -78,26 +82,112 @@ impl TryFrom<u16> for ApicRegisterOffset {
 }
 
 #[derive(Default)]
-pub struct LocalApic;
+pub struct LocalApic {
+    icr_destination: Option<u32>,
+}
 
 impl LocalApic {
     pub fn new() -> Self {
-        LocalApic {}
+        LocalApic {
+            icr_destination: None,
+        }
+    }
+
+    fn process_sipi_request(&self, value: u32) -> Result<()> {
+        // TODO(alschwalm): check the destination and delivery modes to
+        // be sure this is actually what we should be doing.
+        if let Some(dest) = self.icr_destination {
+            let vector = value as u64 & 0xff;
+            let addr = memory::GuestPhysAddr::new(vector << 12);
+
+            // FIXME(alschwalm): The destination is actually a virtual local
+            // apic id. We should convert that to a global core id for this.
+            let core_id = percore::CoreId::from(dest);
+
+            debug!(
+                "Sending startup message for address = {:?} to core {}",
+                addr, core_id
+            );
+
+            vm::send_vm_msg_core(
+                vm::VirtualMachineMsg::StartVcpu(addr),
+                core_id,
+                false,
+            )?;
+        }
+        Ok(())
+    }
+
+    fn process_interrupt_command(&mut self, value: u32) -> Result<()> {
+        let mode = DeliveryMode::try_from((value >> 8) as u8 & 0b111)?;
+        match mode {
+            DeliveryMode::StartUp => self.process_sipi_request(value)?,
+            _ => (),
+        }
+
+        let vector = value as u64 & 0xff;
+        let dst_mode = DstMode::try_from((value >> 11 & 0b1) as u8)?;
+
+        if let Some(dest) = self.icr_destination {
+            // info!("Value = 0x{:x}", value);
+            // info!("Send interrupt vector 0x{:x} to dest = {} [mode={:?}]", vector, dest, dst_mode);
+
+            // FIXME: hack for time interrupt
+            if vector == 0xec {
+                vm::send_vm_msg_core(vm::VirtualMachineMsg::GuestInterrupt{
+                    kind: crate::vcpu::InjectedInterruptType::ExternalInterrupt,
+                    vector: vector as u8
+                }, percore::CoreId::from(0x01), true)?
+            }
+        }
+
+        Ok(())
     }
 
     pub fn register_read(&mut self, offset: u16) -> Result<u32> {
-        debug!(
-            "Read from virtual local apic: {:?}",
-            ApicRegisterOffset::try_from(offset)
-        );
-        Ok(0)
+        let offset = ApicRegisterOffset::try_from(offset)?;
+        // debug!(
+        //     "Read from virtual local apic: {:?}",
+        //     offset
+        // );
+        match offset {
+            ApicRegisterOffset::Simple(ApicRegisterSimpleOffset::ApicId) => {
+                // FIXME(alschwalm): we shouldn't really use the core id for this
+                Ok(percore::read_core_id().raw)
+            }
+            _ => Ok(0),
+        }
     }
 
-    pub fn register_write(&mut self, offset: u16, _value: u32) -> Result<()> {
-        debug!(
-            "Write to virtual local apic: {:?}",
-            ApicRegisterOffset::try_from(offset)
-        );
+    pub fn register_write(&mut self, offset: u16, value: u32) -> Result<()> {
+        let offset = ApicRegisterOffset::try_from(offset)?;
+        match offset {
+            ApicRegisterOffset::Simple(ref simple) => match simple {
+                ApicRegisterSimpleOffset::EndOfInterrupt => (),
+                _ => info!(
+                    "Write to virtual local apic: {:?}, value=0x{:x}",
+                    offset, value
+                ),
+            },
+            ApicRegisterOffset::InterruptCommand(offset) => {
+                match offset {
+                    0 => {
+                        self.process_interrupt_command(value)?;
+
+                        // TODO(alschwalm): What is the expected behavior here?
+                        self.icr_destination = None;
+                    }
+                    1 => {
+                        self.icr_destination = Some(value >> 24);
+                    }
+                    _ => unreachable!(),
+                }
+            }
+            _ => info!(
+                "Write to virtual local apic: {:?}, value=0x{:x}",
+                offset, value
+            ),
+        }
         Ok(())
     }
 }

@@ -3,6 +3,7 @@
 use crate::error::{Error, Result};
 use crate::time;
 use crate::{declare_per_core, get_per_core, get_per_core_mut};
+use num_enum::TryFromPrimitive;
 use raw_cpuid::CpuId;
 use x86::msr;
 
@@ -17,7 +18,7 @@ const IA32_APIC_BASE_EXD: u64 = 1 << 10;
 /// BSP mask
 const IA32_APIC_BASE_BSP: u64 = 1 << 8;
 
-#[derive(Debug)]
+#[derive(Debug, TryFromPrimitive)]
 #[repr(u8)]
 /// ICR destination shorthand values
 pub enum DstShorthand {
@@ -31,7 +32,7 @@ pub enum DstShorthand {
     AllExcludingSelf = 0x03,
 }
 
-#[derive(Debug)]
+#[derive(Debug, TryFromPrimitive)]
 #[repr(u8)]
 /// INIT IPI Level
 pub enum Level {
@@ -41,7 +42,7 @@ pub enum Level {
     Assert = 0x01,
 }
 
-#[derive(Debug)]
+#[derive(Debug, TryFromPrimitive)]
 #[repr(u8)]
 /// ICR trigger modes
 pub enum TriggerMode {
@@ -51,7 +52,7 @@ pub enum TriggerMode {
     Level = 0x01,
 }
 
-#[derive(Debug)]
+#[derive(Debug, TryFromPrimitive)]
 #[repr(u8)]
 /// ICR mode of the Destination field
 pub enum DstMode {
@@ -61,7 +62,7 @@ pub enum DstMode {
     Logical = 0x01,
 }
 
-#[derive(Debug)]
+#[derive(Debug, TryFromPrimitive)]
 #[repr(u8)]
 /// ICR delivery mode
 pub enum DeliveryMode {

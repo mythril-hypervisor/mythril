@@ -469,6 +469,10 @@ impl<'a> MemReadRequest<'a> {
     pub fn as_slice(&self) -> &[u8] {
         self.data
     }
+
+    pub fn as_mut_slice(&mut self) -> &mut [u8] {
+        self.data
+    }
 }
 
 impl<'a> fmt::Display for MemReadRequest<'a> {

@@ -61,6 +61,7 @@ impl EmulatedDevice for Uart8250 {
     fn on_event(&mut self, event: Event) -> Result<()> {
         match event.kind {
             DeviceEvent::HostUartReceived(key) => {
+                // info!("Processing UART keypress on core: {}", crate::percore::read_core_id());
                 event.responses.push(
                     // IRQ4
                     DeviceEventResponse::Interrupt((
@@ -131,6 +132,11 @@ impl EmulatedDevice for Uart8250 {
                         event.responses.push(
                             DeviceEventResponse::GuestUartTransmitted(val),
                         );
+
+                        //FIXME(alschwalm): this should actually either directly
+                        // respond with an interrupt device event _or_ send the
+                        // GuestInterrupt VirtualMachineMsg to the appropriate
+                        // core (according to either the PIC or IOAPIC)
                         if self
                             .interrupt_enable_register
                             .contains(IerFlags::THR_EMPTY_INTERRUPT)

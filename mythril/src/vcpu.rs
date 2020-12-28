@@ -39,13 +39,21 @@ pub fn mp_entry_point() -> ! {
         vm::get_vm_for_core_id(core_id)
             .expect(&format!("Failed to find VM associated with {}", core_id))
     };
+
+    let vm_id = vm.read().id;
+    let is_vm_bsp = vm.read().config.bsp_id() == core_id;
+    let mut vcpu = VCpu::new(vm).expect("Failed to create vcpu");
+    if !is_vm_bsp {
+        debug!("Waiting for init signal on core id '{}'", core_id);
+        vcpu.wait_for_init()
+            .expect("Error while waiting for AP init");
+    }
+
     debug!(
         "Starting core ID '{}' as part of vm id '{}'",
-        core_id,
-        vm.read().id
+        core_id, vm_id
     );
 
-    let vcpu = VCpu::new(vm).expect("Failed to create vcpu");
     vcpu.launch().expect("Failed to launch vm")
 }
 
@@ -71,7 +79,7 @@ pub enum InjectedInterruptType {
 pub struct VCpu {
     pub vm: Arc<RwLock<VirtualMachine>>,
     pub vmcs: vmcs::ActiveVmcs,
-    local_apic: virtdev::lapic::LocalApic,
+    pub local_apic: virtdev::lapic::LocalApic,
     pending_interrupts: BTreeMap<u8, InjectedInterruptType>,
     stack: Vec<u8>,
 }
@@ -138,6 +146,41 @@ impl VCpu {
         error::check_vm_insruction(rflags, "Failed to launch vm".into())?;
 
         unreachable!()
+    }
+
+    /// Block until a StartVcpu is received by this core
+    ///
+    /// This routine will also prepare the VCpu with the information
+    /// received from the StartVcpu signal
+    pub fn wait_for_init(&mut self) -> Result<()> {
+        loop {
+            if let Some(msg) = vm::recv_msg() {
+                match msg {
+                    vm::VirtualMachineMsg::StartVcpu(addr) => {
+                        debug!(
+                            "Setting start address to 0x{:x}",
+                            addr.as_u64()
+                        );
+                        self.vmcs.write_field(
+                            vmcs::VmcsField::GuestCsSelector,
+                            addr.as_u64() >> 4,
+                        )?;
+                        self.vmcs.write_field(
+                            vmcs::VmcsField::GuestCsBase,
+                            0x0000,
+                        )?;
+                        self.vmcs.write_field(vmcs::VmcsField::GuestRip, 0)?;
+                        break;
+                    }
+                    _ => {
+                        warn!(
+                            "Ignoring non-startup signal on waiting guest AP"
+                        );
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
     fn initialize_host_vmcs(
@@ -279,11 +322,7 @@ impl VCpu {
         // it should be waiting for IPI
         vmcs.write_field(
             vmcs::VmcsField::GuestActivityState,
-            if vcpu.vm.read().config.bsp_id() == percore::read_core_id() {
-                vmcs::ActivityState::Active
-            } else {
-                vmcs::ActivityState::WaitForSipi
-            } as u64,
+            vmcs::ActivityState::Active as u64,
         )?;
 
         Ok(())
@@ -489,6 +528,8 @@ impl VCpu {
             .map(|serial| (serial.read(), serial.base_port()));
         drop(vm);
 
+        // info!("Received UART keypress on core: {}", crate::percore::read_core_id());
+
         let mut vm = self.vm.write();
         if let Some((key, port)) = serial_info {
             vm.dispatch_event(
@@ -520,25 +561,17 @@ impl VCpu {
                         guest_cpu.rdx = real_apic_base >> 32;
                         guest_cpu.rax = real_apic_base & 0xffffffff;
                     }
-                    _ => unreachable!(),
+                    msr => warn!("Attempt to read unsupported MSR 0x{:x}", msr),
                 }
                 self.skip_emulated_instruction()?;
             }
             vmexit::ExitInformation::ApicAccess(info) => {
-                match info.kind {
-                    vmexit::ApicAccessKind::LinearRead => {
-                        self.local_apic.register_read(
-                            info.offset.expect("LAPIC read with no offset"),
-                        )?;
-                    }
-                    vmexit::ApicAccessKind::LinearWrite => {
-                        self.local_apic.register_write(
-                            info.offset.expect("LAPIC write with no offset"),
-                            0,
-                        )?;
-                    }
-                    _ => (),
-                }
+                emulate::memio::handle_apic_access(
+                    self,
+                    guest_cpu,
+                    info,
+                    &mut responses,
+                )?;
                 self.skip_emulated_instruction()?;
             }
             vmexit::ExitInformation::CrAccess(info) => {
@@ -576,7 +609,7 @@ impl VCpu {
                     }
                     interrupt::IPC_VECTOR => {
                         let msg =
-                            vm::recv_vm_msg().ok_or_else(|| Error::NotFound)?;
+                            vm::recv_msg().ok_or_else(|| Error::NotFound)?;
                         match msg {
                             vm::VirtualMachineMsg::GrantConsole(serial) => {
                                 let mut vm = self.vm.write();
@@ -585,6 +618,17 @@ impl VCpu {
                             }
                             vm::VirtualMachineMsg::CancelTimer(timer_id) => {
                                 time::cancel_timer(&timer_id)?;
+                            }
+                            vm::VirtualMachineMsg::GuestInterrupt {
+                                kind,
+                                vector,
+                            } => {
+                                self.inject_interrupt(vector, kind);
+                            }
+                            vm::VirtualMachineMsg::StartVcpu(_) => {
+                                warn!(
+                                    "Received StartVcpu signal on running VCPU"
+                                );
                             }
                         }
                     }
@@ -604,7 +648,11 @@ impl VCpu {
         for response in responses {
             match response {
                 virtdev::DeviceEventResponse::Interrupt((vector, kind)) => {
-                    self.inject_interrupt(vector, kind);
+                    // FIXME(alschwalm): for now, only deliver the UART interrupts to
+                    // the BSP core.
+                    if vector != 52 || crate::percore::read_core_id().raw == 0 {
+                        self.inject_interrupt(vector, kind);
+                    }
                 }
                 virtdev::DeviceEventResponse::NextConsole => {
                     info!("Received Ctrl-a three times. Switching console to next VM");
@@ -624,6 +672,7 @@ impl VCpu {
                     vm::send_vm_msg(
                         vm::VirtualMachineMsg::GrantConsole(serial),
                         next_vmid,
+                        true,
                     )?;
 
                     let next_bsp = vm::get_vm_bsp_core_id(next_vmid)

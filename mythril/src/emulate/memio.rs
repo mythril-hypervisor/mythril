@@ -3,11 +3,32 @@ use crate::memory;
 use crate::virtdev::{
     DeviceEvent, MemReadRequest, MemWriteRequest, ResponseEventArray,
 };
-use crate::{vcpu, vmcs, vmexit};
+use crate::{vcpu, vm, vmcs, vmexit};
 use arrayvec::ArrayVec;
 use byteorder::ByteOrder;
 use core::mem::size_of;
 use iced_x86;
+use x86::bits64::paging::BASE_PAGE_SIZE;
+
+trait MemIoCallback:
+    Fn(
+    &mut vcpu::VCpu,
+    memory::GuestPhysAddr,
+    DeviceEvent,
+    &mut ResponseEventArray,
+) -> Result<()>
+{
+}
+
+impl<T> MemIoCallback for T where
+    T: Fn(
+        &mut vcpu::VCpu,
+        memory::GuestPhysAddr,
+        DeviceEvent,
+        &mut ResponseEventArray,
+    ) -> Result<()>
+{
+}
 
 macro_rules! read_register {
     ($out:ident, $value:expr, $type:ty) => {{
@@ -138,6 +159,7 @@ fn do_mmio_write(
     guest_cpu: &mut vmexit::GuestCpuState,
     responses: &mut ResponseEventArray,
     instr: iced_x86::Instruction,
+    on_write: impl MemIoCallback,
 ) -> Result<()> {
     let mut res = ArrayVec::<[u8; 8]>::new();
     let data = match instr.op1_kind() {
@@ -169,11 +191,10 @@ fn do_mmio_write(
     };
     let request = MemWriteRequest::new(&data[..]);
 
-    let mut vm = vcpu.vm.write();
-    vm.dispatch_event(
+    (on_write)(
+        vcpu,
         addr,
         crate::virtdev::DeviceEvent::MemWrite(addr, request),
-        vcpu,
         responses,
     )
 }
@@ -184,6 +205,7 @@ fn do_mmio_read(
     guest_cpu: &mut vmexit::GuestCpuState,
     responses: &mut ResponseEventArray,
     instr: iced_x86::Instruction,
+    on_read: impl MemIoCallback,
 ) -> Result<()> {
     let (reg, size, offset) = match instr.op0_kind() {
         iced_x86::OpKind::Register => match instr.op_register(0) {
@@ -341,13 +363,7 @@ fn do_mmio_read(
 
     let mut arr = [0u8; size_of::<u64>()];
     let request = MemReadRequest::new(&mut arr[..size]);
-    let mut vm = vcpu.vm.write();
-    vm.dispatch_event(
-        addr,
-        DeviceEvent::MemRead(addr, request),
-        vcpu,
-        responses,
-    )?;
+    (on_read)(vcpu, addr, DeviceEvent::MemRead(addr, request), responses)?;
 
     let (value, mask) = match size {
         1 => (arr[0] as u64, ((u8::MAX as u64) << (offset * 8))),
@@ -372,11 +388,13 @@ fn do_mmio_read(
     Ok(())
 }
 
-pub fn handle_ept_violation(
+fn process_memio_op(
+    addr: memory::GuestPhysAddr,
     vcpu: &mut vcpu::VCpu,
     guest_cpu: &mut vmexit::GuestCpuState,
-    _exit: vmexit::EptInformation,
     responses: &mut ResponseEventArray,
+    on_read: impl MemIoCallback,
+    on_write: impl MemIoCallback,
 ) -> Result<()> {
     let instruction_len = vcpu
         .vmcs
@@ -406,21 +424,16 @@ pub fn handle_ept_violation(
     decoder.set_ip(ip);
     let instr = decoder.decode();
 
-    let addr = memory::GuestPhysAddr::new(
-        vcpu.vmcs
-            .read_field(vmcs::VmcsField::GuestPhysicalAddress)?,
-    );
-
     // For now, just assume everything is like MOV. This is obviously very
     // incomplete.
     if instr.op0_kind() == iced_x86::OpKind::Memory
         || instr.op0_kind() == iced_x86::OpKind::Memory64
     {
-        do_mmio_write(addr, vcpu, guest_cpu, responses, instr)?;
+        do_mmio_write(addr, vcpu, guest_cpu, responses, instr, on_write)?;
     } else if instr.op1_kind() == iced_x86::OpKind::Memory
         || instr.op1_kind() == iced_x86::OpKind::Memory64
     {
-        do_mmio_read(addr, vcpu, guest_cpu, responses, instr)?;
+        do_mmio_read(addr, vcpu, guest_cpu, responses, instr, on_read)?;
     } else {
         return Err(Error::InvalidValue(format!(
             "Unsupported mmio instruction: {:?} (rip=0x{:x}, bytes={:?})",
@@ -429,6 +442,103 @@ pub fn handle_ept_violation(
             bytes,
         )));
     }
-
     Ok(())
+}
+
+pub fn handle_ept_violation(
+    vcpu: &mut vcpu::VCpu,
+    guest_cpu: &mut vmexit::GuestCpuState,
+    _exit: vmexit::EptInformation,
+    responses: &mut ResponseEventArray,
+) -> Result<()> {
+    fn on_ept_violation(
+        vcpu: &mut vcpu::VCpu,
+        addr: memory::GuestPhysAddr,
+        event: DeviceEvent,
+        responses: &mut ResponseEventArray,
+    ) -> Result<()> {
+        let mut vm = vcpu.vm.write();
+        vm.dispatch_event(addr, event, vcpu, responses)
+    }
+
+    let addr = memory::GuestPhysAddr::new(
+        vcpu.vmcs
+            .read_field(vmcs::VmcsField::GuestPhysicalAddress)?,
+    );
+
+    process_memio_op(
+        addr,
+        vcpu,
+        guest_cpu,
+        responses,
+        on_ept_violation,
+        on_ept_violation,
+    )
+}
+
+pub fn handle_apic_access(
+    vcpu: &mut vcpu::VCpu,
+    guest_cpu: &mut vmexit::GuestCpuState,
+    exit: vmexit::ApicAccessInformation,
+    responses: &mut ResponseEventArray,
+) -> Result<()> {
+    fn address_to_apic_offset(addr: memory::GuestPhysAddr) -> u16 {
+        let addr = addr.as_u64();
+        let apic_base = vm::GUEST_LOCAL_APIC_ADDR.as_u64();
+        assert!(
+            addr >= apic_base && addr < (apic_base + BASE_PAGE_SIZE as u64)
+        );
+        ((addr - apic_base) / size_of::<u32>() as u64) as u16
+    }
+
+    fn on_apic_read(
+        vcpu: &mut vcpu::VCpu,
+        addr: memory::GuestPhysAddr,
+        event: DeviceEvent,
+        _responses: &mut ResponseEventArray,
+    ) -> Result<()> {
+        let offset = address_to_apic_offset(addr);
+        let res = vcpu.local_apic.register_read(offset)?;
+        let mut bytes = res.to_be_bytes();
+
+        match event {
+            DeviceEvent::MemRead(_, mut req) => {
+                req.as_mut_slice().copy_from_slice(&mut bytes[..]);
+                Ok(())
+            }
+            _ => return Err(Error::NotSupported),
+        }
+    }
+
+    fn on_apic_write(
+        vcpu: &mut vcpu::VCpu,
+        addr: memory::GuestPhysAddr,
+        event: DeviceEvent,
+        _responses: &mut ResponseEventArray,
+    ) -> Result<()> {
+        let offset = address_to_apic_offset(addr);
+        let mut bytes = [0u8; 4];
+        let value = match event {
+            DeviceEvent::MemWrite(_, req) => {
+                bytes[..].copy_from_slice(req.as_slice());
+                u32::from_be_bytes(bytes)
+            }
+            _ => return Err(Error::NotSupported),
+        };
+
+        vcpu.local_apic.register_write(offset, value)
+    }
+
+    let addr = vm::GUEST_LOCAL_APIC_ADDR
+        + (exit.offset.expect("Apic access with no offset") as usize
+            * size_of::<u32>());
+
+    process_memio_op(
+        addr,
+        vcpu,
+        guest_cpu,
+        responses,
+        on_apic_read,
+        on_apic_write,
+    )
 }

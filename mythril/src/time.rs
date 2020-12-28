@@ -398,6 +398,7 @@ pub fn cancel_timer(id: &TimerId) -> Result<()> {
         vm::send_vm_msg_core(
             vm::VirtualMachineMsg::CancelTimer(id.clone()),
             id.core_id,
+            true,
         )?;
     }
     Ok(())
