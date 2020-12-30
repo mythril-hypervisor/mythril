@@ -426,6 +426,30 @@ impl VirtualMachine {
         dev.write().on_event(event)
     }
 
+    pub fn gsi_destination(
+        &self,
+        gsi: u32,
+    ) -> Result<(percore::CoreId, u8, vcpu::InjectedInterruptType)> {
+        //TODO(alschwalm): For now just route the UART interrupts to the BSP,
+        // but this should ulimately do actual interrupt routing based on the
+        // guest IO APICs. For now just blindly translate GSI to vector based
+        // on this basic formula.
+        let vector = (gsi + 48) as u8;
+        if gsi == 4 {
+            Ok((
+                self.config.bsp_id(),
+                vector,
+                vcpu::InjectedInterruptType::ExternalInterrupt,
+            ))
+        } else {
+            Ok((
+                percore::read_core_id(),
+                vector,
+                vcpu::InjectedInterruptType::ExternalInterrupt,
+            ))
+        }
+    }
+
     fn map_data(
         image: &[u8],
         addr: &GuestPhysAddr,

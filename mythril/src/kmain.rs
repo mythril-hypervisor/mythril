@@ -65,18 +65,17 @@ fn build_vm(
 
     let mut madt = acpi::madt::MADTBuilder::<[_; 8]>::new();
     madt.set_ica(vm::GUEST_LOCAL_APIC_ADDR.as_u64() as u32);
-    madt.add_ics(acpi::madt::Ics::LocalApic {
-        apic_id: 0,
-        apic_uid: 0,
-        flags: acpi::madt::LocalApicFlags::ENABLED,
-    })
-    .expect("Failed to add APIC to MADT");
-    madt.add_ics(acpi::madt::Ics::LocalApic {
-        apic_id: 1,
-        apic_uid: 0,
-        flags: acpi::madt::LocalApicFlags::ENABLED,
-    })
-    .expect("Failed to add APIC to MADT");
+
+    for core in cfg.cpus.iter() {
+        madt.add_ics(acpi::madt::Ics::LocalApic {
+            // TODO(alschwalm): we should assign an actual APIC id here,
+            // instead of using the core id
+            apic_id: core.raw as u8,
+            apic_uid: 0,
+            flags: acpi::madt::LocalApicFlags::ENABLED,
+        })
+        .expect("Failed to add APIC to MADT");
+    }
     madt.add_ics(acpi::madt::Ics::IoApic {
         ioapic_id: 0,
         ioapic_addr: 0xfec00000 as *mut u8,

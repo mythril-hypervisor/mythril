@@ -425,6 +425,21 @@ impl VCpu {
         Ok(())
     }
 
+    pub fn route_interrupt(&mut self, gsi: u32) -> Result<()> {
+        let (destination, vector, kind) =
+            self.vm.read().gsi_destination(gsi)?;
+        if destination == percore::read_core_id() {
+            self.inject_interrupt(vector, kind);
+            Ok(())
+        } else {
+            vm::send_vm_msg_core(
+                vm::VirtualMachineMsg::GuestInterrupt { vector, kind },
+                destination,
+                true,
+            )
+        }
+    }
+
     /// Handle an arbitrary guest VMEXIT.
     ///
     /// This is the rust 'entry' point when a guest exists.
@@ -443,10 +458,19 @@ impl VCpu {
 
         // Always check for expired timers
         unsafe {
-            for (vec, kind) in
+            for timer_event in
                 time::get_timer_wheel_mut().expire_elapsed_timers()?
             {
-                self.inject_interrupt(vec, kind);
+                match timer_event {
+                    time::TimerInterruptType::Direct {
+                        vector, kind, ..
+                    } => {
+                        self.inject_interrupt(vector, kind);
+                    }
+                    time::TimerInterruptType::GSI(gsi) => {
+                        self.route_interrupt(gsi)?;
+                    }
+                }
             }
         }
 
@@ -527,8 +551,6 @@ impl VCpu {
             .as_ref()
             .map(|serial| (serial.read(), serial.base_port()));
         drop(vm);
-
-        // info!("Received UART keypress on core: {}", crate::percore::read_core_id());
 
         let mut vm = self.vm.write();
         if let Some((key, port)) = serial_info {
@@ -647,12 +669,8 @@ impl VCpu {
 
         for response in responses {
             match response {
-                virtdev::DeviceEventResponse::Interrupt((vector, kind)) => {
-                    // FIXME(alschwalm): for now, only deliver the UART interrupts to
-                    // the BSP core.
-                    if vector != 52 || crate::percore::read_core_id().raw == 0 {
-                        self.inject_interrupt(vector, kind);
-                    }
+                virtdev::DeviceEventResponse::GSI(gsi) => {
+                    self.route_interrupt(gsi)?;
                 }
                 virtdev::DeviceEventResponse::NextConsole => {
                     info!("Received Ctrl-a three times. Switching console to next VM");

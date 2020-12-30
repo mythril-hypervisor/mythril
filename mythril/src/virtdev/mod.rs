@@ -45,7 +45,7 @@ pub enum DeviceEvent<'a> {
 pub enum DeviceEventResponse {
     GuestUartTransmitted(u8),
     NextConsole,
-    Interrupt((u8, vcpu::InjectedInterruptType)),
+    GSI(u32),
 }
 
 pub struct Event<'a> {
