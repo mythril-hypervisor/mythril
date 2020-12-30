@@ -626,10 +626,10 @@ impl VCpu {
             vmexit::ExitInformation::InterruptWindow => {}
             vmexit::ExitInformation::ExternalInterrupt(info) => unsafe {
                 match info.vector {
-                    interrupt::UART_VECTOR => {
+                    interrupt::vector::UART => {
                         self.handle_uart_keypress(&mut responses)?
                     }
-                    interrupt::IPC_VECTOR => {
+                    interrupt::vector::IPC => {
                         let msg =
                             vm::recv_msg().ok_or_else(|| Error::NotFound)?;
                         match msg {
@@ -698,8 +698,8 @@ impl VCpu {
 
                     //FIXME(alschwalm): this should be the APIC id of the bsp, not the core id
                     ioapic::map_gsi_vector(
-                        4,
-                        interrupt::UART_VECTOR,
+                        interrupt::gsi::UART,
+                        interrupt::vector::UART,
                         next_bsp.raw as u8,
                     )
                     .map_err(|_| {

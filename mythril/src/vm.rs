@@ -178,7 +178,7 @@ impl VirtualMachines {
                 apic::Level::Assert,
                 apic::DstMode::Physical,
                 apic::DeliveryMode::Fixed,
-                interrupt::IPC_VECTOR,
+                interrupt::vector::IPC,
             );
         }
 
@@ -435,7 +435,7 @@ impl VirtualMachine {
         // guest IO APICs. For now just blindly translate GSI to vector based
         // on this basic formula.
         let vector = (gsi + 48) as u8;
-        if gsi == 4 {
+        if gsi == interrupt::gsi::UART {
             Ok((
                 self.config.bsp_id(),
                 vector,

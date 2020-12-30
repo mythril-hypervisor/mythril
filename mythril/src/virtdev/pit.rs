@@ -1,4 +1,5 @@
 use crate::error::{Error, Result};
+use crate::interrupt;
 use crate::physdev::pit::*;
 use crate::time;
 use crate::virtdev::{
@@ -227,7 +228,9 @@ impl Pit8254 {
                         if port == PIT_COUNTER_0 {
                             *timer = Some(time::set_oneshot_timer(
                                 duration,
-                                time::TimerInterruptType::GSI(0),
+                                time::TimerInterruptType::GSI(
+                                    interrupt::gsi::PIT,
+                                ),
                             ));
                         }
                     }
@@ -243,7 +246,9 @@ impl Pit8254 {
                         if port == PIT_COUNTER_0 {
                             *timer = Some(time::set_periodic_timer(
                                 duration,
-                                time::TimerInterruptType::GSI(0),
+                                time::TimerInterruptType::GSI(
+                                    interrupt::gsi::PIT,
+                                ),
                             ));
                         }
                     }

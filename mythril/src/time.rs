@@ -333,7 +333,7 @@ impl TimerWheel {
         if let Some((when, _)) = soonest {
             unsafe {
                 apic::get_local_apic_mut()
-                    .schedule_interrupt(when, interrupt::TIMER_VECTOR);
+                    .schedule_interrupt(when, interrupt::vector::TIMER);
             }
         }
     }
