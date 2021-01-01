@@ -12,7 +12,7 @@ use crate::physdev;
 use crate::time;
 use crate::vcpu;
 use crate::virtdev::{
-    DeviceEvent, DeviceInteraction, DeviceMap, Event, ResponseEventArray,
+    self, DeviceEvent, DeviceInteraction, DeviceMap, Event, ResponseEventArray,
 };
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
@@ -20,7 +20,9 @@ use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use arraydeque::ArrayDeque;
+use arrayvec::ArrayVec;
 use core::mem;
+use core::sync::atomic::AtomicU32;
 use spin::RwLock;
 
 static BIOS_BLOB: &'static [u8] = include_bytes!("blob/bios.bin");
@@ -31,6 +33,11 @@ pub const GUEST_LOCAL_APIC_ADDR: GuestPhysAddr = GuestPhysAddr::new(0xfee00000);
 
 static VIRTUAL_MACHINES: RoAfterInit<VirtualMachines> =
     RoAfterInit::uninitialized();
+
+/// The maximum numer of cores that can be assigned to a single VM
+pub const MAX_PER_VM_CORE_COUNT: usize = 32;
+
+const MAX_PENDING_MSG: usize = 100;
 
 pub unsafe fn init_virtual_machines(machines: VirtualMachines) {
     RoAfterInit::init(&VIRTUAL_MACHINES, machines);
@@ -80,8 +87,6 @@ pub fn max_vm_id() -> u32 {
 pub fn is_assigned_core_id(core_id: percore::CoreId) -> bool {
     VIRTUAL_MACHINES.is_assigned_core_id(core_id)
 }
-
-const MAX_PENDING_MSG: usize = 100;
 
 pub enum VirtualMachineMsg {
     GrantConsole(physdev::com::Uart8250),
@@ -279,7 +284,7 @@ pub struct PhysicalDeviceConfig {
 
 /// A configuration for a `VirtualMachine`
 pub struct VirtualMachineConfig {
-    cpus: Vec<percore::CoreId>,
+    cpus: ArrayVec<[percore::CoreId; MAX_PER_VM_CORE_COUNT]>,
     images: Vec<(String, GuestPhysAddr)>,
     virtual_devices: DeviceMap,
     physical_devices: PhysicalDeviceConfig,
@@ -294,23 +299,25 @@ impl VirtualMachineConfig {
     /// * `cpus` - A list of the cores used by the VM (by APIC id)
     /// * `memory` - The amount of VM memory (in MB)
     pub fn new(
-        cpus: Vec<percore::CoreId>,
+        cpus: &[percore::CoreId],
         memory: u64,
         physical_devices: PhysicalDeviceConfig,
-    ) -> VirtualMachineConfig {
-        VirtualMachineConfig {
-            cpus: cpus,
+    ) -> Result<VirtualMachineConfig> {
+        let mut cpu_array = ArrayVec::new();
+        cpu_array.try_extend_from_slice(cpus)?;
+        Ok(VirtualMachineConfig {
+            cpus: cpu_array,
             images: vec![],
             virtual_devices: DeviceMap::default(),
             physical_devices: physical_devices,
             memory: memory,
-        }
+        })
     }
 
     /// Specify that the given image 'path' should be mapped to the given address
     ///
-    /// The precise meaning of `image` will vary by platform. This will be a
-    /// value suitable to be passed to `VmServices::read_file`.
+    /// The precise meaning of `image` will vary by platform. On multiboot2 platforms
+    /// it is a module.
     pub fn map_image(
         &mut self,
         image: String,
@@ -338,7 +345,7 @@ impl VirtualMachineConfig {
         &mut self.physical_devices
     }
 
-    pub fn cpus(&self) -> &Vec<percore::CoreId> {
+    pub fn cpus(&self) -> &ArrayVec<[percore::CoreId; MAX_PER_VM_CORE_COUNT]> {
         &self.cpus
     }
 
@@ -364,6 +371,13 @@ pub struct VirtualMachine {
     ///
     /// See section 29.4 of the Intel software developer's manual
     pub apic_access_page: Raw4kPage,
+
+    /// Portions of the per-core Local APIC state needed for logical addressing
+    pub logical_apic_state:
+        BTreeMap<percore::CoreId, virtdev::lapic::LogicalApicState>,
+
+    /// The number of vcpus that are up and waiting to start
+    cpus_ready: AtomicU32,
 }
 
 impl VirtualMachine {
@@ -378,11 +392,23 @@ impl VirtualMachine {
     ) -> Result<Arc<RwLock<Self>>> {
         let guest_space = Self::setup_ept(&config, info)?;
 
+        // Prepare the portion of per-core local apic state that is stored at the
+        // VM level (as needed for logical addressing)
+        let mut logical_apic_states = BTreeMap::new();
+        for core in config.cpus.iter() {
+            logical_apic_states.insert(
+                core.clone(),
+                virtdev::lapic::LogicalApicState::default(),
+            );
+        }
+
         let vm = Arc::new(RwLock::new(Self {
             id: id,
             config: config,
             guest_space: guest_space,
             apic_access_page: Raw4kPage([0u8; 4096]),
+            logical_apic_state: logical_apic_states,
+            cpus_ready: AtomicU32::new(0),
         }));
 
         // Map the guest local apic addr to the access page. This will be set in each
@@ -399,6 +425,16 @@ impl VirtualMachine {
         )?;
 
         Ok(vm)
+    }
+
+    pub fn notify_ready(&self) {
+        self.cpus_ready
+            .fetch_add(1, core::sync::atomic::Ordering::SeqCst);
+    }
+
+    pub fn all_cores_ready(&self) -> bool {
+        self.cpus_ready.load(core::sync::atomic::Ordering::SeqCst)
+            == self.config.cpus.len() as u32
     }
 
     pub fn dispatch_event(
@@ -424,6 +460,36 @@ impl VirtualMachine {
         let event = Event::new(kind, space, responses)?;
 
         dev.write().on_event(event)
+    }
+
+    pub fn logical_apic_destination(
+        &self,
+        mask: u32,
+    ) -> Result<impl Iterator<Item = &percore::CoreId>> {
+        // FIXME: currently we only support the 'Flat Model' logical mode
+        // (so we just ignore the destination format register). See 10.6.2.2
+        // of Volume 3A of the Intel software developer's manual
+        Ok(self.config.cpus.iter().filter(move |core| {
+            let apic_state = self
+                .logical_apic_state
+                .get(core)
+                .expect("Missing logical state for core");
+            // TODO(alschwalm): This may not need to be as strict as SeqCst
+            let destination = apic_state
+                .logical_destination
+                .load(core::sync::atomic::Ordering::SeqCst);
+            destination & mask != 0
+        }))
+    }
+
+    pub fn update_core_logical_destination(&mut self, dest: u32) {
+        let apic_state = self
+            .logical_apic_state
+            .get_mut(&percore::read_core_id())
+            .expect("Missing logical state for core");
+        apic_state
+            .logical_destination
+            .store(dest, core::sync::atomic::Ordering::SeqCst);
     }
 
     pub fn gsi_destination(
@@ -553,10 +619,11 @@ mod test {
         let phys_config = PhysicalDeviceConfig::default();
 
         let config = VirtualMachineConfig::new(
-            vec![percore::CoreId::from(1)],
+            &[percore::CoreId::from(1)],
             0,
             phys_config,
-        );
+        )
+        .unwrap();
         VirtualMachine::new(0, config, &info).unwrap();
     }
 }

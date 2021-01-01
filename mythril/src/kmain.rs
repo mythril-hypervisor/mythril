@@ -53,11 +53,9 @@ fn build_vm(
         }
     };
 
-    let mut config = vm::VirtualMachineConfig::new(
-        cfg.cpus.clone(),
-        cfg.memory,
-        physical_config,
-    );
+    let mut config =
+        vm::VirtualMachineConfig::new(&cfg.cpus, cfg.memory, physical_config)
+            .expect("Failed to create VirtualMachineConfig");
 
     let mut acpi = acpi::rsdp::RSDPBuilder::<[_; 1024]>::new(
         ManagedMap::Owned(BTreeMap::new()),

@@ -1,6 +1,5 @@
 use crate::error::{Error, Result};
 use crate::memory::{GuestAddressSpaceViewMut, GuestPhysAddr};
-use crate::vcpu;
 use alloc::collections::btree_map::BTreeMap;
 use alloc::sync::Arc;
 use alloc::vec::Vec;

@@ -24,8 +24,8 @@ const IA32_APIC_BASE_BSP: u64 = 1 << 8;
 pub enum DstShorthand {
     /// No shorthand used
     NoShorthand = 0x00,
-    // TODO(dlrobertson): Is there any reason to include self? AFAIK
-    // SELF_IPI negates the need for it.
+    /// Send only to myself
+    MySelf = 0x01,
     /// Broadcast including myself
     AllIncludingSelf = 0x02,
     /// Broadcast excluding myself

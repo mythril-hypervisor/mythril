@@ -43,6 +43,16 @@ pub fn mp_entry_point() -> ! {
     let vm_id = vm.read().id;
     let is_vm_bsp = vm.read().config.bsp_id() == core_id;
     let mut vcpu = VCpu::new(vm).expect("Failed to create vcpu");
+
+    // Increment the VM's count of ready cores
+    vcpu.vm.read().notify_ready();
+
+    // Wait until all the cores are done with their early init
+    while !vcpu.vm.read().all_cores_ready() {
+        crate::lock::relax_cpu();
+    }
+
+    // Cores other than this VM's BSP must wait for the INIT/SIPI to actually start
     if !is_vm_bsp {
         debug!("Waiting for init signal on core id '{}'", core_id);
         vcpu.wait_for_init()

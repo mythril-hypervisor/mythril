@@ -3,7 +3,9 @@ use crate::error::{Error, Result};
 use crate::memory;
 use crate::percore;
 use crate::vm;
+use alloc::sync::Arc;
 use core::convert::TryFrom;
+use core::sync::atomic::AtomicU32;
 use num_enum::TryFromPrimitive;
 
 #[derive(Debug)]
@@ -39,6 +41,26 @@ enum ApicRegisterSimpleOffset {
     TimerInitialCount = 0x380,
     TimerCurrentCount = 0x390,
     TimerDivideConfig = 0x3e0,
+}
+
+/// The portion of guest local APIC state related to logical addressing
+///
+/// This portion of state must be 'shared' with other cores, because the
+/// state of each local APIC's logical destination registers affects how
+/// logically addressed IPIs are transmitted. Therefore, this state is
+/// stored in the VirtualMachine instead of in each VCpu.
+pub struct LogicalApicState {
+    pub logical_destination: AtomicU32,
+    pub destination_format: AtomicU32,
+}
+
+impl core::default::Default for LogicalApicState {
+    fn default() -> Self {
+        Self {
+            logical_destination: AtomicU32::new(0),
+            destination_format: AtomicU32::new(0),
+        }
+    }
 }
 
 impl TryFrom<u16> for ApicRegisterOffset {
@@ -102,7 +124,7 @@ impl LocalApic {
 
             // FIXME(alschwalm): The destination is actually a virtual local
             // apic id. We should convert that to a global core id for this.
-            let core_id = percore::CoreId::from(dest);
+            let core_id = percore::CoreId::from(dest >> 24);
 
             debug!(
                 "Sending startup message for address = {:?} to core {}",
@@ -118,27 +140,70 @@ impl LocalApic {
         Ok(())
     }
 
-    fn process_interrupt_command(&mut self, value: u32) -> Result<()> {
+    fn process_interrupt_command(
+        &mut self,
+        vm: Arc<spin::RwLock<vm::VirtualMachine>>,
+        value: u32,
+    ) -> Result<()> {
         let mode = DeliveryMode::try_from((value >> 8) as u8 & 0b111)?;
         match mode {
-            DeliveryMode::StartUp => self.process_sipi_request(value)?,
+            // TODO: for now, just ignore the INIT signal
+            DeliveryMode::Init => return Ok(()),
+            DeliveryMode::StartUp => return self.process_sipi_request(value),
             _ => (),
         }
 
         let vector = value as u64 & 0xff;
         let dst_mode = DstMode::try_from((value >> 11 & 0b1) as u8)?;
+        let shorthand = DstShorthand::try_from((value >> 18 & 0b11) as u8)?;
 
-        if let Some(dest) = self.icr_destination {
-            // info!("Value = 0x{:x}", value);
-            // info!("Send interrupt vector 0x{:x} to dest = {} [mode={:?}]", vector, dest, dst_mode);
-
-            // FIXME: hack for time interrupt
-            if vector == 0xec {
-                vm::send_vm_msg_core(vm::VirtualMachineMsg::GuestInterrupt{
-                    kind: crate::vcpu::InjectedInterruptType::ExternalInterrupt,
-                    vector: vector as u8
-                }, percore::CoreId::from(0x01), true)?
+        match shorthand {
+            DstShorthand::AllIncludingSelf => {
+                warn!("Unsupported local apic command register shorthand AllIncludingSelf");
+                return Ok(());
             }
+            DstShorthand::AllExcludingSelf => {
+                for core in vm.read().config.cpus() {
+                    if *core == percore::read_core_id() {
+                        continue;
+                    }
+                    vm::send_vm_msg_core(vm::VirtualMachineMsg::GuestInterrupt{
+                        kind: crate::vcpu::InjectedInterruptType::ExternalInterrupt,
+                        vector: vector as u8
+                    }, *core, true)?
+                }
+                return Ok(());
+            }
+            DstShorthand::MySelf => {
+                warn!("Unsupported local apic command register shorthand Self");
+                return Ok(());
+            }
+            DstShorthand::NoShorthand => (),
+        }
+
+        // No shorthand was used, so we should have an ICR destination of some sort
+        if let Some(dest) = self.icr_destination {
+            match dst_mode {
+                DstMode::Logical => {
+                    for core in vm.read().logical_apic_destination(dest)? {
+                        // FIXME(alschwalm): we need to support sending to ourselves (I think)
+                        if *core == percore::read_core_id() {
+                            continue;
+                        }
+                        vm::send_vm_msg_core(vm::VirtualMachineMsg::GuestInterrupt{
+                            kind: crate::vcpu::InjectedInterruptType::ExternalInterrupt,
+                            vector: vector as u8
+                        }, *core, true)?
+                    }
+                }
+                DstMode::Physical => {
+                    warn!("Unsupported Physical address for IPI vector=0x{:x} (dest=0x{:x}/short={:?}/mode={:?})",
+                          vector, dest, shorthand, mode);
+                }
+            }
+        } else {
+            warn!("IPI with no icr_destination vector=0x{:x} (dest={:?}/short={:?})",
+                  vector, dst_mode, shorthand);
         }
 
         Ok(())
@@ -146,10 +211,6 @@ impl LocalApic {
 
     pub fn register_read(&mut self, offset: u16) -> Result<u32> {
         let offset = ApicRegisterOffset::try_from(offset)?;
-        // debug!(
-        //     "Read from virtual local apic: {:?}",
-        //     offset
-        // );
         match offset {
             ApicRegisterOffset::Simple(ApicRegisterSimpleOffset::ApicId) => {
                 // FIXME(alschwalm): we shouldn't really use the core id for this
@@ -159,11 +220,19 @@ impl LocalApic {
         }
     }
 
-    pub fn register_write(&mut self, offset: u16, value: u32) -> Result<()> {
+    pub fn register_write(
+        &mut self,
+        vm: Arc<spin::RwLock<vm::VirtualMachine>>,
+        offset: u16,
+        value: u32,
+    ) -> Result<()> {
         let offset = ApicRegisterOffset::try_from(offset)?;
         match offset {
             ApicRegisterOffset::Simple(ref simple) => match simple {
                 ApicRegisterSimpleOffset::EndOfInterrupt => (),
+                ApicRegisterSimpleOffset::LogicalDestination => {
+                    vm.write().update_core_logical_destination(value);
+                }
                 _ => info!(
                     "Write to virtual local apic: {:?}, value=0x{:x}",
                     offset, value
@@ -172,13 +241,13 @@ impl LocalApic {
             ApicRegisterOffset::InterruptCommand(offset) => {
                 match offset {
                     0 => {
-                        self.process_interrupt_command(value)?;
+                        self.process_interrupt_command(vm, value)?;
 
                         // TODO(alschwalm): What is the expected behavior here?
                         self.icr_destination = None;
                     }
                     1 => {
-                        self.icr_destination = Some(value >> 24);
+                        self.icr_destination = Some(value);
                     }
                     _ => unreachable!(),
                 }

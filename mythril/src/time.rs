@@ -392,10 +392,7 @@ impl TimerWheel {
 pub fn busy_wait(duration: core::time::Duration) {
     let start = now();
     while now() < start + duration {
-        unsafe {
-            // Relax the cpu
-            llvm_asm!("rep; nop" ::: "memory");
-        }
+        crate::lock::relax_cpu();
     }
 }
 
