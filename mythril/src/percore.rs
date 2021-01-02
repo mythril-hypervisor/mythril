@@ -111,12 +111,12 @@ pub fn read_core_id() -> CoreId {
 }
 
 #[doc(hidden)]
-pub unsafe fn get_pre_core_impl<T>(t: &T) -> &T {
+pub unsafe fn get_per_core_impl<T>(t: &T) -> &T {
     core::mem::transmute(per_core_address(t as *const T as *const u8))
 }
 
 #[doc(hidden)]
-pub unsafe fn get_pre_core_mut_impl<T>(t: &mut T) -> &mut T {
+pub unsafe fn get_per_core_mut_impl<T>(t: &mut T) -> &mut T {
     core::mem::transmute(per_core_address(t as *const T as *const u8))
 }
 
@@ -125,7 +125,7 @@ macro_rules! get_per_core {
     ($name:ident) => {
         #[allow(unused_unsafe)]
         unsafe {
-            $crate::percore::get_pre_core_impl(&mut $name)
+            $crate::percore::get_per_core_impl(&$name)
         }
     };
 }
@@ -135,7 +135,7 @@ macro_rules! get_per_core_mut {
     ($name:ident) => {
         #[allow(unused_unsafe)]
         unsafe {
-            $crate::percore::get_pre_core_mut_impl(&mut $name)
+            $crate::percore::get_per_core_mut_impl(&mut $name)
         }
     };
 }
@@ -147,6 +147,12 @@ macro_rules! __declare_per_core_internal {
     ($(#[$attr:meta])* ($($vis:tt)*) static mut $N:ident : $T:ty = $e:expr; $($t:tt)*) => {
         #[link_section = ".per_core"]
         $($vis)* static mut $N: $T = $e;
+
+        declare_per_core!($($t)*);
+    };
+    ($(#[$attr:meta])* ($($vis:tt)*) static $N:ident : $T:ty = $e:expr; $($t:tt)*) => {
+        #[link_section = ".per_core"]
+        $($vis)* static $N: $T = $e;
 
         declare_per_core!($($t)*);
     };
@@ -164,6 +170,16 @@ macro_rules! declare_per_core {
     };
     ($(#[$attr:meta])* pub ($($vis:tt)+) static mut $N:ident : $T:ty = $e:expr; $($t:tt)*) => {
         __declare_per_core_internal!($(#[$attr])* (pub ($($vis)+)) static mut $N : $T = $e; $($t)*);
+    };
+    // Rules for immutable variables
+    ($(#[$attr:meta])* static $N:ident : $T:ty = $e:expr; $($t:tt)*) => {
+        __declare_per_core_internal!($(#[$attr])* () static $N : $T = $e; $($t)*);
+    };
+    ($(#[$attr:meta])* pub static $N:ident : $T:ty = $e:expr; $($t:tt)*) => {
+        __declare_per_core_internal!($(#[$attr])* (pub) static $N : $T = $e; $($t)*);
+    };
+    ($(#[$attr:meta])* pub ($($vis:tt)+) static $N:ident : $T:ty = $e:expr; $($t:tt)*) => {
+        __declare_per_core_internal!($(#[$attr])* (pub ($($vis)+)) static $N : $T = $e; $($t)*);
     };
     () => ()
 }

@@ -401,11 +401,10 @@ fn process_memio_op(
         .read_field(vmcs::VmcsField::VmExitInstructionLen)?;
     let ip = vcpu.vmcs.read_field(vmcs::VmcsField::GuestRip)?;
 
-    let mut vm = vcpu.vm.write();
     let ip_addr = memory::GuestVirtAddr::new(ip, &vcpu.vmcs)?;
-    let view = memory::GuestAddressSpaceViewMut::from_vmcs(
+    let view = memory::GuestAddressSpaceView::from_vmcs(
         &vcpu.vmcs,
-        &mut vm.guest_space,
+        &vcpu.vm.guest_space,
     )?;
 
     let bytes = view.read_bytes(
@@ -413,7 +412,6 @@ fn process_memio_op(
         instruction_len as usize,
         memory::GuestAccess::Read(memory::PrivilegeLevel(0)),
     )?;
-    drop(vm);
 
     let efer = vcpu.vmcs.read_field(vmcs::VmcsField::GuestIa32Efer)?;
     // TODO: 16bit support
@@ -457,8 +455,7 @@ pub fn handle_ept_violation(
         event: DeviceEvent,
         responses: &mut ResponseEventArray,
     ) -> Result<()> {
-        let mut vm = vcpu.vm.write();
-        vm.dispatch_event(addr, event, vcpu, responses)
+        vcpu.vm.dispatch_event(addr, event, vcpu, responses)
     }
 
     let addr = memory::GuestPhysAddr::new(

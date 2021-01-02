@@ -1,6 +1,6 @@
 use crate::error::{Error, Result};
 use crate::memory::{
-    GuestAccess, GuestAddressSpaceViewMut, GuestPhysAddr, GuestVirtAddr,
+    GuestAccess, GuestAddressSpaceView, GuestPhysAddr, GuestVirtAddr,
     PrivilegeLevel,
 };
 use crate::virtdev::{
@@ -244,7 +244,7 @@ impl QemuFwCfg {
 
     fn perform_dma_transfer(
         &mut self,
-        mut space: GuestAddressSpaceViewMut,
+        space: GuestAddressSpaceView,
     ) -> Result<()> {
         let bytes = space.read_bytes(
             GuestVirtAddr::NoPaging(GuestPhysAddr::new(self.dma_addr)),
@@ -358,7 +358,7 @@ impl QemuFwCfg {
         &mut self,
         port: Port,
         val: PortWriteRequest,
-        space: GuestAddressSpaceViewMut,
+        space: GuestAddressSpaceView,
     ) -> Result<()> {
         match port {
             Self::FW_CFG_PORT_SEL => {

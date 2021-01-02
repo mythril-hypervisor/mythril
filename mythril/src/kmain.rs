@@ -40,16 +40,16 @@ fn build_vm(
     cfg: &config::UserVmConfig,
     info: &BootInfo,
     add_uart: bool,
-) -> Arc<RwLock<vm::VirtualMachine>> {
+) -> Arc<vm::VirtualMachine> {
     let physical_config = if add_uart == false {
         vm::PhysicalDeviceConfig::default()
     } else {
         vm::PhysicalDeviceConfig {
-            serial: Some(
+            serial: RwLock::new(Some(
                 physdev::com::Uart8250::new(0x3f8)
                     .expect("Failed to create UART"),
-            ),
-            ps2_keyboard: None,
+            )),
+            ps2_keyboard: RwLock::new(None),
         }
     };
 

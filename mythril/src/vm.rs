@@ -46,14 +46,13 @@ pub unsafe fn init_virtual_machines(machines: VirtualMachines) {
 /// Get the virtual machine that owns the core with the given core id
 ///
 /// This method is unsafe as it should almost certainly not be used (use message
-/// passing instead of directly access the remote VM).
+/// passing instead of directly accessing the remote VM).
 pub unsafe fn get_vm_for_core_id(
     core_id: percore::CoreId,
-) -> Option<Arc<RwLock<VirtualMachine>>> {
+) -> Option<Arc<VirtualMachine>> {
     VIRTUAL_MACHINES.get_by_core_id(core_id)
 }
 
-//FIXME(alschwalm): this breaks if the current VM is already locked
 pub fn send_vm_msg(
     msg: VirtualMachineMsg,
     vmid: u32,
@@ -65,7 +64,7 @@ pub fn send_vm_msg(
 pub fn get_vm_bsp_core_id(vmid: u32) -> Option<percore::CoreId> {
     VIRTUAL_MACHINES
         .get_by_vm_id(vmid)
-        .map(|vm| vm.read().config.bsp_id())
+        .map(|vm| vm.config.bsp_id())
 }
 
 pub fn send_vm_msg_core(
@@ -78,6 +77,10 @@ pub fn send_vm_msg_core(
 
 pub fn recv_msg() -> Option<VirtualMachineMsg> {
     VIRTUAL_MACHINES.resv_msg()
+}
+
+pub fn recv_all_msgs() -> impl Iterator<Item = VirtualMachineMsg> {
+    VIRTUAL_MACHINES.resv_all_msgs()
 }
 
 pub fn max_vm_id() -> u32 {
@@ -99,7 +102,7 @@ pub enum VirtualMachineMsg {
 }
 
 struct VirtualMachineContext {
-    vm: Arc<RwLock<VirtualMachine>>,
+    vm: Arc<VirtualMachine>,
     msgqueue: RwLock<ArrayDeque<[VirtualMachineMsg; MAX_PENDING_MSG]>>,
 }
 
@@ -120,7 +123,7 @@ impl VirtualMachines {
         self.map
             .iter()
             .filter_map(|(_core_id, context)| {
-                if context.vm.read().id == id {
+                if context.vm.id == id {
                     Some(context)
                 } else {
                     None
@@ -140,12 +143,12 @@ impl VirtualMachines {
     pub fn get_by_core_id(
         &self,
         core_id: percore::CoreId,
-    ) -> Option<Arc<RwLock<VirtualMachine>>> {
+    ) -> Option<Arc<VirtualMachine>> {
         self.context_by_core_id(core_id)
             .map(|context| context.vm.clone())
     }
 
-    pub fn get_by_vm_id(&self, id: u32) -> Option<Arc<RwLock<VirtualMachine>>> {
+    pub fn get_by_vm_id(&self, id: u32) -> Option<Arc<VirtualMachine>> {
         self.context_by_vm_id(id).map(|context| context.vm.clone())
     }
 
@@ -217,6 +220,15 @@ impl VirtualMachines {
             .expect("No VirtualMachineContext for apic id");
         context.msgqueue.write().pop_front()
     }
+
+    /// Receive all pending messages for the current core
+    pub fn resv_all_msgs(&self) -> impl Iterator<Item = VirtualMachineMsg> {
+        let context = self
+            .context_by_core_id(percore::read_core_id())
+            .expect("No VirtualMachineContext for apic id");
+        let pending_messages = context.msgqueue.write().split_off(0);
+        pending_messages.into_iter()
+    }
 }
 
 pub struct VirtualMachineBuilder {
@@ -224,7 +236,7 @@ pub struct VirtualMachineBuilder {
     machine_count: u32,
 
     /// Mapping of core_id to VirtualMachine
-    map: BTreeMap<percore::CoreId, Arc<RwLock<VirtualMachine>>>,
+    map: BTreeMap<percore::CoreId, Arc<VirtualMachine>>,
 }
 
 impl VirtualMachineBuilder {
@@ -235,12 +247,9 @@ impl VirtualMachineBuilder {
         }
     }
 
-    pub fn insert_machine(
-        &mut self,
-        vm: Arc<RwLock<VirtualMachine>>,
-    ) -> Result<()> {
+    pub fn insert_machine(&mut self, vm: Arc<VirtualMachine>) -> Result<()> {
         self.machine_count += 1;
-        for cpu in vm.read().config.cpus() {
+        for cpu in vm.config.cpus() {
             self.map.insert(percore::CoreId::from(*cpu), vm.clone());
         }
         Ok(())
@@ -249,7 +258,7 @@ impl VirtualMachineBuilder {
     pub fn get_by_core_id(
         &self,
         core_id: percore::CoreId,
-    ) -> Option<Arc<RwLock<VirtualMachine>>> {
+    ) -> Option<Arc<VirtualMachine>> {
         self.map.get(&core_id).map(|vm| vm.clone())
     }
 
@@ -276,10 +285,10 @@ impl VirtualMachineBuilder {
 #[derive(Default)]
 pub struct PhysicalDeviceConfig {
     /// The physical serial connection for this VM (if any).
-    pub serial: Option<physdev::com::Uart8250>,
+    pub serial: RwLock<Option<physdev::com::Uart8250>>,
 
     /// The physical ps2 keyboard connection for this VM (if any).
-    pub ps2_keyboard: Option<physdev::keyboard::Ps2Controller>,
+    pub ps2_keyboard: RwLock<Option<physdev::keyboard::Ps2Controller>>,
 }
 
 /// A configuration for a `VirtualMachine`
@@ -341,10 +350,6 @@ impl VirtualMachineConfig {
         &self.physical_devices
     }
 
-    pub fn physical_devices_mut(&mut self) -> &mut PhysicalDeviceConfig {
-        &mut self.physical_devices
-    }
-
     pub fn cpus(&self) -> &ArrayVec<[percore::CoreId; MAX_PER_VM_CORE_COUNT]> {
         &self.cpus
     }
@@ -389,7 +394,7 @@ impl VirtualMachine {
         id: u32,
         config: VirtualMachineConfig,
         info: &BootInfo,
-    ) -> Result<Arc<RwLock<Self>>> {
+    ) -> Result<Arc<Self>> {
         let guest_space = Self::setup_ept(&config, info)?;
 
         // Prepare the portion of per-core local apic state that is stored at the
@@ -402,27 +407,22 @@ impl VirtualMachine {
             );
         }
 
-        let vm = Arc::new(RwLock::new(Self {
+        let vm = Arc::new(Self {
             id: id,
             config: config,
             guest_space: guest_space,
             apic_access_page: Raw4kPage([0u8; 4096]),
             logical_apic_state: logical_apic_states,
             cpus_ready: AtomicU32::new(0),
-        }));
+        });
 
         // Map the guest local apic addr to the access page. This will be set in each
         // core's vmcs
         let apic_frame = memory::HostPhysFrame::from_start_address(
-            memory::HostPhysAddr::new(
-                vm.read().apic_access_page.as_ptr() as u64
-            ),
+            memory::HostPhysAddr::new(vm.apic_access_page.as_ptr() as u64),
         )?;
-        vm.write().guest_space.map_frame(
-            GUEST_LOCAL_APIC_ADDR,
-            apic_frame,
-            false,
-        )?;
+        vm.guest_space
+            .map_frame(GUEST_LOCAL_APIC_ADDR, apic_frame, false)?;
 
         Ok(vm)
     }
@@ -438,7 +438,7 @@ impl VirtualMachine {
     }
 
     pub fn dispatch_event(
-        &mut self,
+        &self,
         ident: impl DeviceInteraction + core::fmt::Debug,
         kind: DeviceEvent,
         vcpu: &crate::vcpu::VCpu,
@@ -452,9 +452,9 @@ impl VirtualMachine {
                 Error::MissingDevice("Unable to dispatch event".into())
             })?;
 
-        let space = crate::memory::GuestAddressSpaceViewMut::from_vmcs(
+        let space = crate::memory::GuestAddressSpaceView::from_vmcs(
             &vcpu.vmcs,
-            &mut self.guest_space,
+            &self.guest_space,
         )?;
 
         let event = Event::new(kind, space, responses)?;
@@ -482,10 +482,10 @@ impl VirtualMachine {
         }))
     }
 
-    pub fn update_core_logical_destination(&mut self, dest: u32) {
+    pub fn update_core_logical_destination(&self, dest: u32) {
         let apic_state = self
             .logical_apic_state
-            .get_mut(&percore::read_core_id())
+            .get(&percore::read_core_id())
             .expect("Missing logical state for core");
         apic_state
             .logical_destination

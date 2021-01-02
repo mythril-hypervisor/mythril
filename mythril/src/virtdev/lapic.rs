@@ -142,7 +142,7 @@ impl LocalApic {
 
     fn process_interrupt_command(
         &mut self,
-        vm: Arc<spin::RwLock<vm::VirtualMachine>>,
+        vm: Arc<vm::VirtualMachine>,
         value: u32,
     ) -> Result<()> {
         let mode = DeliveryMode::try_from((value >> 8) as u8 & 0b111)?;
@@ -163,7 +163,7 @@ impl LocalApic {
                 return Ok(());
             }
             DstShorthand::AllExcludingSelf => {
-                for core in vm.read().config.cpus() {
+                for core in vm.config.cpus() {
                     if *core == percore::read_core_id() {
                         continue;
                     }
@@ -185,7 +185,7 @@ impl LocalApic {
         if let Some(dest) = self.icr_destination {
             match dst_mode {
                 DstMode::Logical => {
-                    for core in vm.read().logical_apic_destination(dest)? {
+                    for core in vm.logical_apic_destination(dest)? {
                         // FIXME(alschwalm): we need to support sending to ourselves (I think)
                         if *core == percore::read_core_id() {
                             continue;
@@ -222,7 +222,7 @@ impl LocalApic {
 
     pub fn register_write(
         &mut self,
-        vm: Arc<spin::RwLock<vm::VirtualMachine>>,
+        vm: Arc<vm::VirtualMachine>,
         offset: u16,
         value: u32,
     ) -> Result<()> {
@@ -231,7 +231,7 @@ impl LocalApic {
             ApicRegisterOffset::Simple(ref simple) => match simple {
                 ApicRegisterSimpleOffset::EndOfInterrupt => (),
                 ApicRegisterSimpleOffset::LogicalDestination => {
-                    vm.write().update_core_logical_destination(value);
+                    vm.update_core_logical_destination(value);
                 }
                 _ => info!(
                     "Write to virtual local apic: {:?}, value=0x{:x}",

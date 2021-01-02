@@ -264,15 +264,15 @@ impl EmulatedDevice for PciRootComplex {
 mod test {
     use super::*;
     use crate::memory::{
-        GuestAddressSpace, GuestAddressSpaceViewMut, GuestPhysAddr,
+        GuestAddressSpace, GuestAddressSpaceView, GuestPhysAddr,
     };
     use crate::virtdev::*;
     use alloc::boxed::Box;
 
-    fn define_test_view() -> GuestAddressSpaceViewMut<'static> {
+    fn define_test_view() -> GuestAddressSpaceView<'static> {
         let space: &'static mut GuestAddressSpace =
             Box::leak(Box::new(GuestAddressSpace::new().unwrap()));
-        GuestAddressSpaceViewMut::new(GuestPhysAddr::new(0), space)
+        GuestAddressSpaceView::new(GuestPhysAddr::new(0), space)
     }
 
     fn complex_ready_for_reg_read(reg: u8) -> Arc<RwLock<PciRootComplex>> {

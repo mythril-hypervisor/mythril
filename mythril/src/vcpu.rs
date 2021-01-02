@@ -15,7 +15,6 @@ use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::mem;
 use core::pin::Pin;
-use spin::RwLock;
 use x86::controlregs::{cr0, cr3, cr4};
 use x86::msr;
 
@@ -36,19 +35,21 @@ pub fn mp_entry_point() -> ! {
 
     let core_id = percore::read_core_id();
     let vm = unsafe {
-        vm::get_vm_for_core_id(core_id)
-            .expect(&format!("Failed to find VM associated with {}", core_id))
+        let vm = vm::get_vm_for_core_id(core_id)
+            .expect(&format!("Failed to find VM associated with {}", core_id));
+        vm
     };
 
-    let vm_id = vm.read().id;
-    let is_vm_bsp = vm.read().config.bsp_id() == core_id;
-    let mut vcpu = VCpu::new(vm).expect("Failed to create vcpu");
+    let mut vcpu = VCpu::new(vm.clone()).expect("Failed to create vcpu");
+
+    let vm_id = vm.id;
+    let is_vm_bsp = vm.config.bsp_id() == core_id;
 
     // Increment the VM's count of ready cores
-    vcpu.vm.read().notify_ready();
+    vm.notify_ready();
 
     // Wait until all the cores are done with their early init
-    while !vcpu.vm.read().all_cores_ready() {
+    while !vm.all_cores_ready() {
         crate::lock::relax_cpu();
     }
 
@@ -87,7 +88,7 @@ pub enum InjectedInterruptType {
 /// ultimate handling will occur within an emulated device in the `VirtualMachine`'s
 /// `DeviceMap`)
 pub struct VCpu {
-    pub vm: Arc<RwLock<VirtualMachine>>,
+    pub vm: Arc<VirtualMachine>,
     pub vmcs: vmcs::ActiveVmcs,
     pub local_apic: virtdev::lapic::LocalApic,
     pending_interrupts: BTreeMap<u8, InjectedInterruptType>,
@@ -100,7 +101,7 @@ impl VCpu {
     /// Note that the result must be `Pin`, as the `VCpu` pushes its own
     /// address on to the per-core host stack so it can be retrieved on
     /// VMEXIT.
-    pub fn new(vm: Arc<RwLock<VirtualMachine>>) -> Result<Pin<Box<Self>>> {
+    pub fn new(vm: Arc<VirtualMachine>) -> Result<Pin<Box<Self>>> {
         let vmx = vmx::Vmx::enable()?;
         let vmcs = vmcs::Vmcs::new()?.activate(vmx)?;
 
@@ -116,11 +117,12 @@ impl VCpu {
         });
 
         // All VCpus in a VM must share the same address space
-        let eptp = vcpu.vm.read().guest_space.eptp();
+        let eptp = vcpu.vm.guest_space.eptp();
         vcpu.vmcs.write_field(vmcs::VmcsField::EptPointer, eptp)?;
+        info!("Setting eptp to 0x{:x}", eptp);
 
         // Setup access for our local apic
-        let apic_access_addr = vcpu.vm.read().apic_access_page.as_ptr() as u64;
+        let apic_access_addr = vcpu.vm.apic_access_page.as_ptr() as u64;
         vcpu.vmcs
             .write_field(vmcs::VmcsField::ApicAccessAddr, apic_access_addr)?;
 
@@ -436,8 +438,7 @@ impl VCpu {
     }
 
     pub fn route_interrupt(&mut self, gsi: u32) -> Result<()> {
-        let (destination, vector, kind) =
-            self.vm.read().gsi_destination(gsi)?;
+        let (destination, vector, kind) = self.vm.gsi_destination(gsi)?;
         if destination == percore::read_core_id() {
             self.inject_interrupt(vector, kind);
             Ok(())
@@ -548,23 +549,42 @@ impl VCpu {
         Ok(())
     }
 
+    fn handle_ipc(&mut self) -> Result<()> {
+        for msg in vm::recv_all_msgs() {
+            match msg {
+                vm::VirtualMachineMsg::GrantConsole(serial) => {
+                    *self.vm.config.physical_devices().serial.write() =
+                        Some(serial);
+                }
+                vm::VirtualMachineMsg::CancelTimer(timer_id) => {
+                    time::cancel_timer(&timer_id)?;
+                }
+                vm::VirtualMachineMsg::GuestInterrupt { kind, vector } => {
+                    self.inject_interrupt(vector, kind);
+                }
+                vm::VirtualMachineMsg::StartVcpu(_) => {
+                    warn!("Received StartVcpu signal on running VCPU");
+                }
+            }
+        }
+        Ok(())
+    }
+
     fn handle_uart_keypress(
         &mut self,
         responses: &mut virtdev::ResponseEventArray,
     ) -> Result<()> {
-        let vm = self.vm.read();
-
-        let serial_info = vm
+        let serial_info = self
+            .vm
             .config
             .physical_devices()
             .serial
+            .read()
             .as_ref()
             .map(|serial| (serial.read(), serial.base_port()));
-        drop(vm);
 
-        let mut vm = self.vm.write();
         if let Some((key, port)) = serial_info {
-            vm.dispatch_event(
+            self.vm.dispatch_event(
                 port,
                 virtdev::DeviceEvent::HostUartReceived(key),
                 self,
@@ -640,29 +660,7 @@ impl VCpu {
                         self.handle_uart_keypress(&mut responses)?
                     }
                     interrupt::vector::IPC => {
-                        let msg =
-                            vm::recv_msg().ok_or_else(|| Error::NotFound)?;
-                        match msg {
-                            vm::VirtualMachineMsg::GrantConsole(serial) => {
-                                let mut vm = self.vm.write();
-                                vm.config.physical_devices_mut().serial =
-                                    Some(serial);
-                            }
-                            vm::VirtualMachineMsg::CancelTimer(timer_id) => {
-                                time::cancel_timer(&timer_id)?;
-                            }
-                            vm::VirtualMachineMsg::GuestInterrupt {
-                                kind,
-                                vector,
-                            } => {
-                                self.inject_interrupt(vector, kind);
-                            }
-                            vm::VirtualMachineMsg::StartVcpu(_) => {
-                                warn!(
-                                    "Received StartVcpu signal on running VCPU"
-                                );
-                            }
-                        }
+                        self.handle_ipc()?;
                     }
                     _ => (),
                 }
@@ -685,15 +683,15 @@ impl VCpu {
                 virtdev::DeviceEventResponse::NextConsole => {
                     info!("Received Ctrl-a three times. Switching console to next VM");
 
-                    let mut vm = self.vm.write();
-                    let serial = vm
+                    let serial = self
+                        .vm
                         .config
-                        .physical_devices_mut()
+                        .physical_devices()
                         .serial
+                        .write()
                         .take()
                         .ok_or_else(|| Error::NotFound)?;
-                    let vmid = vm.id;
-                    drop(vm);
+                    let vmid = self.vm.id;
 
                     let next_vmid = (vmid + 1) % vm::max_vm_id();
 
@@ -719,8 +717,8 @@ impl VCpu {
                     })?;
                 }
                 virtdev::DeviceEventResponse::GuestUartTransmitted(val) => {
-                    let vm = self.vm.read();
-                    if vm.config.physical_devices().serial.is_some() {
+                    if self.vm.config.physical_devices().serial.read().is_some()
+                    {
                         //TODO: This should be a write to the physical serial device
                         let buff = &[val];
                         let s = alloc::string::String::from_utf8_lossy(buff);
