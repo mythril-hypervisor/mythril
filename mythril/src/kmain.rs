@@ -281,7 +281,7 @@ unsafe fn kmain(mut boot_info: BootInfo) -> ! {
         let core_id = percore::CoreId::from(idx as u32);
 
         // Do not setup cores that are not allocated to any guest
-        if !vm::is_assigned_core_id(core_id) {
+        if !vm::virtual_machines().is_assigned_core_id(core_id) {
             debug!("Not starting core ID '{}' because it is not assigned to a guest", core_id);
             continue;
         }

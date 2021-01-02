@@ -31,7 +31,7 @@ static BIOS_BLOB: &'static [u8] = include_bytes!("blob/bios.bin");
 /// The location of the local apic in the guest address space
 pub const GUEST_LOCAL_APIC_ADDR: GuestPhysAddr = GuestPhysAddr::new(0xfee00000);
 
-static VIRTUAL_MACHINES: RoAfterInit<VirtualMachines> =
+static VIRTUAL_MACHINES: RoAfterInit<VirtualMachineSet> =
     RoAfterInit::uninitialized();
 
 /// The maximum numer of cores that can be assigned to a single VM
@@ -39,56 +39,12 @@ pub const MAX_PER_VM_CORE_COUNT: usize = 32;
 
 const MAX_PENDING_MSG: usize = 100;
 
-pub unsafe fn init_virtual_machines(machines: VirtualMachines) {
+pub unsafe fn init_virtual_machines(machines: VirtualMachineSet) {
     RoAfterInit::init(&VIRTUAL_MACHINES, machines);
 }
 
-/// Get the virtual machine that owns the core with the given core id
-///
-/// This method is unsafe as it should almost certainly not be used (use message
-/// passing instead of directly accessing the remote VM).
-pub unsafe fn get_vm_for_core_id(
-    core_id: percore::CoreId,
-) -> Option<Arc<VirtualMachine>> {
-    VIRTUAL_MACHINES.get_by_core_id(core_id)
-}
-
-pub fn send_vm_msg(
-    msg: VirtualMachineMsg,
-    vmid: u32,
-    notify: bool,
-) -> Result<()> {
-    VIRTUAL_MACHINES.send_msg(msg, vmid, notify)
-}
-
-pub fn get_vm_bsp_core_id(vmid: u32) -> Option<percore::CoreId> {
-    VIRTUAL_MACHINES
-        .get_by_vm_id(vmid)
-        .map(|vm| vm.config.bsp_id())
-}
-
-pub fn send_vm_msg_core(
-    msg: VirtualMachineMsg,
-    core_id: percore::CoreId,
-    notify: bool,
-) -> Result<()> {
-    VIRTUAL_MACHINES.send_msg_core(msg, core_id, notify)
-}
-
-pub fn recv_msg() -> Option<VirtualMachineMsg> {
-    VIRTUAL_MACHINES.resv_msg()
-}
-
-pub fn recv_all_msgs() -> impl Iterator<Item = VirtualMachineMsg> {
-    VIRTUAL_MACHINES.resv_all_msgs()
-}
-
-pub fn max_vm_id() -> u32 {
-    VIRTUAL_MACHINES.count()
-}
-
-pub fn is_assigned_core_id(core_id: percore::CoreId) -> bool {
-    VIRTUAL_MACHINES.is_assigned_core_id(core_id)
+pub fn virtual_machines() -> &'static VirtualMachineSet {
+    &*VIRTUAL_MACHINES
 }
 
 pub enum VirtualMachineMsg {
@@ -106,12 +62,12 @@ struct VirtualMachineContext {
     msgqueue: RwLock<ArrayDeque<[VirtualMachineMsg; MAX_PENDING_MSG]>>,
 }
 
-pub struct VirtualMachines {
+pub struct VirtualMachineSet {
     machine_count: u32,
     map: BTreeMap<percore::CoreId, VirtualMachineContext>,
 }
 
-impl VirtualMachines {
+impl VirtualMachineSet {
     fn context_by_core_id(
         &self,
         core_id: percore::CoreId,
@@ -140,7 +96,11 @@ impl VirtualMachines {
         self.map.contains_key(&core_id)
     }
 
-    pub fn get_by_core_id(
+    /// Get the virtual machine that owns the core with the given core id
+    ///
+    /// This method is unsafe as it should almost certainly not be used (use message
+    /// passing instead of directly accessing the remote VM).
+    pub unsafe fn get_by_core_id(
         &self,
         core_id: percore::CoreId,
     ) -> Option<Arc<VirtualMachine>> {
@@ -150,6 +110,10 @@ impl VirtualMachines {
 
     pub fn get_by_vm_id(&self, id: u32) -> Option<Arc<VirtualMachine>> {
         self.context_by_vm_id(id).map(|context| context.vm.clone())
+    }
+
+    pub fn bsp_core_id(&self, vmid: u32) -> Option<percore::CoreId> {
+        self.get_by_vm_id(vmid).map(|vm| vm.config.bsp_id())
     }
 
     /// Send the given message to a specific core
@@ -204,7 +168,7 @@ impl VirtualMachines {
         vm_id: u32,
         notify: bool,
     ) -> Result<()> {
-        let vm_bsp = get_vm_bsp_core_id(vm_id).ok_or_else(|| {
+        let vm_bsp = self.bsp_core_id(vm_id).ok_or_else(|| {
             Error::InvalidValue(format!(
                 "Unable to find BSP for VM id '{}'",
                 vm_id
@@ -214,7 +178,7 @@ impl VirtualMachines {
     }
 
     /// Receive any pending message for the current core
-    pub fn resv_msg(&self) -> Option<VirtualMachineMsg> {
+    pub fn recv_msg(&self) -> Option<VirtualMachineMsg> {
         let context = self
             .context_by_core_id(percore::read_core_id())
             .expect("No VirtualMachineContext for apic id");
@@ -222,7 +186,7 @@ impl VirtualMachines {
     }
 
     /// Receive all pending messages for the current core
-    pub fn resv_all_msgs(&self) -> impl Iterator<Item = VirtualMachineMsg> {
+    pub fn recv_all_msgs(&self) -> impl Iterator<Item = VirtualMachineMsg> {
         let context = self
             .context_by_core_id(percore::read_core_id())
             .expect("No VirtualMachineContext for apic id");
@@ -262,8 +226,8 @@ impl VirtualMachineBuilder {
         self.map.get(&core_id).map(|vm| vm.clone())
     }
 
-    pub fn finalize(self) -> VirtualMachines {
-        VirtualMachines {
+    pub fn finalize(self) -> VirtualMachineSet {
+        VirtualMachineSet {
             machine_count: self.machine_count,
             map: self
                 .map

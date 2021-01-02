@@ -131,7 +131,7 @@ impl LocalApic {
                 addr, core_id
             );
 
-            vm::send_vm_msg_core(
+            vm::virtual_machines().send_msg_core(
                 vm::VirtualMachineMsg::StartVcpu(addr),
                 core_id,
                 false,
@@ -167,7 +167,7 @@ impl LocalApic {
                     if *core == percore::read_core_id() {
                         continue;
                     }
-                    vm::send_vm_msg_core(vm::VirtualMachineMsg::GuestInterrupt{
+                    vm::virtual_machines().send_msg_core(vm::VirtualMachineMsg::GuestInterrupt{
                         kind: crate::vcpu::InjectedInterruptType::ExternalInterrupt,
                         vector: vector as u8
                     }, *core, true)?
@@ -190,7 +190,7 @@ impl LocalApic {
                         if *core == percore::read_core_id() {
                             continue;
                         }
-                        vm::send_vm_msg_core(vm::VirtualMachineMsg::GuestInterrupt{
+                        vm::virtual_machines().send_msg_core(vm::VirtualMachineMsg::GuestInterrupt{
                             kind: crate::vcpu::InjectedInterruptType::ExternalInterrupt,
                             vector: vector as u8
                         }, *core, true)?

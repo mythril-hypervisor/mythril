@@ -402,7 +402,7 @@ pub fn cancel_timer(id: &TimerId) -> Result<()> {
     if wheel.is_local_timer(id) {
         wheel.remove_timer(id);
     } else {
-        vm::send_vm_msg_core(
+        vm::virtual_machines().send_msg_core(
             vm::VirtualMachineMsg::CancelTimer(id.clone()),
             id.core_id,
             true,

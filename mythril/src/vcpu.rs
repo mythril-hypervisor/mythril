@@ -35,7 +35,8 @@ pub fn mp_entry_point() -> ! {
 
     let core_id = percore::read_core_id();
     let vm = unsafe {
-        let vm = vm::get_vm_for_core_id(core_id)
+        let vm = vm::virtual_machines()
+            .get_by_core_id(core_id)
             .expect(&format!("Failed to find VM associated with {}", core_id));
         vm
     };
@@ -166,7 +167,7 @@ impl VCpu {
     /// received from the StartVcpu signal
     pub fn wait_for_init(&mut self) -> Result<()> {
         loop {
-            if let Some(msg) = vm::recv_msg() {
+            if let Some(msg) = vm::virtual_machines().recv_msg() {
                 match msg {
                     vm::VirtualMachineMsg::StartVcpu(addr) => {
                         debug!(
@@ -443,7 +444,7 @@ impl VCpu {
             self.inject_interrupt(vector, kind);
             Ok(())
         } else {
-            vm::send_vm_msg_core(
+            vm::virtual_machines().send_msg_core(
                 vm::VirtualMachineMsg::GuestInterrupt { vector, kind },
                 destination,
                 true,
@@ -550,7 +551,7 @@ impl VCpu {
     }
 
     fn handle_ipc(&mut self) -> Result<()> {
-        for msg in vm::recv_all_msgs() {
+        for msg in vm::virtual_machines().recv_all_msgs() {
             match msg {
                 vm::VirtualMachineMsg::GrantConsole(serial) => {
                     *self.vm.config.physical_devices().serial.write() =
@@ -693,15 +694,16 @@ impl VCpu {
                         .ok_or_else(|| Error::NotFound)?;
                     let vmid = self.vm.id;
 
-                    let next_vmid = (vmid + 1) % vm::max_vm_id();
+                    let next_vmid = (vmid + 1) % vm::virtual_machines().count();
 
-                    vm::send_vm_msg(
+                    vm::virtual_machines().send_msg(
                         vm::VirtualMachineMsg::GrantConsole(serial),
                         next_vmid,
                         true,
                     )?;
 
-                    let next_bsp = vm::get_vm_bsp_core_id(next_vmid)
+                    let next_bsp = vm::virtual_machines()
+                        .bsp_core_id(next_vmid)
                         .ok_or_else(|| Error::NotFound)?;
 
                     //FIXME(alschwalm): this should be the APIC id of the bsp, not the core id
