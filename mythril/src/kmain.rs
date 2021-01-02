@@ -251,7 +251,7 @@ unsafe fn kmain(mut boot_info: BootInfo) -> ! {
     ioapic::map_gsi_vector(interrupt::gsi::UART, interrupt::vector::UART, 0)
         .expect("Failed to map com0 gsi");
 
-    let mut builder = vm::VirtualMachineBuilder::new();
+    let mut builder = vm::VirtualMachineSetBuilder::new();
 
     let raw_cfg = boot_info
         .find_module("mythril.cfg")

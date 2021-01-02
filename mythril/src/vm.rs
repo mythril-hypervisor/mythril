@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use crate::apic;
 use crate::boot_info::BootInfo;
 use crate::error::{Error, Result};
@@ -39,29 +41,55 @@ pub const MAX_PER_VM_CORE_COUNT: usize = 32;
 
 const MAX_PENDING_MSG: usize = 100;
 
+/// Initialize the global VirtualMachineSet
+///
+/// This method must be called before calling 'virtual_machines'
 pub unsafe fn init_virtual_machines(machines: VirtualMachineSet) {
     RoAfterInit::init(&VIRTUAL_MACHINES, machines);
 }
 
+/// Get the global VirtualMachineSet
 pub fn virtual_machines() -> &'static VirtualMachineSet {
     &*VIRTUAL_MACHINES
 }
 
+/// A message for inter-core or inter-VM communication
+///
+/// These messages can be sent and received through the
+/// VirtualMachineSet type, accessible via the 'virtual_machines'
+/// method after startup
 pub enum VirtualMachineMsg {
+    /// Transfer control of a physical serial console to another VM
     GrantConsole(physdev::com::Uart8250),
+
+    /// Cancel a the given timer
     CancelTimer(time::TimerId),
+
+    /// Start a core at the given physical address
     StartVcpu(GuestPhysAddr),
+
+    /// Inject a guest interrupt with the given vector
     GuestInterrupt {
+        /// The type of the injected interrupt
         kind: vcpu::InjectedInterruptType,
+
+        /// The injected interrupt vector
         vector: u8,
     },
 }
 
 struct VirtualMachineContext {
     vm: Arc<VirtualMachine>,
+
+    /// The per-core RX message queue
     msgqueue: RwLock<ArrayDeque<[VirtualMachineMsg; MAX_PENDING_MSG]>>,
 }
 
+/// The set of configured virtual machines
+///
+/// This structure represents the set of all configured machines
+/// in the hypervisor and can be used to transmit and receive
+/// inter-vm or inter-core messages.
 pub struct VirtualMachineSet {
     machine_count: u32,
     map: BTreeMap<percore::CoreId, VirtualMachineContext>,
@@ -88,10 +116,12 @@ impl VirtualMachineSet {
             .next()
     }
 
+    /// Returns the number of VMs
     pub fn count(&self) -> u32 {
         self.machine_count
     }
 
+    /// Returns whether a given CoreId is associated with any VM
     pub fn is_assigned_core_id(&self, core_id: percore::CoreId) -> bool {
         self.map.contains_key(&core_id)
     }
@@ -108,10 +138,13 @@ impl VirtualMachineSet {
             .map(|context| context.vm.clone())
     }
 
-    pub fn get_by_vm_id(&self, id: u32) -> Option<Arc<VirtualMachine>> {
-        self.context_by_vm_id(id).map(|context| context.vm.clone())
+    /// Get a VirtualMachine by its vmid
+    pub fn get_by_vm_id(&self, vmid: u32) -> Option<Arc<VirtualMachine>> {
+        self.context_by_vm_id(vmid)
+            .map(|context| context.vm.clone())
     }
 
+    /// Get the CoreId for the BSP core of a VM by its vmid
     pub fn bsp_core_id(&self, vmid: u32) -> Option<percore::CoreId> {
         self.get_by_vm_id(vmid).map(|vm| vm.config.bsp_id())
     }
@@ -195,7 +228,8 @@ impl VirtualMachineSet {
     }
 }
 
-pub struct VirtualMachineBuilder {
+/// A structure to build up the set of VirtualMachines
+pub struct VirtualMachineSetBuilder {
     /// The number of virtual machines added to the builder
     machine_count: u32,
 
@@ -203,14 +237,16 @@ pub struct VirtualMachineBuilder {
     map: BTreeMap<percore::CoreId, Arc<VirtualMachine>>,
 }
 
-impl VirtualMachineBuilder {
+impl VirtualMachineSetBuilder {
+    /// Returns a new VirtualMachineSetBuilder
     pub fn new() -> Self {
-        VirtualMachineBuilder {
+        Self {
             machine_count: 0,
             map: BTreeMap::new(),
         }
     }
 
+    /// Add a VirtualMachine to the set
     pub fn insert_machine(&mut self, vm: Arc<VirtualMachine>) -> Result<()> {
         self.machine_count += 1;
         for cpu in vm.config.cpus() {
@@ -219,6 +255,7 @@ impl VirtualMachineBuilder {
         Ok(())
     }
 
+    /// Get the virtual machine that owns the core with the given core id
     pub fn get_by_core_id(
         &self,
         core_id: percore::CoreId,
@@ -226,6 +263,7 @@ impl VirtualMachineBuilder {
         self.map.get(&core_id).map(|vm| vm.clone())
     }
 
+    /// Finish building the VirtualMachineSet
     pub fn finalize(self) -> VirtualMachineSet {
         VirtualMachineSet {
             machine_count: self.machine_count,
@@ -246,6 +284,7 @@ impl VirtualMachineBuilder {
     }
 }
 
+/// A set of physical hardware that may be attached to a VM
 #[derive(Default)]
 pub struct PhysicalDeviceConfig {
     /// The physical serial connection for this VM (if any).
@@ -310,14 +349,17 @@ impl VirtualMachineConfig {
         &mut self.virtual_devices
     }
 
+    /// Access the configurations physical hardware
     pub fn physical_devices(&self) -> &PhysicalDeviceConfig {
         &self.physical_devices
     }
 
+    /// Get the list of CoreIds assicated with this VM
     pub fn cpus(&self) -> &ArrayVec<[percore::CoreId; MAX_PER_VM_CORE_COUNT]> {
         &self.cpus
     }
 
+    /// Get the CoreId of the BSP for this VM
     pub fn bsp_id(&self) -> percore::CoreId {
         self.cpus[0]
     }
@@ -391,16 +433,32 @@ impl VirtualMachine {
         Ok(vm)
     }
 
+    /// Notify this VirtualMachine that the current core is ready to start
+    ///
+    /// Each core associated with this VirtualMachine must call this method
+    /// in order for 'all_cores_ready' to return true. Cores must _not_
+    /// invoke this method more than once.
     pub fn notify_ready(&self) {
         self.cpus_ready
             .fetch_add(1, core::sync::atomic::Ordering::SeqCst);
     }
 
+    /// Returns true when all VirtualMachine cores have called 'notify_ready'
     pub fn all_cores_ready(&self) -> bool {
         self.cpus_ready.load(core::sync::atomic::Ordering::SeqCst)
             == self.config.cpus.len() as u32
     }
 
+    /// Process the given DeviceEvent on the virtual hardware matching 'ident'
+    ///
+    /// # Arguments
+    ///
+    /// * `ident` - A DeviceInteraction like a Port I/O port or address used to
+    ///             find the relevant device.
+    /// * `kind` - The DeviceEvent kind to dispatch
+    /// * `vcpu` - A handle to the current vcpu
+    /// * `responses` - A ResponseEventArray for any responses from the virtual
+    ///                 hardware
     pub fn dispatch_event(
         &self,
         ident: impl DeviceInteraction + core::fmt::Debug,
@@ -426,6 +484,12 @@ impl VirtualMachine {
         dev.write().on_event(event)
     }
 
+    /// Returns an iterator of the CoreIds that are logically addressed by the given mask
+    ///
+    /// # Arguments
+    ///
+    /// * `mask` - The APIC ICR address contents (e.g., the upper 32 bits) for a
+    ///            logically addressed IPC
     pub fn logical_apic_destination(
         &self,
         mask: u32,
@@ -446,6 +510,8 @@ impl VirtualMachine {
         }))
     }
 
+    /// Notify the VirtualMachine of a change in the Logical Destination register
+    /// for the current core
     pub fn update_core_logical_destination(&self, dest: u32) {
         let apic_state = self
             .logical_apic_state
@@ -456,6 +522,7 @@ impl VirtualMachine {
             .store(dest, core::sync::atomic::Ordering::SeqCst);
     }
 
+    /// Resolve a guest GSI to a specific CoreId, vector and interrupt type
     pub fn gsi_destination(
         &self,
         gsi: u32,
