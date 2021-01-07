@@ -499,7 +499,7 @@ impl<'a> fmt::Display for MemReadRequest<'a> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::virtdev::com::*;
+    use crate::{virtdev::com::*, vm::PhysicalDeviceConfig};
     use core::convert::TryInto;
 
     // This is just a dummy device so we can have arbitrary port ranges
@@ -528,17 +528,25 @@ mod test {
         }
     }
 
+    #[test]
+    fn test_device_map() {
+        let mut config = VirtualMachineConfig::new(
+            vec![0.into()],
+            1024,
+            PhysicalDeviceConfig::default(),
+        );
+
+        let mut builder = config.device_map_builder();
+        let com = Uart8250::new(0);
+        builder.register_device(com).unwrap();
+
+        let map = config.virtual_devices();
+        let _dev = map.find_device(0u16).unwrap();
+
+        assert_eq!(map.find_device(10u16).is_none(), true);
+    }
+
     /*
-        #[test]
-        fn test_device_map() {
-            let mut map = DeviceMap::default();
-            let com = Uart8250::new(0);
-            map.register_device(com).unwrap();
-            let _dev = map.find_device(0u16).unwrap();
-
-            assert_eq!(map.find_device(10u16).is_none(), true);
-        }
-
         #[test]
         fn test_write_request_try_from() {
             let val: Result<PortWriteRequest> =
