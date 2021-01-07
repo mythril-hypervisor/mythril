@@ -1,9 +1,9 @@
-use crate::error::Result;
 use crate::physdev::com::*;
 use crate::vcpu;
 use crate::virtdev::{
     DeviceEvent, DeviceEventResponse, DeviceRegion, EmulatedDevice, Event, Port,
 };
+use crate::{error::Result, vm::VirtualMachineConfig};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::convert::TryInto;
@@ -54,7 +54,7 @@ impl Uart8250 {
 }
 
 impl EmulatedDevice for Uart8250 {
-    fn services(&self, _vm_config: VirtualMachineConfig) -> Vec<DeviceRegion> {
+    fn services(&self, _vm_config: &VirtualMachineConfig) -> Vec<DeviceRegion> {
         vec![DeviceRegion::PortIo(self.base_port..=self.base_port + 7)]
     }
 

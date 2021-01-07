@@ -1,4 +1,3 @@
-use crate::apic;
 use crate::boot_info::BootInfo;
 use crate::error::{Error, Result};
 use crate::interrupt;
@@ -13,6 +12,7 @@ use crate::time;
 use crate::virtdev::{
     DeviceEvent, DeviceInteraction, DeviceMap, Event, ResponseEventArray,
 };
+use crate::{apic, virtdev::DeviceMapBuilder};
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
 use alloc::string::String;
@@ -275,9 +275,7 @@ impl VirtualMachineConfig {
     }
 
     pub fn device_map_builder(&mut self) -> DeviceMapBuilder<'_> {
-        DeviceMapBuilder {
-            vm_config: self
-        }
+        DeviceMapBuilder { vm_config: self }
     }
 
     pub fn physical_devices(&self) -> &PhysicalDeviceConfig {

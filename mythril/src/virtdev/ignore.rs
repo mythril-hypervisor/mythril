@@ -1,5 +1,5 @@
-use crate::error::Result;
 use crate::virtdev::{DeviceRegion, EmulatedDevice, Event};
+use crate::{error::Result, vm::VirtualMachineConfig};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use spin::RwLock;
@@ -17,7 +17,7 @@ impl IgnoredDevice {
 }
 
 impl EmulatedDevice for IgnoredDevice {
-    fn services(&self, _vm_config: VirtualMachineConfig) -> Vec<DeviceRegion> {
+    fn services(&self, _vm_config: &VirtualMachineConfig) -> Vec<DeviceRegion> {
         vec![
             // Ignore #IGNNE stuff
             DeviceRegion::PortIo(241..=241),

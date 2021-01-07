@@ -1,5 +1,5 @@
-use crate::error::Result;
 use crate::virtdev::{DeviceEvent, DeviceRegion, EmulatedDevice, Event, Port};
+use crate::{error::Result, vm::VirtualMachineConfig};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::convert::TryInto;
@@ -30,7 +30,7 @@ impl Pic8259 {
 }
 
 impl EmulatedDevice for Pic8259 {
-    fn services(&self, _vm_config: VirtualMachineConfig) -> Vec<DeviceRegion> {
+    fn services(&self, _vm_config: &VirtualMachineConfig) -> Vec<DeviceRegion> {
         vec![
             DeviceRegion::PortIo(
                 Self::PIC_MASTER_COMMAND..=Self::PIC_MASTER_DATA,

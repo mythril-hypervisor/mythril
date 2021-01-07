@@ -1,7 +1,7 @@
-use crate::error::Result;
 use crate::virtdev::{
     DeviceEvent, DeviceEventResponse, DeviceRegion, EmulatedDevice, Event, Port,
 };
+use crate::{error::Result, vm::VirtualMachineConfig};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::convert::TryInto;
@@ -18,7 +18,7 @@ impl DebugPort {
 }
 
 impl EmulatedDevice for DebugPort {
-    fn services(&self, _vm_config: VirtualMachineConfig) -> Vec<DeviceRegion> {
+    fn services(&self, _vm_config: &VirtualMachineConfig) -> Vec<DeviceRegion> {
         vec![DeviceRegion::PortIo(self.port..=self.port)]
     }
 

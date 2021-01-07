@@ -1,5 +1,5 @@
-use crate::error::Result;
 use crate::virtdev::{DeviceEvent, DeviceRegion, EmulatedDevice, Event, Port};
+use crate::{error::Result, vm::VirtualMachineConfig};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use spin::RwLock;
@@ -17,7 +17,7 @@ impl Keyboard8042 {
 }
 
 impl EmulatedDevice for Keyboard8042 {
-    fn services(&self, _vm_config: VirtualMachineConfig) -> Vec<DeviceRegion> {
+    fn services(&self, _vm_config: &VirtualMachineConfig) -> Vec<DeviceRegion> {
         vec![
             DeviceRegion::PortIo(Self::PS2_DATA..=Self::PS2_DATA),
             DeviceRegion::PortIo(Self::PS2_STATUS..=Self::PS2_STATUS),

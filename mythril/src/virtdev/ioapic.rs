@@ -1,6 +1,6 @@
-use crate::error::Result;
 use crate::memory::GuestPhysAddr;
 use crate::virtdev::{DeviceRegion, EmulatedDevice, Event};
+use crate::{error::Result, vm::VirtualMachineConfig};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use spin::RwLock;
@@ -15,7 +15,7 @@ impl IoApic {
 }
 
 impl EmulatedDevice for IoApic {
-    fn services(&self, _vm_config: VirtualMachineConfig) -> Vec<DeviceRegion> {
+    fn services(&self, _vm_config: &VirtualMachineConfig) -> Vec<DeviceRegion> {
         vec![
             DeviceRegion::MemIo(
                 GuestPhysAddr::new(0xfec00000)..=GuestPhysAddr::new(0xfec010f0),
