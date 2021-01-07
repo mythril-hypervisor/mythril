@@ -15,7 +15,7 @@ impl IoApic {
 }
 
 impl EmulatedDevice for IoApic {
-    fn services(&self) -> Vec<DeviceRegion> {
+    fn services(&self, _vm_config: VirtualMachineConfig) -> Vec<DeviceRegion> {
         vec![
             DeviceRegion::MemIo(
                 GuestPhysAddr::new(0xfec00000)..=GuestPhysAddr::new(0xfec010f0),

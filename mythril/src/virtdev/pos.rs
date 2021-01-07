@@ -24,7 +24,7 @@ impl ProgrammableOptionSelect {
 // Currently we don't actually implement any of this, but I don't think we
 // need to either (kvm doesn't seem to)
 impl EmulatedDevice for ProgrammableOptionSelect {
-    fn services(&self) -> Vec<DeviceRegion> {
+    fn services(&self, _vm_config: VirtualMachineConfig) -> Vec<DeviceRegion> {
         vec![DeviceRegion::PortIo(
             Self::POS_ARBITRATION_CLOCK..=Self::POS_ADAPTER_ENABLE_SETUP,
         )]

@@ -160,6 +160,20 @@ impl DeviceInteraction for GuestPhysAddr {
     }
 }
 
+pub struct DeviceMapBuilder<'config> {
+    pub vm_config: &'config mut VirtualMachineConfig
+}
+
+impl<'config> DeviceMapBuilder<'config> {
+    pub fn register_device(
+        &mut self,
+        dev: Arc<RwLock<dyn EmulatedDevice>>,
+    ) -> Result<()> {
+        let services = dev.read().services(self.vm_config);
+        self.vm_config.virtual_devices_mut().register_services(services)
+    }
+}
+
 /// A structure for looking up `EmulatedDevice`s by port or address
 #[derive(Default)]
 pub struct DeviceMap {
@@ -176,11 +190,10 @@ impl DeviceMap {
         op.find_device(self)
     }
 
-    pub fn register_device(
+    pub fn register_services(
         &mut self,
-        dev: Arc<RwLock<dyn EmulatedDevice>>,
+        services: Vec<DeviceRegion>,
     ) -> Result<()> {
-        let services = dev.read().services();
         for region in services.into_iter() {
             match region {
                 DeviceRegion::PortIo(val) => {
@@ -221,7 +234,7 @@ impl DeviceMap {
 }
 
 pub trait EmulatedDevice: Send + Sync {
-    fn services(&self) -> Vec<DeviceRegion>;
+    fn services(&self, vm_config: VirtualMachineConfig) -> Vec<DeviceRegion>;
 
     fn on_event(&mut self, _event: Event) -> Result<()> {
         Ok(())
@@ -498,7 +511,7 @@ mod test {
     }
 
     impl EmulatedDevice for DummyDevice {
-        fn services(&self) -> Vec<DeviceRegion> {
+        fn services(&self, _vm_config: VirtualMachineConfig) -> Vec<DeviceRegion> {
             self.services
                 .iter()
                 .map(|x| DeviceRegion::PortIo(x.clone()))

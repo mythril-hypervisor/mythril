@@ -189,7 +189,7 @@ impl PciRootComplex {
 }
 
 impl EmulatedDevice for PciRootComplex {
-    fn services(&self) -> Vec<DeviceRegion> {
+    fn services(&self, _vm_config: VirtualMachineConfig) -> Vec<DeviceRegion> {
         vec![
             DeviceRegion::PortIo(
                 Self::PCI_CONFIG_ADDRESS..=Self::PCI_CONFIG_ADDRESS,

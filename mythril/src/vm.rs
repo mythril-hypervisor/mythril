@@ -274,6 +274,12 @@ impl VirtualMachineConfig {
         &mut self.virtual_devices
     }
 
+    pub fn device_map_builder(&mut self) -> DeviceMapBuilder<'_> {
+        DeviceMapBuilder {
+            vm_config: self
+        }
+    }
+
     pub fn physical_devices(&self) -> &PhysicalDeviceConfig {
         &self.physical_devices
     }

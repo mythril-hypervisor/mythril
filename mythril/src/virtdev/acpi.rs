@@ -42,7 +42,7 @@ impl AcpiRuntime {
 }
 
 impl EmulatedDevice for AcpiRuntime {
-    fn services(&self) -> Vec<DeviceRegion> {
+    fn services(&self, _vm_config: VirtualMachineConfig) -> Vec<DeviceRegion> {
         vec![
             DeviceRegion::PortIo(
                 Self::FADT_SMI_COMMAND..=Self::FADT_SMI_COMMAND,

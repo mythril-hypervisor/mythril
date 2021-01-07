@@ -31,7 +31,7 @@ impl Dma8237 {
 }
 
 impl EmulatedDevice for Dma8237 {
-    fn services(&self) -> Vec<DeviceRegion> {
+    fn services(&self, _vm_config: VirtualMachineConfig) -> Vec<DeviceRegion> {
         vec![
             DeviceRegion::PortIo(
                 Self::DMA1_CHAN2_ADDR..=Self::DMA1_MASTER_CLEAR,

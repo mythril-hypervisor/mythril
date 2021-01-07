@@ -18,7 +18,7 @@ impl DebugPort {
 }
 
 impl EmulatedDevice for DebugPort {
-    fn services(&self) -> Vec<DeviceRegion> {
+    fn services(&self, _vm_config: VirtualMachineConfig) -> Vec<DeviceRegion> {
         vec![DeviceRegion::PortIo(self.port..=self.port)]
     }
 

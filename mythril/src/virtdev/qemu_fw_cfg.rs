@@ -388,7 +388,7 @@ impl QemuFwCfg {
 }
 
 impl EmulatedDevice for QemuFwCfg {
-    fn services(&self) -> Vec<DeviceRegion> {
+    fn services(&self, _vm_config: VirtualMachineConfig) -> Vec<DeviceRegion> {
         vec![
             DeviceRegion::PortIo(
                 Self::FW_CFG_PORT_SEL..=Self::FW_CFG_PORT_DATA,

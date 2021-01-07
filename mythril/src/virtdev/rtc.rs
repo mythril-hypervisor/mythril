@@ -167,7 +167,7 @@ impl CmosRtc {
 
 //TODO: support the NMI masking stuff
 impl EmulatedDevice for CmosRtc {
-    fn services(&self) -> Vec<DeviceRegion> {
+    fn services(&self, _vm_config: VirtualMachineConfig) -> Vec<DeviceRegion> {
         vec![DeviceRegion::PortIo(Self::RTC_ADDRESS..=Self::RTC_DATA)]
     }
 

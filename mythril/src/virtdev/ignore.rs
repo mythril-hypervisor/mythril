@@ -17,7 +17,7 @@ impl IgnoredDevice {
 }
 
 impl EmulatedDevice for IgnoredDevice {
-    fn services(&self) -> Vec<DeviceRegion> {
+    fn services(&self, _vm_config: VirtualMachineConfig) -> Vec<DeviceRegion> {
         vec![
             // Ignore #IGNNE stuff
             DeviceRegion::PortIo(241..=241),

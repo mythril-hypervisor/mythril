@@ -30,7 +30,7 @@ impl Pic8259 {
 }
 
 impl EmulatedDevice for Pic8259 {
-    fn services(&self) -> Vec<DeviceRegion> {
+    fn services(&self, _vm_config: VirtualMachineConfig) -> Vec<DeviceRegion> {
         vec![
             DeviceRegion::PortIo(
                 Self::PIC_MASTER_COMMAND..=Self::PIC_MASTER_DATA,
