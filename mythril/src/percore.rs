@@ -61,20 +61,22 @@ pub unsafe fn init_sections(ncores: usize) -> Result<()> {
     Ok(())
 }
 
+unsafe fn percore_section_start(core_idx: u64) -> *const u8 {
+    if core_idx == 0 {
+        &PER_CORE_START as *const u8
+    } else {
+        let section_len = per_core_section_len();
+        (&AP_PER_CORE_SECTIONS[section_len * (core_idx - 1) as usize])
+            as *const u8
+    }
+}
+
 /// Initialize this core's per-core data
 ///
 /// This must be called by each AP (and the BSP) before
 /// the usage of any per-core variable
 pub unsafe fn init_segment_for_core(core_idx: u64) {
-    let fs = if core_idx == 0 {
-        &PER_CORE_START as *const u8 as u64
-    } else {
-        let section_len = per_core_section_len();
-        (&AP_PER_CORE_SECTIONS[section_len * (core_idx - 1) as usize])
-            as *const u8 as u64
-    };
-
-    msr::wrmsr(msr::IA32_FS_BASE, fs);
+    msr::wrmsr(msr::IA32_FS_BASE, percore_section_start(core_idx) as u64);
 
     RoAfterInit::init(
         crate::get_per_core_mut!(CORE_ID),

@@ -1,9 +1,7 @@
 use crate::error::Result;
 use crate::time;
 use crate::virtdev::{DeviceEvent, DeviceRegion, EmulatedDevice, Event, Port};
-use alloc::sync::Arc;
 use alloc::vec::Vec;
-use spin::RwLock;
 
 const PMTIMER_HZ: u64 = 3579545;
 
@@ -28,8 +26,8 @@ impl AcpiRuntime {
     const PCI_REMOVABILITY_STATUS_START: Port = 0xae0c;
     const PCI_REMOVABILITY_STATUS_END: Port = 0xae0f;
 
-    pub fn new(pm_base: Port) -> Result<Arc<RwLock<Self>>> {
-        Ok(Arc::new(RwLock::new(AcpiRuntime { pm_base })))
+    pub fn new(pm_base: Port) -> Result<Self> {
+        Ok(AcpiRuntime { pm_base })
     }
 
     fn pm1a_cnt(&self) -> Port {

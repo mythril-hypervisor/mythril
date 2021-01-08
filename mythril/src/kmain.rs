@@ -18,7 +18,6 @@ use crate::virtdev;
 use crate::vm;
 
 use alloc::collections::BTreeMap;
-use alloc::sync::Arc;
 use alloc::vec::Vec;
 use log::{debug, info};
 use managed::ManagedMap;
@@ -40,11 +39,11 @@ fn build_vm(
     cfg: &config::UserVmConfig,
     info: &BootInfo,
     add_uart: bool,
-) -> Arc<vm::VirtualMachine> {
+) -> vm::VirtualMachine {
     let physical_config = if add_uart == false {
-        vm::PhysicalDeviceConfig::default()
+        vm::HostPhysicalDevices::default()
     } else {
-        vm::PhysicalDeviceConfig {
+        vm::HostPhysicalDevices {
             serial: RwLock::new(Some(
                 physdev::com::Uart8250::new(0x3f8)
                     .expect("Failed to create UART"),
@@ -83,47 +82,18 @@ fn build_vm(
 
     acpi.add_sdt(madt).unwrap();
 
-    let device_map = config.virtual_devices_mut();
+    let virtual_devices = &mut config.virtual_devices;
 
-    device_map
-        .register_device(virtdev::acpi::AcpiRuntime::new(0x600).unwrap())
-        .unwrap();
-    device_map
-        .register_device(virtdev::debug::DebugPort::new(0x402))
-        .unwrap();
-    device_map
-        .register_device(virtdev::com::Uart8250::new(0x3F8))
-        .unwrap();
-    device_map
-        .register_device(virtdev::vga::VgaController::new())
-        .unwrap();
-    device_map
-        .register_device(virtdev::dma::Dma8237::new())
-        .unwrap();
-    device_map
-        .register_device(virtdev::ignore::IgnoredDevice::new())
-        .unwrap();
-    device_map
-        .register_device(virtdev::pci::PciRootComplex::new())
-        .unwrap();
-    device_map
-        .register_device(virtdev::pic::Pic8259::new())
-        .unwrap();
-    device_map
-        .register_device(virtdev::keyboard::Keyboard8042::new())
-        .unwrap();
-    device_map
-        .register_device(virtdev::pit::Pit8254::new())
-        .unwrap();
-    device_map
-        .register_device(virtdev::pos::ProgrammableOptionSelect::new())
-        .unwrap();
-    device_map
-        .register_device(virtdev::rtc::CmosRtc::new(cfg.memory))
-        .unwrap();
-    device_map
-        .register_device(virtdev::ioapic::IoApic::new())
-        .unwrap();
+    virtual_devices.push(RwLock::new(
+        virtdev::DynamicVirtualDevice::DebugPort(
+            virtdev::debug::DebugPort::new(0x402)
+                .expect("Failed to make DebugPort"),
+        ),
+    ));
+
+    virtual_devices.push(RwLock::new(virtdev::DynamicVirtualDevice::Uart(
+        virtdev::com::Uart8250::new(0x3F8).expect("Failed to make Uart"),
+    )));
 
     let mut fw_cfg_builder = virtdev::qemu_fw_cfg::QemuFwCfgBuilder::new();
 
@@ -155,7 +125,9 @@ fn build_vm(
     )
     .unwrap();
 
-    device_map.register_device(fw_cfg_builder.build()).unwrap();
+    virtual_devices.push(RwLock::new(virtdev::DynamicVirtualDevice::Qemu(
+        fw_cfg_builder.build(),
+    )));
 
     vm::VirtualMachine::new(vm_id, config, info).expect("Failed to create vm")
 }
@@ -251,8 +223,6 @@ unsafe fn kmain(mut boot_info: BootInfo) -> ! {
     ioapic::map_gsi_vector(interrupt::gsi::UART, interrupt::vector::UART, 0)
         .expect("Failed to map com0 gsi");
 
-    let mut builder = vm::VirtualMachineSetBuilder::new();
-
     let raw_cfg = boot_info
         .find_module("mythril.cfg")
         .expect("Failed to find 'mythril.cfg' in boot information")
@@ -263,13 +233,15 @@ unsafe fn kmain(mut boot_info: BootInfo) -> ! {
 
     debug!("mythril.cfg: {:?}", mythril_cfg);
 
-    for (num, vm) in mythril_cfg.vms.into_iter().enumerate() {
-        builder
-            .insert_machine(build_vm(num as u32, &vm, &boot_info, num == 0))
-            .expect("Failed to insert new vm");
-    }
-
-    vm::init_virtual_machines(builder.finalize());
+    let vms = mythril_cfg
+        .vms
+        .into_iter()
+        .enumerate()
+        .map(|(num, vm_cfg)| {
+            build_vm(num as u32, &vm_cfg, &boot_info, num == 0)
+        });
+    vm::init_virtual_machines(vms)
+        .expect("Failed to initialize early virtual machine state");
 
     debug!("AP_STARTUP address: 0x{:x}", AP_STARTUP_ADDR);
 
@@ -330,6 +302,18 @@ unsafe fn kmain(mut boot_info: BootInfo) -> ! {
 
         // Once the AP is done, clear the ready flag
         core::ptr::write_volatile(&mut AP_READY as *mut u8, 0);
+    }
+
+    // Also don't start the bsp core if there is no guest assigned to use it
+    let bsp_core_id = percore::read_core_id();
+    if !vm::virtual_machines().is_assigned_core_id(bsp_core_id) {
+        debug!(
+            "Not starting core ID '{}' because it is not assigned to a guest",
+            bsp_core_id
+        );
+        loop {
+            crate::lock::relax_cpu();
+        }
     }
 
     vcpu::mp_entry_point()

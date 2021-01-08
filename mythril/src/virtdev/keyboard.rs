@@ -1,6 +1,5 @@
 use crate::error::Result;
 use crate::virtdev::{DeviceEvent, DeviceRegion, EmulatedDevice, Event, Port};
-use alloc::sync::Arc;
 use alloc::vec::Vec;
 use spin::RwLock;
 
@@ -11,8 +10,8 @@ impl Keyboard8042 {
     const PS2_DATA: Port = 0x0060;
     const PS2_STATUS: Port = 0x0064;
 
-    pub fn new() -> Arc<RwLock<Self>> {
-        Arc::new(RwLock::new(Self::default()))
+    pub fn new() -> Result<RwLock<Self>> {
+        Ok(RwLock::new(Self::default()))
     }
 }
 

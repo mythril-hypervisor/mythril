@@ -523,8 +523,7 @@ pub fn handle_apic_access(
             _ => return Err(Error::NotSupported),
         };
 
-        vcpu.local_apic
-            .register_write(vcpu.vm.clone(), offset, value)
+        vcpu.local_apic.register_write(vcpu.vm, offset, value)
     }
 
     let addr = vm::GUEST_LOCAL_APIC_ADDR

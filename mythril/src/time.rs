@@ -289,7 +289,7 @@ impl TimerWheel {
     /// expired and will reset any periodic timers.
     pub fn expire_elapsed_timers(
         &mut self,
-    ) -> Result<vec::Vec<TimerInterruptType>> {
+    ) -> Result<impl Iterator<Item = TimerInterruptType>> {
         let mut interrupts = vec![];
         let elapsed_oneshots = self
             .timers
@@ -318,7 +318,7 @@ impl TimerWheel {
         }
 
         self.update_interrupt_timer();
-        Ok(interrupts)
+        Ok(interrupts.into_iter())
     }
 
     fn update_interrupt_timer(&mut self) {

@@ -3,7 +3,6 @@ use crate::virtdev::{
     DeviceEvent, DeviceRegion, EmulatedDevice, Event, Port, PortReadRequest,
     PortWriteRequest,
 };
-use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::convert::{TryFrom, TryInto};
 use num_enum::TryFromPrimitive;
@@ -76,8 +75,8 @@ impl CmosRtc {
     const RTC_ADDRESS: Port = 0x0070;
     const RTC_DATA: Port = 0x0071;
 
-    pub fn new(mem: u64) -> Arc<RwLock<Self>> {
-        Arc::new(RwLock::new(Self {
+    pub fn new(mem: u64) -> Result<RwLock<Self>> {
+        Ok(RwLock::new(Self {
             addr: CmosRegister::Seconds, // For now, just set the default reg as seconds
             data: Self::default_register_values(mem),
         }))

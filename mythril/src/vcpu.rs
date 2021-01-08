@@ -8,11 +8,10 @@ use crate::percore;
 use crate::registers::{GdtrBase, IdtrBase};
 use crate::time;
 use crate::vm::VirtualMachine;
+use crate::{declare_per_core, get_per_core_mut};
 use crate::{virtdev, vm, vmcs, vmexit, vmx};
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
-use alloc::sync::Arc;
-use alloc::vec::Vec;
 use core::mem;
 use core::pin::Pin;
 use x86::controlregs::{cr0, cr3, cr4};
@@ -22,6 +21,13 @@ extern "C" {
     pub fn vmlaunch_wrapper() -> u64;
     static GDT64_CODE: u64;
     static GDT64_DATA: u64;
+}
+
+const PER_CORE_HOST_STACK_SIZE: usize = 1024 * 1024;
+
+declare_per_core! {
+    static mut HOST_STACK: [u8; PER_CORE_HOST_STACK_SIZE]
+        = [0u8; PER_CORE_HOST_STACK_SIZE];
 }
 
 /// The post-startup point where a core begins executing its statically
@@ -41,10 +47,10 @@ pub fn mp_entry_point() -> ! {
         vm
     };
 
-    let mut vcpu = VCpu::new(vm.clone()).expect("Failed to create vcpu");
+    let mut vcpu = VCpu::new(vm).expect("Failed to create vcpu");
 
     let vm_id = vm.id;
-    let is_vm_bsp = vm.config.bsp_id() == core_id;
+    let is_vm_bsp = vm.bsp_id() == core_id;
 
     // Increment the VM's count of ready cores
     vm.notify_ready();
@@ -89,11 +95,11 @@ pub enum InjectedInterruptType {
 /// ultimate handling will occur within an emulated device in the `VirtualMachine`'s
 /// `DeviceMap`)
 pub struct VCpu {
-    pub vm: Arc<VirtualMachine>,
+    pub vm: &'static VirtualMachine,
     pub vmcs: vmcs::ActiveVmcs,
     pub local_apic: virtdev::lapic::LocalApic,
     pending_interrupts: BTreeMap<u8, InjectedInterruptType>,
-    stack: Vec<u8>,
+    stack: &'static mut [u8; PER_CORE_HOST_STACK_SIZE],
 }
 
 impl VCpu {
@@ -102,18 +108,15 @@ impl VCpu {
     /// Note that the result must be `Pin`, as the `VCpu` pushes its own
     /// address on to the per-core host stack so it can be retrieved on
     /// VMEXIT.
-    pub fn new(vm: Arc<VirtualMachine>) -> Result<Pin<Box<Self>>> {
+    pub fn new(vm: &'static VirtualMachine) -> Result<Pin<Box<Self>>> {
         let vmx = vmx::Vmx::enable()?;
         let vmcs = vmcs::Vmcs::new()?.activate(vmx)?;
-
-        // Allocate 1MB for host stack space
-        let stack = vec![0u8; 1024 * 1024];
 
         let mut vcpu = Box::pin(Self {
             vm: vm,
             vmcs: vmcs,
             local_apic: virtdev::lapic::LocalApic::new(),
-            stack: stack,
+            stack: get_per_core_mut!(HOST_STACK),
             pending_interrupts: BTreeMap::new(),
         });
 
@@ -554,8 +557,7 @@ impl VCpu {
         for msg in vm::virtual_machines().recv_all_msgs() {
             match msg {
                 vm::VirtualMachineMsg::GrantConsole(serial) => {
-                    *self.vm.config.physical_devices().serial.write() =
-                        Some(serial);
+                    *self.vm.host_devices.serial.write() = Some(serial);
                 }
                 vm::VirtualMachineMsg::CancelTimer(timer_id) => {
                     time::cancel_timer(&timer_id)?;
@@ -577,8 +579,7 @@ impl VCpu {
     ) -> Result<()> {
         let serial_info = self
             .vm
-            .config
-            .physical_devices()
+            .host_devices
             .serial
             .read()
             .as_ref()
@@ -686,8 +687,7 @@ impl VCpu {
 
                     let serial = self
                         .vm
-                        .config
-                        .physical_devices()
+                        .host_devices
                         .serial
                         .write()
                         .take()
@@ -719,8 +719,7 @@ impl VCpu {
                     })?;
                 }
                 virtdev::DeviceEventResponse::GuestUartTransmitted(val) => {
-                    if self.vm.config.physical_devices().serial.read().is_some()
-                    {
+                    if self.vm.host_devices.serial.read().is_some() {
                         //TODO: This should be a write to the physical serial device
                         let buff = &[val];
                         let s = alloc::string::String::from_utf8_lossy(buff);

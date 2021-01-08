@@ -8,11 +8,9 @@ use crate::virtdev::{
     PortWriteRequest,
 };
 use alloc::collections::BTreeMap;
-use alloc::sync::Arc;
 use alloc::vec::Vec;
 use bitflags::bitflags;
 use core::convert::TryInto;
-use spin::RwLock;
 
 // This is _almost_ an enum, but there are 'file' selectors
 // between 0x20 and 0x7fff inclusive that make it impractical to actually
@@ -136,7 +134,7 @@ impl QemuFwCfgBuilder {
         s
     }
 
-    pub fn build(mut self) -> Arc<RwLock<QemuFwCfg>> {
+    pub fn build(mut self) -> Result<QemuFwCfg> {
         // Now that we are done building the fwcfg device, we need to make the
         // FileDir buffer, which has the following structure:
         //
@@ -167,12 +165,12 @@ impl QemuFwCfgBuilder {
 
         self.data.insert(FwCfgSelector::FILE_DIR, buffer);
 
-        Arc::new(RwLock::new(QemuFwCfg {
+        Ok(QemuFwCfg {
             selector: FwCfgSelector::SIGNATURE,
             data: self.data,
             data_idx: 0,
             dma_addr: 0,
-        }))
+        })
     }
 
     fn next_file_selector(&self) -> u16 {

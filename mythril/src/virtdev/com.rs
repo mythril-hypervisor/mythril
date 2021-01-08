@@ -4,10 +4,8 @@ use crate::physdev::com::*;
 use crate::virtdev::{
     DeviceEvent, DeviceEventResponse, DeviceRegion, EmulatedDevice, Event, Port,
 };
-use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::convert::TryInto;
-use spin::RwLock;
 
 pub struct Uart8250 {
     base_port: Port,
@@ -25,8 +23,8 @@ pub struct Uart8250 {
 }
 
 impl Uart8250 {
-    pub fn new(base_port: Port) -> Arc<RwLock<Self>> {
-        Arc::new(RwLock::new(Self {
+    pub fn new(base_port: Port) -> Result<Self> {
+        Ok(Self {
             base_port: base_port,
             divisor: 0,
             receive_buffer: None,
@@ -38,7 +36,7 @@ impl Uart8250 {
             _modem_status_register: 0,
             _scratch_register: 0,
             ctrl_a_count: 0,
-        }))
+        })
     }
 
     fn divisor_latch_bit_set(&self) -> bool {

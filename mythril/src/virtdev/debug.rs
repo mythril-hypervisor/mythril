@@ -2,18 +2,16 @@ use crate::error::Result;
 use crate::virtdev::{
     DeviceEvent, DeviceEventResponse, DeviceRegion, EmulatedDevice, Event, Port,
 };
-use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::convert::TryInto;
-use spin::RwLock;
 
 pub struct DebugPort {
     port: Port,
 }
 
 impl DebugPort {
-    pub fn new(port: Port) -> Arc<RwLock<Self>> {
-        Arc::new(RwLock::new(Self { port }))
+    pub fn new(port: Port) -> Result<Self> {
+        Ok(Self { port })
     }
 }
 

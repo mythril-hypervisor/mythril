@@ -3,7 +3,6 @@ use crate::virtdev::{
     DeviceEvent, DeviceRegion, EmulatedDevice, Event, Port, PortReadRequest,
     PortWriteRequest,
 };
-use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::convert::{TryFrom, TryInto};
 use num_enum::TryFromPrimitive;
@@ -42,8 +41,8 @@ impl VgaController {
     const VGA_INDEX: Port = 0x03D4;
     const VGA_DATA: Port = 0x03D5;
 
-    pub fn new() -> Arc<RwLock<Self>> {
-        Arc::new(RwLock::new(Self {
+    pub fn new() -> Result<RwLock<Self>> {
+        Ok(RwLock::new(Self {
             index: VgaRegister::HorizontalTotalChars,
 
             registers: [

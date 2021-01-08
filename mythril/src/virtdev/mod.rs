@@ -1,7 +1,6 @@
 use crate::error::{Error, Result};
 use crate::memory::{GuestAddressSpaceView, GuestPhysAddr};
 use alloc::collections::btree_map::BTreeMap;
-use alloc::sync::Arc;
 use alloc::vec::Vec;
 use arrayvec::ArrayVec;
 use core::cmp::Ordering;
@@ -30,6 +29,32 @@ const MAX_EVENT_RESPONSES: usize = 8;
 pub type ResponseEventArray =
     ArrayVec<[DeviceEventResponse; MAX_EVENT_RESPONSES]>;
 pub type Port = u16;
+
+/// Dynamic virtual devices are devices that are not part of the architectural
+/// components of the guest (e.g., they are not part of the virtual chipset, etc)
+pub enum DynamicVirtualDevice {
+    DebugPort(debug::DebugPort),
+    Uart(com::Uart8250),
+    Qemu(qemu_fw_cfg::QemuFwCfg),
+}
+
+impl EmulatedDevice for DynamicVirtualDevice {
+    fn services(&self) -> Vec<DeviceRegion> {
+        match self {
+            DynamicVirtualDevice::DebugPort(port) => port.services(),
+            DynamicVirtualDevice::Uart(uart) => uart.services(),
+            DynamicVirtualDevice::Qemu(qemu) => qemu.services(),
+        }
+    }
+
+    fn on_event(&mut self, event: Event) -> Result<()> {
+        match self {
+            DynamicVirtualDevice::DebugPort(port) => port.on_event(event),
+            DynamicVirtualDevice::Uart(uart) => uart.on_event(event),
+            DynamicVirtualDevice::Qemu(qemu) => qemu.on_event(event),
+        }
+    }
+}
 
 #[derive(Debug)]
 pub enum DeviceEvent<'a> {
@@ -115,69 +140,51 @@ pub enum DeviceRegion {
 }
 
 pub trait DeviceInteraction {
-    fn find_device(
+    fn find_device<'a>(
         self,
-        map: &DeviceMap,
-    ) -> Option<&Arc<RwLock<dyn EmulatedDevice>>>;
-    fn find_device_mut(
-        self,
-        map: &mut DeviceMap,
-    ) -> Option<&mut Arc<RwLock<dyn EmulatedDevice>>>;
+        map: &DeviceMap<'a>,
+    ) -> Option<&'a RwLock<dyn EmulatedDevice>>;
 }
 
 impl DeviceInteraction for u16 {
-    fn find_device(
+    fn find_device<'a>(
         self,
-        map: &DeviceMap,
-    ) -> Option<&Arc<RwLock<dyn EmulatedDevice>>> {
+        map: &DeviceMap<'a>,
+    ) -> Option<&'a RwLock<dyn EmulatedDevice>> {
         let range = PortIoRegion(RangeInclusive::new(self, self));
-        map.portio_map.get(&range)
-    }
-    fn find_device_mut(
-        self,
-        map: &mut DeviceMap,
-    ) -> Option<&mut Arc<RwLock<dyn EmulatedDevice>>> {
-        let range = PortIoRegion(RangeInclusive::new(self, self));
-        map.portio_map.get_mut(&range)
+        map.portio_map.get(&range).map(|dev| *dev)
     }
 }
 
 impl DeviceInteraction for GuestPhysAddr {
-    fn find_device(
+    fn find_device<'a>(
         self,
-        map: &DeviceMap,
-    ) -> Option<&Arc<RwLock<dyn EmulatedDevice>>> {
+        map: &DeviceMap<'a>,
+    ) -> Option<&'a RwLock<dyn EmulatedDevice>> {
         let range = MemIoRegion(RangeInclusive::new(self, self));
-        map.memio_map.get(&range)
-    }
-    fn find_device_mut(
-        self,
-        map: &mut DeviceMap,
-    ) -> Option<&mut Arc<RwLock<dyn EmulatedDevice>>> {
-        let range = MemIoRegion(RangeInclusive::new(self, self));
-        map.memio_map.get_mut(&range)
+        map.memio_map.get(&range).map(|dev| *dev)
     }
 }
 
 /// A structure for looking up `EmulatedDevice`s by port or address
 #[derive(Default)]
-pub struct DeviceMap {
-    portio_map: BTreeMap<PortIoRegion, Arc<RwLock<dyn EmulatedDevice>>>,
-    memio_map: BTreeMap<MemIoRegion, Arc<RwLock<dyn EmulatedDevice>>>,
+pub struct DeviceMap<'a> {
+    portio_map: BTreeMap<PortIoRegion, &'a RwLock<dyn EmulatedDevice>>,
+    memio_map: BTreeMap<MemIoRegion, &'a RwLock<dyn EmulatedDevice>>,
 }
 
-impl DeviceMap {
+impl<'a> DeviceMap<'a> {
     /// Find the device that is responsible for handling an interaction
     pub fn find_device(
         &self,
         op: impl DeviceInteraction,
-    ) -> Option<&Arc<RwLock<dyn EmulatedDevice>>> {
+    ) -> Option<&RwLock<dyn EmulatedDevice>> {
         op.find_device(self)
     }
 
     pub fn register_device(
         &mut self,
-        dev: Arc<RwLock<dyn EmulatedDevice>>,
+        dev: &'a RwLock<dyn EmulatedDevice>,
     ) -> Result<()> {
         let services = dev.read().services();
         for region in services.into_iter() {
@@ -196,7 +203,7 @@ impl DeviceMap {
                             key.0.start(), key.0.end(), conflict.0.start(), conflict.0.end()
                         )));
                     }
-                    self.portio_map.insert(key, dev.clone());
+                    self.portio_map.insert(key, dev);
                 }
                 DeviceRegion::MemIo(val) => {
                     let key = MemIoRegion(val);
