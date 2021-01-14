@@ -524,7 +524,7 @@ mod test {
                 1024,
                 PhysicalDeviceConfig::default(),
             )
-        }    
+        }
     }
 
     impl EmulatedDevice for DummyDevice {
@@ -553,7 +553,6 @@ mod test {
         assert_eq!(map.find_device(10u16).is_none(), true);
     }
 
-    
     #[test]
     fn test_write_request_try_from() {
         let val: Result<PortWriteRequest> =
@@ -570,7 +569,7 @@ mod test {
         let val: PortWriteRequest = [0x12, 0x34][..].try_into().unwrap();
         assert_eq!(val.as_u32(), 0x1234);
     }
-    
+
     #[test]
     fn test_portio_value_read() {
         let mut arr = [0x00, 0x00];
@@ -579,7 +578,7 @@ mod test {
         assert_eq!([0x12, 0x34], val.as_slice());
         assert_eq!(0x1234, u16::from_be_bytes(arr));
     }
-    
+
     #[test]
     fn test_conflicting_portio_device() {
         let mut config = VirtualMachineConfig::default();
@@ -591,7 +590,7 @@ mod test {
 
         assert!(builder.register_device(com).is_err());
     }
-    
+
     #[test]
     fn test_fully_overlapping_portio_device() {
         // region 2 fully inside region 1
@@ -603,7 +602,7 @@ mod test {
 
         assert!(builder.register_device(dummy).is_err());
     }
-    
+
     #[test]
     fn test_fully_encompassing_portio_device() {
         // region 1 fully inside region 2
@@ -615,7 +614,7 @@ mod test {
 
         assert!(builder.register_device(dummy).is_err());
     }
-    
+
     #[test]
     fn test_partially_overlapping_tail_portio_device() {
         // region 1 and region 2 partially overlap at the tail of region 1 and
@@ -628,7 +627,7 @@ mod test {
 
         assert!(builder.register_device(dummy).is_err());
     }
-    
+
     #[test]
     fn test_partially_overlapping_head_portio_device() {
         // region 1 and region 2 partially overlap at the start of region 1 and
@@ -641,7 +640,7 @@ mod test {
 
         assert!(builder.register_device(dummy).is_err());
     }
-    
+
     #[test]
     fn test_non_overlapping_portio_device() {
         // region 1 and region 2 don't overlap
