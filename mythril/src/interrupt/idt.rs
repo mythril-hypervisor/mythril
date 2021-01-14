@@ -79,42 +79,40 @@ pub struct FaultState {
 }
 
 macro_rules! push_regs {
-    () => (llvm_asm!(
-        "push rax
-         push rbx
-         push rcx
-         push rdx
-         push rdi
-         push rsi
-         push r8
-         push r9
-         push r10
-         push r11
-         push r12
-         push r13
-         push r14
-         push r15"
-        : : : : "intel", "volatile"
+    () => (asm!(
+        "push rax",
+        "push rbx",
+        "push rcx",
+        "push rdx",
+        "push rdi",
+        "push rsi",
+        "push r8",
+        "push r9",
+        "push r10",
+        "push r11",
+        "push r12",
+        "push r13",
+        "push r14",
+        "push r15",
     ));
 }
 
 macro_rules! pop_regs {
-    () => (llvm_asm!(
-        "pop r15
-         pop r14
-         pop r13
-         pop r12
-         pop r11
-         pop r10
-         pop r9
-         pop r8
-         pop rsi
-         pop rdi
-         pop rdx
-         pop rcx
-         pop rbx
-         pop rax"
-        : : : : "intel", "volatile"
+    () => (asm!(
+        "pop r15",
+        "pop r14",
+        "pop r13",
+        "pop r12",
+        "pop r11",
+        "pop r10",
+        "pop r9",
+        "pop r8",
+        "pop rsi",
+        "pop rdi",
+        "pop rdx",
+        "pop rcx",
+        "pop rbx",
+        "pop rax",
     ));
 }
 
@@ -129,7 +127,7 @@ macro_rules! interrupt_fn_impl {
              push_regs!();
 
              let rbp: usize;
-             llvm_asm!("" : "={rbp}"(rbp) : : : "volatile");
+             asm!("mov rax, rbp", out("eax") rbp);
 
              // Plus usize to skip the old rpb value pushed in the preamble
              let stack = &*( (rbp + core::mem::size_of::<usize>()) as *const $type);
@@ -139,10 +137,9 @@ macro_rules! interrupt_fn_impl {
 
              // Remove this stack frame before the iretq. This should work
              // whether the above 'rbp' local variable is stack allocated or not.
-             llvm_asm!("mov rsp, rbp
-                        pop rbp
-                        iretq"
-                       : : : : "intel", "volatile");
+             asm!("mov rsp, rbp",
+                  "pop rbp",
+                  "iretq");
          }
      }
 }
