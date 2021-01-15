@@ -1,10 +1,8 @@
-use crate::memory::{GuestAddressSpaceViewMut, GuestPhysAddr};
-use crate::vcpu;
-use crate::{
-    error::{Error, Result},
-    vm::VirtualMachineConfig,
-};
+use crate::error::{Error, Result};
+use crate::memory::{GuestAddressSpaceView, GuestPhysAddr};
 use alloc::collections::btree_map::BTreeMap;
+use crate::vm::VirtualMachineConfig;
+use crate::percore::CoreId;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use arrayvec::ArrayVec;
@@ -48,19 +46,19 @@ pub enum DeviceEvent<'a> {
 pub enum DeviceEventResponse {
     GuestUartTransmitted(u8),
     NextConsole,
-    Interrupt((u8, vcpu::InjectedInterruptType)),
+    GSI(u32),
 }
 
 pub struct Event<'a> {
     pub kind: DeviceEvent<'a>,
-    pub space: GuestAddressSpaceViewMut<'a>,
+    pub space: GuestAddressSpaceView<'a>,
     pub responses: &'a mut ResponseEventArray,
 }
 
 impl<'a> Event<'a> {
     pub fn new(
         kind: DeviceEvent<'a>,
-        space: GuestAddressSpaceViewMut<'a>,
+        space: GuestAddressSpaceView<'a>,
         responses: &'a mut ResponseEventArray,
     ) -> Result<Self> {
         Ok(Event {
@@ -488,6 +486,10 @@ impl<'a> MemReadRequest<'a> {
     pub fn as_slice(&self) -> &[u8] {
         self.data
     }
+
+    pub fn as_mut_slice(&mut self) -> &mut [u8] {
+        self.data
+    }
 }
 
 impl<'a> fmt::Display for MemReadRequest<'a> {
@@ -518,11 +520,12 @@ mod test {
 
     // Default config used for testing
     pub fn get_test_config() -> VirtualMachineConfig {
+        let cpus = [CoreId::from(0)];
         VirtualMachineConfig::new(
-            vec![0.into()],
+            &cpus,
             1024,
             PhysicalDeviceConfig::default(),
-        )
+        ).expect("Couldn't create a test VirtualMachineConfig")
     }
 
     impl EmulatedDevice for DummyDevice {

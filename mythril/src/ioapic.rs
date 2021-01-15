@@ -98,6 +98,7 @@ pub unsafe fn init_ioapics(madt: &MADT) -> Result<()> {
         },
         _ => None,
     }) {
+        debug!("Registering IOAPIC for gsi_base = 0x{:x}", ioapic.gsi_base);
         ioapics.push(ioapic);
     }
     RoAfterInit::init(&IOAPICS, ioapics);

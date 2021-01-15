@@ -13,8 +13,6 @@ fn emulate_outs(
     exit: vmexit::IoInstructionInformation,
     responses: &mut ResponseEventArray,
 ) -> Result<()> {
-    let mut vm = vcpu.vm.write();
-
     let linear_addr =
         vcpu.vmcs.read_field(vmcs::VmcsField::GuestLinearAddress)?;
     let guest_addr = memory::GuestVirtAddr::new(linear_addr, &vcpu.vmcs)?;
@@ -23,9 +21,9 @@ fn emulate_outs(
     //        assume that is requires supervisor
     let access = memory::GuestAccess::Read(memory::PrivilegeLevel(0));
 
-    let view = memory::GuestAddressSpaceViewMut::from_vmcs(
+    let view = memory::GuestAddressSpaceView::from_vmcs(
         &vcpu.vmcs,
-        &mut vm.guest_space,
+        &vcpu.vm.guest_space,
     )?;
 
     // FIXME: The direction we read is determined by the DF flag (I think)
@@ -39,7 +37,7 @@ fn emulate_outs(
     // FIXME: Actually test for REP
     for chunk in bytes.chunks_exact(exit.size as usize) {
         let request = PortWriteRequest::try_from(chunk)?;
-        vm.dispatch_event(
+        vcpu.vm.dispatch_event(
             port,
             DeviceEvent::PortWrite(port, request),
             vcpu,
@@ -59,8 +57,6 @@ fn emulate_ins(
     exit: vmexit::IoInstructionInformation,
     responses: &mut ResponseEventArray,
 ) -> Result<()> {
-    let mut vm = vcpu.vm.write();
-
     let linear_addr =
         vcpu.vmcs.read_field(vmcs::VmcsField::GuestLinearAddress)?;
     let guest_addr = memory::GuestVirtAddr::new(linear_addr, &vcpu.vmcs)?;
@@ -69,7 +65,7 @@ fn emulate_ins(
     let mut bytes = vec![0u8; guest_cpu.rcx as usize];
     for chunk in bytes.chunks_exact_mut(exit.size as usize) {
         let request = PortReadRequest::try_from(chunk)?;
-        vm.dispatch_event(
+        vcpu.vm.dispatch_event(
             port,
             DeviceEvent::PortRead(port, request),
             vcpu,
@@ -77,9 +73,9 @@ fn emulate_ins(
         )?;
     }
 
-    let mut view = memory::GuestAddressSpaceViewMut::from_vmcs(
+    let view = memory::GuestAddressSpaceView::from_vmcs(
         &vcpu.vmcs,
-        &mut vm.guest_space,
+        &vcpu.vm.guest_space,
     )?;
     view.write_bytes(guest_addr, &bytes, access)?;
 
@@ -98,12 +94,11 @@ pub fn emulate_portio(
         (exit.port, exit.input, exit.size, exit.string);
 
     if !string {
-        let mut vm = vcpu.vm.write();
         if !input {
             let arr = (guest_cpu.rax as u32).to_be_bytes();
             let request =
                 PortWriteRequest::try_from(&arr[4 - size as usize..])?;
-            vm.dispatch_event(
+            vcpu.vm.dispatch_event(
                 port,
                 DeviceEvent::PortWrite(port, request),
                 vcpu,
@@ -113,7 +108,7 @@ pub fn emulate_portio(
             let mut arr = [0u8; 4];
             let request =
                 PortReadRequest::try_from(&mut arr[4 - size as usize..])?;
-            vm.dispatch_event(
+            vcpu.vm.dispatch_event(
                 port,
                 DeviceEvent::PortRead(port, request),
                 vcpu,

@@ -1,13 +1,12 @@
+use crate::error::{Error, Result};
+use crate::interrupt;
 use crate::physdev::pit::*;
 use crate::time;
 use crate::virtdev::{
     DeviceEvent, DeviceRegion, EmulatedDevice, Event, Port, PortReadRequest,
     PortWriteRequest,
 };
-use crate::{
-    error::{Error, Result},
-    vm::VirtualMachineConfig,
-};
+use crate::vm::VirtualMachineConfig;
 
 use alloc::sync::Arc;
 use alloc::vec::Vec;
@@ -228,10 +227,12 @@ impl Pit8254 {
 
                         // Only channel 0 produces timer interrupts
                         if port == PIT_COUNTER_0 {
-                            //FIXME: this value should be determined by the virtual
-                            // PIC/APIC. Currently use the vector linux has for IRQ0
-                            *timer =
-                                Some(time::set_oneshot_timer(duration, 48));
+                            *timer = Some(time::set_oneshot_timer(
+                                duration,
+                                time::TimerInterruptType::GSI(
+                                    interrupt::gsi::PIT,
+                                ),
+                            ));
                         }
                     }
 
@@ -244,10 +245,12 @@ impl Pit8254 {
                         *start_time = Some(time::now());
 
                         if port == PIT_COUNTER_0 {
-                            //FIXME: this value should be determined by the virtual
-                            // PIC/APIC. Currently use the vector linux has for IRQ0
-                            *timer =
-                                Some(time::set_periodic_timer(duration, 48));
+                            *timer = Some(time::set_periodic_timer(
+                                duration,
+                                time::TimerInterruptType::GSI(
+                                    interrupt::gsi::PIT,
+                                ),
+                            ));
                         }
                     }
                 };

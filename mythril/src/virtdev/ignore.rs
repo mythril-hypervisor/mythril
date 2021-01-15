@@ -30,6 +30,8 @@ impl EmulatedDevice for IgnoredDevice {
             DeviceRegion::PortIo(0x2F8..=0x2F8 + 7),
             DeviceRegion::PortIo(0x3E8..=0x3E8 + 7),
             DeviceRegion::PortIo(0x2E8..=0x2E8 + 7),
+            // Floppy disk controller
+            DeviceRegion::PortIo(0x3f0..=0x3f7),
         ]
     }
 

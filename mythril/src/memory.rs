@@ -3,12 +3,12 @@ use crate::vmcs;
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 use bitflags::bitflags;
-use core::borrow::{Borrow, BorrowMut};
 use core::convert::TryFrom;
 use core::default::Default;
 use core::fmt;
 use core::ops::{Add, Deref, Index, IndexMut};
 use num_enum::TryFromPrimitive;
+use spin::RwLock;
 use ux;
 use x86::bits64::paging::*;
 use x86::controlregs::Cr0;
@@ -255,7 +255,7 @@ impl HostPhysFrame {
 }
 
 pub struct GuestAddressSpace {
-    root: Box<EptPml4Table>,
+    root: RwLock<Box<EptPml4Table>>,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -271,21 +271,26 @@ pub enum GuestAccess {
 impl GuestAddressSpace {
     pub fn new() -> Result<Self> {
         Ok(GuestAddressSpace {
-            root: Box::new(EptPml4Table::default()),
+            root: RwLock::new(Box::new(EptPml4Table::default())),
         })
     }
 
     pub fn map_frame(
-        &mut self,
+        &self,
         guest_addr: GuestPhysAddr,
         host_frame: HostPhysFrame,
         readonly: bool,
     ) -> Result<()> {
-        map_guest_memory(&mut self.root, guest_addr, host_frame, readonly)
+        map_guest_memory(
+            &mut self.root.write(),
+            guest_addr,
+            host_frame,
+            readonly,
+        )
     }
 
     pub fn map_new_frame(
-        &mut self,
+        &self,
         guest_addr: GuestPhysAddr,
         readonly: bool,
     ) -> Result<()> {
@@ -297,7 +302,7 @@ impl GuestAddressSpace {
 
     pub fn eptp(&self) -> u64 {
         // //TODO: check available memory types
-        (&*self.root as *const _ as u64) | (4 - 1) << 3 | 6
+        (&*(*self.root.read()) as *const _ as u64) | (4 - 1) << 3 | 6
     }
 
     pub fn translate_linear_address(
@@ -360,7 +365,7 @@ impl GuestAddressSpace {
         &self,
         addr: GuestPhysAddr,
     ) -> Result<HostPhysFrame> {
-        let ept_pml4e = &self.root[addr.p4_index()];
+        let ept_pml4e = &self.root.read()[addr.p4_index()];
         if ept_pml4e.is_unused() {
             return Err(Error::InvalidValue(
                 "No PML4 entry for GuestPhysAddr".into(),
@@ -440,7 +445,7 @@ impl GuestAddressSpace {
     }
 
     pub fn write_bytes(
-        &mut self,
+        &self,
         cr3: GuestPhysAddr,
         addr: GuestVirtAddr,
         mut bytes: &[u8],
@@ -471,25 +476,20 @@ impl GuestAddressSpace {
     }
 }
 
-pub type GuestAddressSpaceView<'a> =
-    GuestAddressSpaceWrapper<&'a GuestAddressSpace>;
-pub type GuestAddressSpaceViewMut<'a> =
-    GuestAddressSpaceWrapper<&'a mut GuestAddressSpace>;
-
-pub struct GuestAddressSpaceWrapper<T> {
-    space: T,
+pub struct GuestAddressSpaceView<'a> {
+    space: &'a GuestAddressSpace,
     cr3: GuestPhysAddr,
 }
 
-impl<T> GuestAddressSpaceWrapper<T>
-where
-    T: Borrow<GuestAddressSpace>,
-{
-    pub fn new(cr3: GuestPhysAddr, space: T) -> Self {
+impl<'a> GuestAddressSpaceView<'a> {
+    pub fn new(cr3: GuestPhysAddr, space: &'a GuestAddressSpace) -> Self {
         Self { space, cr3 }
     }
 
-    pub fn from_vmcs(vmcs: &vmcs::ActiveVmcs, space: T) -> Result<Self> {
+    pub fn from_vmcs(
+        vmcs: &vmcs::ActiveVmcs,
+        space: &'a GuestAddressSpace,
+    ) -> Result<Self> {
         let cr3 = vmcs.read_field(vmcs::VmcsField::GuestCr3)?;
         let cr3 = GuestPhysAddr::new(cr3);
         Ok(Self { space, cr3 })
@@ -500,7 +500,7 @@ where
         addr: GuestVirtAddr,
         access: GuestAccess,
     ) -> Result<FrameIter> {
-        self.space.borrow().frame_iter(self.cr3, addr, access)
+        self.space.frame_iter(self.cr3, addr, access)
     }
 
     pub fn read_bytes(
@@ -509,9 +509,7 @@ where
         length: usize,
         access: GuestAccess,
     ) -> Result<Vec<u8>> {
-        self.space
-            .borrow()
-            .read_bytes(self.cr3, addr, length, access)
+        self.space.read_bytes(self.cr3, addr, length, access)
     }
 
     pub fn translate_linear_address(
@@ -519,36 +517,24 @@ where
         addr: GuestVirtAddr,
         access: GuestAccess,
     ) -> Result<GuestPhysAddr> {
-        self.space
-            .borrow()
-            .translate_linear_address(self.cr3, addr, access)
+        self.space.translate_linear_address(self.cr3, addr, access)
     }
-}
 
-impl<T> GuestAddressSpaceWrapper<T>
-where
-    T: BorrowMut<GuestAddressSpace>,
-{
     pub fn write_bytes(
-        &mut self,
+        &self,
         addr: GuestVirtAddr,
         bytes: &[u8],
         access: GuestAccess,
     ) -> Result<()> {
-        self.space
-            .borrow_mut()
-            .write_bytes(self.cr3, addr, bytes, access)
+        self.space.write_bytes(self.cr3, addr, bytes, access)
     }
 }
 
-impl<T> Deref for GuestAddressSpaceWrapper<T>
-where
-    T: Borrow<GuestAddressSpace>,
-{
-    type Target = T;
+impl<'a> Deref for GuestAddressSpaceView<'a> {
+    type Target = GuestAddressSpace;
 
-    fn deref(&self) -> &Self::Target {
-        &self.space
+    fn deref(&self) -> &'a Self::Target {
+        self.space
     }
 }
 
