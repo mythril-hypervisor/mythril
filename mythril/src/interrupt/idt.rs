@@ -79,41 +79,47 @@ pub struct FaultState {
 }
 
 macro_rules! push_regs {
-    () => (asm!(
-        "push rax",
-        "push rbx",
-        "push rcx",
-        "push rdx",
-        "push rdi",
-        "push rsi",
-        "push r8",
-        "push r9",
-        "push r10",
-        "push r11",
-        "push r12",
-        "push r13",
-        "push r14",
-        "push r15",
-    ));
+    () => {
+        #[rustfmt::skip]
+        asm!(
+            "push rax",
+            "push rbx",
+            "push rcx",
+            "push rdx",
+            "push rdi",
+            "push rsi",
+            "push r8",
+            "push r9",
+            "push r10",
+            "push r11",
+            "push r12",
+            "push r13",
+            "push r14",
+            "push r15",
+        )
+    };
 }
 
 macro_rules! pop_regs {
-    () => (asm!(
-        "pop r15",
-        "pop r14",
-        "pop r13",
-        "pop r12",
-        "pop r11",
-        "pop r10",
-        "pop r9",
-        "pop r8",
-        "pop rsi",
-        "pop rdi",
-        "pop rdx",
-        "pop rcx",
-        "pop rbx",
-        "pop rax",
-    ));
+    () => {
+        #[rustfmt::skip]
+        asm!(
+            "pop r15",
+            "pop r14",
+            "pop r13",
+            "pop r12",
+            "pop r11",
+            "pop r10",
+            "pop r9",
+            "pop r8",
+            "pop rsi",
+            "pop rdi",
+            "pop rdx",
+            "pop rcx",
+            "pop rbx",
+            "pop rax",
+        )
+    };
 }
 
 macro_rules! interrupt_fn_impl {
