@@ -384,7 +384,7 @@ pub fn busy_wait(duration: core::time::Duration) {
     while now() < start + duration {
         unsafe {
             // Relax the cpu
-            llvm_asm!("rep; nop" ::: "memory");
+            asm!("rep", "nop");
         }
     }
 }
