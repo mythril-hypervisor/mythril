@@ -1,6 +1,5 @@
 use crate::error::{Error, Result};
 use crate::memory::{GuestAddressSpaceView, GuestPhysAddr};
-use crate::percore::CoreId;
 use crate::vm::VirtualMachineConfig;
 use alloc::collections::btree_map::BTreeMap;
 use alloc::sync::Arc;
@@ -501,6 +500,7 @@ impl<'a> fmt::Display for MemReadRequest<'a> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::percore::CoreId;
     use crate::{virtdev::com::*, vm::PhysicalDeviceConfig};
     use core::convert::TryInto;
 
