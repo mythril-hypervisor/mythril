@@ -1,6 +1,6 @@
 CARGO?=cargo
 BUILD_TYPE?=release
-BUILD_REPO_TAG=14
+BUILD_REPO_TAG=16
 DOCKER_IMAGE=adamschwalm/hypervisor-build:$(BUILD_REPO_TAG)
 
 TEST_IMAGE_REPO=https://github.com/mythril-hypervisor/build

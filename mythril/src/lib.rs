@@ -49,6 +49,7 @@ pub mod time;
 pub mod tsc;
 pub mod vcpu;
 pub mod virtdev;
+/// Top level virtual machine definition
 pub mod vm;
 pub mod vmcs;
 pub mod vmexit;

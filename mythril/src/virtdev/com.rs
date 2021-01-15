@@ -1,6 +1,6 @@
 use crate::error::Result;
+use crate::interrupt;
 use crate::physdev::com::*;
-use crate::vcpu;
 use crate::virtdev::{
     DeviceEvent, DeviceEventResponse, DeviceRegion, EmulatedDevice, Event, Port,
 };
@@ -61,13 +61,9 @@ impl EmulatedDevice for Uart8250 {
     fn on_event(&mut self, event: Event) -> Result<()> {
         match event.kind {
             DeviceEvent::HostUartReceived(key) => {
-                event.responses.push(
-                    // IRQ4
-                    DeviceEventResponse::Interrupt((
-                        52,
-                        vcpu::InjectedInterruptType::ExternalInterrupt,
-                    )),
-                );
+                event
+                    .responses
+                    .push(DeviceEventResponse::GSI(interrupt::gsi::UART));
                 if key == 0x01 {
                     // ctrl+a
                     self.ctrl_a_count += 1;
@@ -131,14 +127,14 @@ impl EmulatedDevice for Uart8250 {
                         event.responses.push(
                             DeviceEventResponse::GuestUartTransmitted(val),
                         );
+
                         if self
                             .interrupt_enable_register
                             .contains(IerFlags::THR_EMPTY_INTERRUPT)
                         {
-                            event.responses.push(
-                                // IRQ4
-                                DeviceEventResponse::Interrupt((52, vcpu::InjectedInterruptType::ExternalInterrupt))
-                            );
+                            event.responses.push(DeviceEventResponse::GSI(
+                                interrupt::gsi::UART,
+                            ));
                         }
                         self.interrupt_identification_register = 0b10;
                     }

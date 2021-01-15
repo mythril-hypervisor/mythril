@@ -3,9 +3,32 @@ use crate::memory;
 use crate::virtdev::{
     DeviceEvent, MemReadRequest, MemWriteRequest, ResponseEventArray,
 };
-use crate::{vcpu, vmcs, vmexit};
+use crate::{vcpu, vm, vmcs, vmexit};
 use arrayvec::ArrayVec;
+use byteorder::ByteOrder;
+use core::mem::size_of;
 use iced_x86;
+use x86::bits64::paging::BASE_PAGE_SIZE;
+
+trait MemIoCallback:
+    Fn(
+    &mut vcpu::VCpu,
+    memory::GuestPhysAddr,
+    DeviceEvent,
+    &mut ResponseEventArray,
+) -> Result<()>
+{
+}
+
+impl<T> MemIoCallback for T where
+    T: Fn(
+        &mut vcpu::VCpu,
+        memory::GuestPhysAddr,
+        DeviceEvent,
+        &mut ResponseEventArray,
+    ) -> Result<()>
+{
+}
 
 macro_rules! read_register {
     ($out:ident, $value:expr, $type:ty) => {{
@@ -13,20 +36,6 @@ macro_rules! read_register {
         $out.try_extend_from_slice(&data).map_err(|_| {
             Error::InvalidValue("Invalid length with reading register".into())
         })?;
-    }};
-}
-
-macro_rules! write_register {
-    ($vm:ident, $vcpu:ident, $addr:expr, $responses:ident, $value:expr, $type:ty, $mask:expr) => {{
-        let mut buff = <$type>::default().to_be_bytes();
-        let request = MemReadRequest::new(&mut buff[..]);
-        $vm.dispatch_event(
-            $addr,
-            DeviceEvent::MemRead($addr, request),
-            $vcpu,
-            $responses,
-        )?;
-        $value = ($value & $mask) | <$type>::from_be_bytes(buff) as u64;
     }};
 }
 
@@ -150,6 +159,7 @@ fn do_mmio_write(
     guest_cpu: &mut vmexit::GuestCpuState,
     responses: &mut ResponseEventArray,
     instr: iced_x86::Instruction,
+    on_write: impl MemIoCallback,
 ) -> Result<()> {
     let mut res = ArrayVec::<[u8; 8]>::new();
     let data = match instr.op1_kind() {
@@ -181,11 +191,10 @@ fn do_mmio_write(
     };
     let request = MemWriteRequest::new(&data[..]);
 
-    let mut vm = vcpu.vm.write();
-    vm.dispatch_event(
+    (on_write)(
+        vcpu,
         addr,
         crate::virtdev::DeviceEvent::MemWrite(addr, request),
-        vcpu,
         responses,
     )
 }
@@ -196,527 +205,151 @@ fn do_mmio_read(
     guest_cpu: &mut vmexit::GuestCpuState,
     responses: &mut ResponseEventArray,
     instr: iced_x86::Instruction,
+    on_read: impl MemIoCallback,
 ) -> Result<()> {
-    let mut vm = vcpu.vm.write();
-    match instr.op0_kind() {
+    let (reg, size, offset) = match instr.op0_kind() {
         iced_x86::OpKind::Register => match instr.op_register(0) {
-            iced_x86::Register::AL => write_register!(
-                vm,
-                vcpu,
-                addr,
-                responses,
-                guest_cpu.rax,
-                u8,
-                !0xff
-            ),
-            iced_x86::Register::AX => write_register!(
-                vm,
-                vcpu,
-                addr,
-                responses,
-                guest_cpu.rax,
-                u16,
-                !0xffff
-            ),
-            iced_x86::Register::EAX => write_register!(
-                vm,
-                vcpu,
-                addr,
-                responses,
-                guest_cpu.rax,
-                u32,
-                !0xffffffff
-            ),
-            iced_x86::Register::RAX => write_register!(
-                vm,
-                vcpu,
-                addr,
-                responses,
-                guest_cpu.rax,
-                u64,
-                0x00
-            ),
+            iced_x86::Register::AL => (&mut guest_cpu.rax, size_of::<u8>(), 0),
+            iced_x86::Register::AX => (&mut guest_cpu.rax, size_of::<u16>(), 0),
+            iced_x86::Register::EAX => {
+                (&mut guest_cpu.rax, size_of::<u32>(), 0)
+            }
+            iced_x86::Register::RAX => {
+                (&mut guest_cpu.rax, size_of::<u64>(), 0)
+            }
 
-            iced_x86::Register::BL => write_register!(
-                vm,
-                vcpu,
-                addr,
-                responses,
-                guest_cpu.rbx,
-                u8,
-                !0xff
-            ),
-            iced_x86::Register::BX => write_register!(
-                vm,
-                vcpu,
-                addr,
-                responses,
-                guest_cpu.rbx,
-                u16,
-                !0xffff
-            ),
-            iced_x86::Register::EBX => write_register!(
-                vm,
-                vcpu,
-                addr,
-                responses,
-                guest_cpu.rbx,
-                u32,
-                !0xffffffff
-            ),
-            iced_x86::Register::RBX => write_register!(
-                vm,
-                vcpu,
-                addr,
-                responses,
-                guest_cpu.rbx,
-                u64,
-                0x00
-            ),
+            iced_x86::Register::BL => (&mut guest_cpu.rbx, size_of::<u8>(), 0),
+            iced_x86::Register::BX => (&mut guest_cpu.rbx, size_of::<u16>(), 0),
+            iced_x86::Register::EBX => {
+                (&mut guest_cpu.rbx, size_of::<u32>(), 0)
+            }
+            iced_x86::Register::RBX => {
+                (&mut guest_cpu.rbx, size_of::<u64>(), 0)
+            }
 
-            iced_x86::Register::CL => write_register!(
-                vm,
-                vcpu,
-                addr,
-                responses,
-                guest_cpu.rcx,
-                u8,
-                !0xff
-            ),
-            iced_x86::Register::CX => write_register!(
-                vm,
-                vcpu,
-                addr,
-                responses,
-                guest_cpu.rcx,
-                u16,
-                !0xffff
-            ),
-            iced_x86::Register::ECX => write_register!(
-                vm,
-                vcpu,
-                addr,
-                responses,
-                guest_cpu.rcx,
-                u32,
-                !0xffffffff
-            ),
-            iced_x86::Register::RCX => write_register!(
-                vm,
-                vcpu,
-                addr,
-                responses,
-                guest_cpu.rdx,
-                u64,
-                0x00
-            ),
+            iced_x86::Register::CL => (&mut guest_cpu.rcx, size_of::<u8>(), 0),
+            iced_x86::Register::CX => (&mut guest_cpu.rcx, size_of::<u16>(), 0),
+            iced_x86::Register::ECX => {
+                (&mut guest_cpu.rcx, size_of::<u32>(), 0)
+            }
+            iced_x86::Register::RCX => {
+                (&mut guest_cpu.rcx, size_of::<u64>(), 0)
+            }
 
-            iced_x86::Register::DL => write_register!(
-                vm,
-                vcpu,
-                addr,
-                responses,
-                guest_cpu.rdx,
-                u8,
-                !0xff
-            ),
-            iced_x86::Register::DX => write_register!(
-                vm,
-                vcpu,
-                addr,
-                responses,
-                guest_cpu.rdx,
-                u16,
-                !0xffff
-            ),
-            iced_x86::Register::EDX => write_register!(
-                vm,
-                vcpu,
-                addr,
-                responses,
-                guest_cpu.rdx,
-                u32,
-                !0xffffffff
-            ),
-            iced_x86::Register::RDX => write_register!(
-                vm,
-                vcpu,
-                addr,
-                responses,
-                guest_cpu.rdx,
-                u64,
-                0x00
-            ),
+            iced_x86::Register::DL => (&mut guest_cpu.rdx, size_of::<u8>(), 0),
+            iced_x86::Register::DX => (&mut guest_cpu.rdx, size_of::<u16>(), 0),
+            iced_x86::Register::EDX => {
+                (&mut guest_cpu.rdx, size_of::<u32>(), 0)
+            }
+            iced_x86::Register::RDX => {
+                (&mut guest_cpu.rdx, size_of::<u64>(), 0)
+            }
 
-            iced_x86::Register::R8L => write_register!(
-                vm,
-                vcpu,
-                addr,
-                responses,
-                guest_cpu.r8,
-                u8,
-                !0xff
-            ),
-            iced_x86::Register::R8W => write_register!(
-                vm,
-                vcpu,
-                addr,
-                responses,
-                guest_cpu.r8,
-                u16,
-                !0xffff
-            ),
-            iced_x86::Register::R8D => write_register!(
-                vm,
-                vcpu,
-                addr,
-                responses,
-                guest_cpu.r8,
-                u32,
-                !0xffffffff
-            ),
-            iced_x86::Register::R8 => write_register!(
-                vm,
-                vcpu,
-                addr,
-                responses,
-                guest_cpu.r8,
-                u64,
-                0x00
-            ),
+            iced_x86::Register::R8L => (&mut guest_cpu.r8, size_of::<u8>(), 0),
+            iced_x86::Register::R8W => (&mut guest_cpu.r8, size_of::<u16>(), 0),
+            iced_x86::Register::R8D => (&mut guest_cpu.r8, size_of::<u32>(), 0),
+            iced_x86::Register::R8 => (&mut guest_cpu.r8, size_of::<u64>(), 0),
 
-            iced_x86::Register::R9L => write_register!(
-                vm,
-                vcpu,
-                addr,
-                responses,
-                guest_cpu.r9,
-                u8,
-                !0xff
-            ),
-            iced_x86::Register::R9W => write_register!(
-                vm,
-                vcpu,
-                addr,
-                responses,
-                guest_cpu.r9,
-                u16,
-                !0xffff
-            ),
-            iced_x86::Register::R9D => write_register!(
-                vm,
-                vcpu,
-                addr,
-                responses,
-                guest_cpu.r9,
-                u32,
-                !0xffffffff
-            ),
-            iced_x86::Register::R9 => write_register!(
-                vm,
-                vcpu,
-                addr,
-                responses,
-                guest_cpu.r9,
-                u64,
-                0x00
-            ),
+            iced_x86::Register::R9L => (&mut guest_cpu.r9, size_of::<u8>(), 0),
+            iced_x86::Register::R9W => (&mut guest_cpu.r9, size_of::<u16>(), 0),
+            iced_x86::Register::R9D => (&mut guest_cpu.r9, size_of::<u32>(), 0),
+            iced_x86::Register::R9 => (&mut guest_cpu.r9, size_of::<u64>(), 0),
 
-            iced_x86::Register::R10L => write_register!(
-                vm,
-                vcpu,
-                addr,
-                responses,
-                guest_cpu.r10,
-                u8,
-                !0xff
-            ),
-            iced_x86::Register::R10W => write_register!(
-                vm,
-                vcpu,
-                addr,
-                responses,
-                guest_cpu.r10,
-                u16,
-                !0xffff
-            ),
-            iced_x86::Register::R10D => write_register!(
-                vm,
-                vcpu,
-                addr,
-                responses,
-                guest_cpu.r10,
-                u32,
-                !0xffffffff
-            ),
-            iced_x86::Register::R10 => write_register!(
-                vm,
-                vcpu,
-                addr,
-                responses,
-                guest_cpu.r10,
-                u64,
-                0x00
-            ),
+            iced_x86::Register::R10L => {
+                (&mut guest_cpu.r10, size_of::<u8>(), 0)
+            }
+            iced_x86::Register::R10W => {
+                (&mut guest_cpu.r10, size_of::<u16>(), 0)
+            }
+            iced_x86::Register::R10D => {
+                (&mut guest_cpu.r10, size_of::<u32>(), 0)
+            }
+            iced_x86::Register::R10 => {
+                (&mut guest_cpu.r10, size_of::<u64>(), 0)
+            }
 
-            iced_x86::Register::R11L => write_register!(
-                vm,
-                vcpu,
-                addr,
-                responses,
-                guest_cpu.r11,
-                u8,
-                !0xff
-            ),
-            iced_x86::Register::R11W => write_register!(
-                vm,
-                vcpu,
-                addr,
-                responses,
-                guest_cpu.r11,
-                u16,
-                !0xffff
-            ),
-            iced_x86::Register::R11D => write_register!(
-                vm,
-                vcpu,
-                addr,
-                responses,
-                guest_cpu.r11,
-                u32,
-                !0xffffffff
-            ),
-            iced_x86::Register::R11 => write_register!(
-                vm,
-                vcpu,
-                addr,
-                responses,
-                guest_cpu.r11,
-                u64,
-                0x00
-            ),
+            iced_x86::Register::R11L => {
+                (&mut guest_cpu.r11, size_of::<u8>(), 0)
+            }
+            iced_x86::Register::R11W => {
+                (&mut guest_cpu.r11, size_of::<u16>(), 0)
+            }
+            iced_x86::Register::R11D => {
+                (&mut guest_cpu.r11, size_of::<u32>(), 0)
+            }
+            iced_x86::Register::R11 => {
+                (&mut guest_cpu.r11, size_of::<u64>(), 0)
+            }
 
-            iced_x86::Register::R12L => write_register!(
-                vm,
-                vcpu,
-                addr,
-                responses,
-                guest_cpu.r12,
-                u8,
-                !0xff
-            ),
-            iced_x86::Register::R12W => write_register!(
-                vm,
-                vcpu,
-                addr,
-                responses,
-                guest_cpu.r12,
-                u16,
-                !0xffff
-            ),
-            iced_x86::Register::R12D => write_register!(
-                vm,
-                vcpu,
-                addr,
-                responses,
-                guest_cpu.r12,
-                u32,
-                !0xffffffff
-            ),
-            iced_x86::Register::R12 => write_register!(
-                vm,
-                vcpu,
-                addr,
-                responses,
-                guest_cpu.r12,
-                u64,
-                0x00
-            ),
+            iced_x86::Register::R12L => {
+                (&mut guest_cpu.r12, size_of::<u8>(), 0)
+            }
+            iced_x86::Register::R12W => {
+                (&mut guest_cpu.r12, size_of::<u16>(), 0)
+            }
+            iced_x86::Register::R12D => {
+                (&mut guest_cpu.r12, size_of::<u32>(), 0)
+            }
+            iced_x86::Register::R12 => {
+                (&mut guest_cpu.r12, size_of::<u64>(), 0)
+            }
 
-            iced_x86::Register::R13L => write_register!(
-                vm,
-                vcpu,
-                addr,
-                responses,
-                guest_cpu.r13,
-                u8,
-                !0xff
-            ),
-            iced_x86::Register::R13W => write_register!(
-                vm,
-                vcpu,
-                addr,
-                responses,
-                guest_cpu.r13,
-                u16,
-                !0xffff
-            ),
-            iced_x86::Register::R13D => write_register!(
-                vm,
-                vcpu,
-                addr,
-                responses,
-                guest_cpu.r13,
-                u32,
-                !0xffffffff
-            ),
-            iced_x86::Register::R13 => write_register!(
-                vm,
-                vcpu,
-                addr,
-                responses,
-                guest_cpu.r13,
-                u64,
-                0x00
-            ),
+            iced_x86::Register::R13L => {
+                (&mut guest_cpu.r13, size_of::<u8>(), 0)
+            }
+            iced_x86::Register::R13W => {
+                (&mut guest_cpu.r13, size_of::<u16>(), 0)
+            }
+            iced_x86::Register::R13D => {
+                (&mut guest_cpu.r13, size_of::<u32>(), 0)
+            }
+            iced_x86::Register::R13 => {
+                (&mut guest_cpu.r13, size_of::<u64>(), 0)
+            }
 
-            iced_x86::Register::R14L => write_register!(
-                vm,
-                vcpu,
-                addr,
-                responses,
-                guest_cpu.r14,
-                u8,
-                !0xff
-            ),
-            iced_x86::Register::R14W => write_register!(
-                vm,
-                vcpu,
-                addr,
-                responses,
-                guest_cpu.r14,
-                u16,
-                !0xffff
-            ),
-            iced_x86::Register::R14D => write_register!(
-                vm,
-                vcpu,
-                addr,
-                responses,
-                guest_cpu.r14,
-                u32,
-                !0xffffffff
-            ),
-            iced_x86::Register::R14 => write_register!(
-                vm,
-                vcpu,
-                addr,
-                responses,
-                guest_cpu.r14,
-                u64,
-                0x00
-            ),
+            iced_x86::Register::R14L => {
+                (&mut guest_cpu.r14, size_of::<u8>(), 0)
+            }
+            iced_x86::Register::R14W => {
+                (&mut guest_cpu.r14, size_of::<u16>(), 0)
+            }
+            iced_x86::Register::R14D => {
+                (&mut guest_cpu.r14, size_of::<u32>(), 0)
+            }
+            iced_x86::Register::R14 => {
+                (&mut guest_cpu.r14, size_of::<u64>(), 0)
+            }
 
-            iced_x86::Register::R15L => write_register!(
-                vm,
-                vcpu,
-                addr,
-                responses,
-                guest_cpu.r15,
-                u8,
-                !0xff
-            ),
-            iced_x86::Register::R15W => write_register!(
-                vm,
-                vcpu,
-                addr,
-                responses,
-                guest_cpu.r15,
-                u16,
-                !0xffff
-            ),
-            iced_x86::Register::R15D => write_register!(
-                vm,
-                vcpu,
-                addr,
-                responses,
-                guest_cpu.r15,
-                u32,
-                !0xffffffff
-            ),
-            iced_x86::Register::R15 => write_register!(
-                vm,
-                vcpu,
-                addr,
-                responses,
-                guest_cpu.r15,
-                u64,
-                0x00
-            ),
+            iced_x86::Register::R15L => {
+                (&mut guest_cpu.r15, size_of::<u8>(), 0)
+            }
+            iced_x86::Register::R15W => {
+                (&mut guest_cpu.r15, size_of::<u16>(), 0)
+            }
+            iced_x86::Register::R15D => {
+                (&mut guest_cpu.r15, size_of::<u32>(), 0)
+            }
+            iced_x86::Register::R15 => {
+                (&mut guest_cpu.r15, size_of::<u64>(), 0)
+            }
 
-            iced_x86::Register::DIL => write_register!(
-                vm,
-                vcpu,
-                addr,
-                responses,
-                guest_cpu.rdi,
-                u8,
-                !0xff
-            ),
-            iced_x86::Register::DI => write_register!(
-                vm,
-                vcpu,
-                addr,
-                responses,
-                guest_cpu.rdi,
-                u16,
-                !0xffff
-            ),
-            iced_x86::Register::EDI => write_register!(
-                vm,
-                vcpu,
-                addr,
-                responses,
-                guest_cpu.rdi,
-                u32,
-                !0xffffffff
-            ),
-            iced_x86::Register::RDI => write_register!(
-                vm,
-                vcpu,
-                addr,
-                responses,
-                guest_cpu.rdi,
-                u64,
-                0x00
-            ),
+            iced_x86::Register::DIL => (&mut guest_cpu.rdi, size_of::<u8>(), 0),
+            iced_x86::Register::DI => (&mut guest_cpu.rdi, size_of::<u16>(), 0),
+            iced_x86::Register::EDI => {
+                (&mut guest_cpu.rdi, size_of::<u32>(), 0)
+            }
+            iced_x86::Register::RDI => {
+                (&mut guest_cpu.rdi, size_of::<u64>(), 0)
+            }
 
-            iced_x86::Register::SIL => write_register!(
-                vm,
-                vcpu,
-                addr,
-                responses,
-                guest_cpu.rsi,
-                u8,
-                !0xff
-            ),
-            iced_x86::Register::SI => write_register!(
-                vm,
-                vcpu,
-                addr,
-                responses,
-                guest_cpu.rsi,
-                u16,
-                !0xffff
-            ),
-            iced_x86::Register::ESI => write_register!(
-                vm,
-                vcpu,
-                addr,
-                responses,
-                guest_cpu.rsi,
-                u32,
-                !0xffffffff
-            ),
-            iced_x86::Register::RSI => write_register!(
-                vm,
-                vcpu,
-                addr,
-                responses,
-                guest_cpu.rsi,
-                u64,
-                0x00
-            ),
+            iced_x86::Register::SIL => (&mut guest_cpu.rsi, size_of::<u8>(), 0),
+            iced_x86::Register::SI => (&mut guest_cpu.rsi, size_of::<u16>(), 0),
+            iced_x86::Register::ESI => {
+                (&mut guest_cpu.rsi, size_of::<u32>(), 0)
+            }
+            iced_x86::Register::RSI => {
+                (&mut guest_cpu.rsi, size_of::<u64>(), 0)
+            }
 
             register => {
                 return Err(Error::InvalidValue(format!(
@@ -728,25 +361,50 @@ fn do_mmio_read(
         _ => return Err(Error::NotSupported),
     };
 
+    let mut arr = [0u8; size_of::<u64>()];
+    let request = MemReadRequest::new(&mut arr[..size]);
+    (on_read)(vcpu, addr, DeviceEvent::MemRead(addr, request), responses)?;
+
+    let (value, mask) = match size {
+        1 => (arr[0] as u64, ((u8::MAX as u64) << (offset * 8))),
+        2 => (
+            byteorder::LittleEndian::read_u16(&arr[..size]) as u64,
+            (u16::MAX as u64) << (offset * 8),
+        ),
+        4 => (
+            byteorder::LittleEndian::read_u32(&arr[..size]) as u64,
+            (u32::MAX as u64) << (offset * 8),
+        ),
+        8 => (
+            byteorder::LittleEndian::read_u64(&arr[..size]) as u64,
+            (u64::MAX as u64) << (offset * 8),
+        ),
+        _ => unreachable!(),
+    };
+
+    *reg &= !mask;
+    *reg |= value << (offset * 8);
+
     Ok(())
 }
 
-pub fn handle_ept_violation(
+fn process_memio_op(
+    addr: memory::GuestPhysAddr,
     vcpu: &mut vcpu::VCpu,
     guest_cpu: &mut vmexit::GuestCpuState,
-    _exit: vmexit::EptInformation,
     responses: &mut ResponseEventArray,
+    on_read: impl MemIoCallback,
+    on_write: impl MemIoCallback,
 ) -> Result<()> {
     let instruction_len = vcpu
         .vmcs
         .read_field(vmcs::VmcsField::VmExitInstructionLen)?;
     let ip = vcpu.vmcs.read_field(vmcs::VmcsField::GuestRip)?;
 
-    let mut vm = vcpu.vm.write();
     let ip_addr = memory::GuestVirtAddr::new(ip, &vcpu.vmcs)?;
-    let view = memory::GuestAddressSpaceViewMut::from_vmcs(
+    let view = memory::GuestAddressSpaceView::from_vmcs(
         &vcpu.vmcs,
-        &mut vm.guest_space,
+        &vcpu.vm.guest_space,
     )?;
 
     let bytes = view.read_bytes(
@@ -754,7 +412,6 @@ pub fn handle_ept_violation(
         instruction_len as usize,
         memory::GuestAccess::Read(memory::PrivilegeLevel(0)),
     )?;
-    drop(vm);
 
     let efer = vcpu.vmcs.read_field(vmcs::VmcsField::GuestIa32Efer)?;
     // TODO: 16bit support
@@ -765,21 +422,16 @@ pub fn handle_ept_violation(
     decoder.set_ip(ip);
     let instr = decoder.decode();
 
-    let addr = memory::GuestPhysAddr::new(
-        vcpu.vmcs
-            .read_field(vmcs::VmcsField::GuestPhysicalAddress)?,
-    );
-
     // For now, just assume everything is like MOV. This is obviously very
     // incomplete.
     if instr.op0_kind() == iced_x86::OpKind::Memory
         || instr.op0_kind() == iced_x86::OpKind::Memory64
     {
-        do_mmio_write(addr, vcpu, guest_cpu, responses, instr)?;
+        do_mmio_write(addr, vcpu, guest_cpu, responses, instr, on_write)?;
     } else if instr.op1_kind() == iced_x86::OpKind::Memory
         || instr.op1_kind() == iced_x86::OpKind::Memory64
     {
-        do_mmio_read(addr, vcpu, guest_cpu, responses, instr)?;
+        do_mmio_read(addr, vcpu, guest_cpu, responses, instr, on_read)?;
     } else {
         return Err(Error::InvalidValue(format!(
             "Unsupported mmio instruction: {:?} (rip=0x{:x}, bytes={:?})",
@@ -788,6 +440,103 @@ pub fn handle_ept_violation(
             bytes,
         )));
     }
-
     Ok(())
+}
+
+pub fn handle_ept_violation(
+    vcpu: &mut vcpu::VCpu,
+    guest_cpu: &mut vmexit::GuestCpuState,
+    _exit: vmexit::EptInformation,
+    responses: &mut ResponseEventArray,
+) -> Result<()> {
+    fn on_ept_violation(
+        vcpu: &mut vcpu::VCpu,
+        addr: memory::GuestPhysAddr,
+        event: DeviceEvent,
+        responses: &mut ResponseEventArray,
+    ) -> Result<()> {
+        vcpu.vm.dispatch_event(addr, event, vcpu, responses)
+    }
+
+    let addr = memory::GuestPhysAddr::new(
+        vcpu.vmcs
+            .read_field(vmcs::VmcsField::GuestPhysicalAddress)?,
+    );
+
+    process_memio_op(
+        addr,
+        vcpu,
+        guest_cpu,
+        responses,
+        on_ept_violation,
+        on_ept_violation,
+    )
+}
+
+pub fn handle_apic_access(
+    vcpu: &mut vcpu::VCpu,
+    guest_cpu: &mut vmexit::GuestCpuState,
+    exit: vmexit::ApicAccessInformation,
+    responses: &mut ResponseEventArray,
+) -> Result<()> {
+    fn address_to_apic_offset(addr: memory::GuestPhysAddr) -> u16 {
+        let addr = addr.as_u64();
+        let apic_base = vm::GUEST_LOCAL_APIC_ADDR.as_u64();
+        assert!(
+            addr >= apic_base && addr < (apic_base + BASE_PAGE_SIZE as u64)
+        );
+        ((addr - apic_base) / size_of::<u32>() as u64) as u16
+    }
+
+    fn on_apic_read(
+        vcpu: &mut vcpu::VCpu,
+        addr: memory::GuestPhysAddr,
+        event: DeviceEvent,
+        _responses: &mut ResponseEventArray,
+    ) -> Result<()> {
+        let offset = address_to_apic_offset(addr);
+        let res = vcpu.local_apic.register_read(offset)?;
+        let mut bytes = res.to_be_bytes();
+
+        match event {
+            DeviceEvent::MemRead(_, mut req) => {
+                req.as_mut_slice().copy_from_slice(&mut bytes[..]);
+                Ok(())
+            }
+            _ => return Err(Error::NotSupported),
+        }
+    }
+
+    fn on_apic_write(
+        vcpu: &mut vcpu::VCpu,
+        addr: memory::GuestPhysAddr,
+        event: DeviceEvent,
+        _responses: &mut ResponseEventArray,
+    ) -> Result<()> {
+        let offset = address_to_apic_offset(addr);
+        let mut bytes = [0u8; 4];
+        let value = match event {
+            DeviceEvent::MemWrite(_, req) => {
+                bytes[..].copy_from_slice(req.as_slice());
+                u32::from_be_bytes(bytes)
+            }
+            _ => return Err(Error::NotSupported),
+        };
+
+        vcpu.local_apic
+            .register_write(vcpu.vm.clone(), offset, value)
+    }
+
+    let addr = vm::GUEST_LOCAL_APIC_ADDR
+        + (exit.offset.expect("Apic access with no offset") as usize
+            * size_of::<u32>());
+
+    process_memio_op(
+        addr,
+        vcpu,
+        guest_cpu,
+        responses,
+        on_apic_read,
+        on_apic_write,
+    )
 }

@@ -36,27 +36,26 @@ extern "C" {
 
 // Temporary helper function to create a vm
 fn build_vm(
+    vm_id: u32,
     cfg: &config::UserVmConfig,
     info: &BootInfo,
     add_uart: bool,
-) -> Arc<RwLock<vm::VirtualMachine>> {
+) -> Arc<vm::VirtualMachine> {
     let physical_config = if add_uart == false {
         vm::PhysicalDeviceConfig::default()
     } else {
         vm::PhysicalDeviceConfig {
-            serial: Some(
+            serial: RwLock::new(Some(
                 physdev::com::Uart8250::new(0x3f8)
                     .expect("Failed to create UART"),
-            ),
-            ps2_keyboard: None,
+            )),
+            ps2_keyboard: RwLock::new(None),
         }
     };
 
-    let mut config = vm::VirtualMachineConfig::new(
-        cfg.cpus.clone(),
-        cfg.memory,
-        physical_config,
-    );
+    let mut config =
+        vm::VirtualMachineConfig::new(&cfg.cpus, cfg.memory, physical_config)
+            .expect("Failed to create VirtualMachineConfig");
 
     let mut acpi = acpi::rsdp::RSDPBuilder::<[_; 1024]>::new(
         ManagedMap::Owned(BTreeMap::new()),
@@ -64,12 +63,17 @@ fn build_vm(
 
     let mut madt = acpi::madt::MADTBuilder::<[_; 8]>::new();
     madt.set_ica(vm::GUEST_LOCAL_APIC_ADDR.as_u64() as u32);
-    madt.add_ics(acpi::madt::Ics::LocalApic {
-        apic_id: 0,
-        apic_uid: 0,
-        flags: acpi::madt::LocalApicFlags::ENABLED,
-    })
-    .expect("Failed to add APIC to MADT");
+
+    for core in cfg.cpus.iter() {
+        madt.add_ics(acpi::madt::Ics::LocalApic {
+            // TODO(alschwalm): we should assign an actual APIC id here,
+            // instead of using the core id
+            apic_id: core.raw as u8,
+            apic_uid: 0,
+            flags: acpi::madt::LocalApicFlags::ENABLED,
+        })
+        .expect("Failed to add APIC to MADT");
+    }
     madt.add_ics(acpi::madt::Ics::IoApic {
         ioapic_id: 0,
         ioapic_addr: 0xfec00000 as *mut u8,
@@ -153,13 +157,15 @@ fn build_vm(
 
     device_map.register_device(fw_cfg_builder.build()).unwrap();
 
-    vm::VirtualMachine::new(cfg.cpus[0].raw, config, info)
-        .expect("Failed to create vm")
+    vm::VirtualMachine::new(vm_id, config, info).expect("Failed to create vm")
 }
 
 #[no_mangle]
-pub extern "C" fn ap_entry(_ap_data: &ap::ApData) -> ! {
-    unsafe { interrupt::idt::ap_init() };
+pub extern "C" fn ap_entry(ap_data: &ap::ApData) -> ! {
+    unsafe {
+        percore::init_segment_for_core(ap_data.idx);
+        interrupt::idt::ap_init()
+    };
 
     let local_apic =
         apic::LocalApic::init().expect("Failed to initialize local APIC");
@@ -171,8 +177,6 @@ pub extern "C" fn ap_entry(_ap_data: &ap::ApData) -> ! {
         local_apic.version()
     );
 
-    unsafe { interrupt::enable_interrupts() };
-
     vcpu::mp_entry_point()
 }
 
@@ -182,7 +186,7 @@ static LOGGER: logger::DirectLogger = logger::DirectLogger::new();
 pub unsafe extern "C" fn kmain_early(multiboot_info_addr: usize) -> ! {
     // Setup our (com0) logger
     log::set_logger(&LOGGER)
-        .map(|()| log::set_max_level(log::LevelFilter::Info))
+        .map(|()| log::set_max_level(log::LevelFilter::Debug))
         .expect("Failed to set logger");
 
     let boot_info = if IS_MULTIBOOT_BOOT == 1 {
@@ -221,10 +225,6 @@ unsafe fn kmain(mut boot_info: BootInfo) -> ! {
         .rsdt()
         .expect("Failed to read RSDT");
 
-    // Initialize the BSP local APIC
-    let local_apic =
-        apic::LocalApic::init().expect("Failed to initialize local APIC");
-
     let madt_sdt = rsdt.find_entry(b"APIC").expect("No MADT found");
     let madt = acpi::madt::MADT::new(&madt_sdt);
 
@@ -240,14 +240,18 @@ unsafe fn kmain(mut boot_info: BootInfo) -> ! {
         })
         .collect::<Vec<_>>();
 
-    ioapic::init_ioapics(&madt).expect("Failed to initialize IOAPICs");
-    ioapic::map_gsi_vector(4, interrupt::UART_VECTOR, 0)
-        .expect("Failed to map com0 gsi");
-
     percore::init_sections(apic_ids.len())
         .expect("Failed to initialize per-core sections");
 
-    let mut builder = vm::VirtualMachineBuilder::new();
+    // Initialize the BSP local APIC
+    let local_apic =
+        apic::LocalApic::init().expect("Failed to initialize local APIC");
+
+    ioapic::init_ioapics(&madt).expect("Failed to initialize IOAPICs");
+    ioapic::map_gsi_vector(interrupt::gsi::UART, interrupt::vector::UART, 0)
+        .expect("Failed to map com0 gsi");
+
+    let mut builder = vm::VirtualMachineSetBuilder::new();
 
     let raw_cfg = boot_info
         .find_module("mythril.cfg")
@@ -261,7 +265,7 @@ unsafe fn kmain(mut boot_info: BootInfo) -> ! {
 
     for (num, vm) in mythril_cfg.vms.into_iter().enumerate() {
         builder
-            .insert_machine(build_vm(&vm, &boot_info, num == 0))
+            .insert_machine(build_vm(num as u32, &vm, &boot_info, num == 0))
             .expect("Failed to insert new vm");
     }
 
@@ -269,10 +273,16 @@ unsafe fn kmain(mut boot_info: BootInfo) -> ! {
 
     debug!("AP_STARTUP address: 0x{:x}", AP_STARTUP_ADDR);
 
-    //TODO(alschwalm): Only the cores that are actually associated with a VM
-    // should be started
     for (idx, apic_id) in apic_ids.into_iter().enumerate() {
         if apic_id == local_apic.id() {
+            continue;
+        }
+
+        let core_id = percore::CoreId::from(idx as u32);
+
+        // Do not setup cores that are not allocated to any guest
+        if !vm::virtual_machines().is_assigned_core_id(core_id) {
+            debug!("Not starting core ID '{}' because it is not assigned to a guest", core_id);
             continue;
         }
 
@@ -288,7 +298,7 @@ unsafe fn kmain(mut boot_info: BootInfo) -> ! {
         core::ptr::write_volatile(&mut AP_STACK_ADDR as *mut u64, stack_bottom);
 
         // Map the APIC ids to a sequential list and pass it to the AP
-        core::ptr::write_volatile(&mut AP_IDX as *mut u64, idx as u64);
+        core::ptr::write_volatile(&mut AP_IDX as *mut u64, core_id.raw as u64);
 
         // mfence to ensure that the APs see the new stack address
         core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);

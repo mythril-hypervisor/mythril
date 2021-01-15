@@ -1,6 +1,5 @@
 use crate::error::{Error, Result};
-use crate::memory::{GuestAddressSpaceViewMut, GuestPhysAddr};
-use crate::vcpu;
+use crate::memory::{GuestAddressSpaceView, GuestPhysAddr};
 use alloc::collections::btree_map::BTreeMap;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
@@ -45,19 +44,19 @@ pub enum DeviceEvent<'a> {
 pub enum DeviceEventResponse {
     GuestUartTransmitted(u8),
     NextConsole,
-    Interrupt((u8, vcpu::InjectedInterruptType)),
+    GSI(u32),
 }
 
 pub struct Event<'a> {
     pub kind: DeviceEvent<'a>,
-    pub space: GuestAddressSpaceViewMut<'a>,
+    pub space: GuestAddressSpaceView<'a>,
     pub responses: &'a mut ResponseEventArray,
 }
 
 impl<'a> Event<'a> {
     pub fn new(
         kind: DeviceEvent<'a>,
-        space: GuestAddressSpaceViewMut<'a>,
+        space: GuestAddressSpaceView<'a>,
         responses: &'a mut ResponseEventArray,
     ) -> Result<Self> {
         Ok(Event {
@@ -467,6 +466,10 @@ impl<'a> MemReadRequest<'a> {
     }
 
     pub fn as_slice(&self) -> &[u8] {
+        self.data
+    }
+
+    pub fn as_mut_slice(&mut self) -> &mut [u8] {
         self.data
     }
 }

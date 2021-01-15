@@ -227,11 +227,11 @@ trampoline:
     mov eax, GDT64.data
     mov ds, eax
     mov es, eax
-    mov gs, eax
     mov ss, eax
 
-    ; FS stores the per-core index, which is always 0 for the BSP
-    mov edx, 0
+    ; Ensure GS/FS are zeroed
+    xor edx, edx
+    mov gs, edx
     mov fs, edx
 
     jmp kmain_early
