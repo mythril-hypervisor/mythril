@@ -53,10 +53,13 @@ impl Vmx {
 
         let rflags = unsafe {
             let rflags: u64;
-            llvm_asm!("vmxon $1; pushfq; popq $0"
-                      : "=r"(rflags)
-                      : "m"(vmxon_region_addr)
-                      : "rflags");
+            asm!(
+                "vmxon [{}]",
+                "pushf",
+                "pop {}",
+                in(reg) &vmxon_region_addr,
+                lateout(reg) rflags,
+            );
             rflags
         };
 
@@ -71,10 +74,12 @@ impl Vmx {
         //      was originally activated from
         let rflags = unsafe {
             let rflags: u64;
-            llvm_asm!("vmxoff; pushfq; popq $0"
-                      : "=r"(rflags)
-                      :
-                      : "rflags");
+            asm!(
+                "vmxoff",
+                "pushf",
+                "pop {}",
+                lateout(reg) rflags,
+            );
             rflags
         };
 
