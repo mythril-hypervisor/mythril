@@ -516,15 +516,13 @@ mod test {
         }
     }
 
-    impl VirtualMachineConfig {
-        // Default config used for testing
-        pub fn default() -> VirtualMachineConfig {
-            VirtualMachineConfig::new(
-                vec![0.into()],
-                1024,
-                PhysicalDeviceConfig::default(),
-            )
-        }
+    // Default config used for testing
+    pub fn get_test_config() -> VirtualMachineConfig {
+        VirtualMachineConfig::new(
+            vec![0.into()],
+            1024,
+            PhysicalDeviceConfig::default(),
+        )
     }
 
     impl EmulatedDevice for DummyDevice {
@@ -541,7 +539,7 @@ mod test {
 
     #[test]
     fn test_device_map() {
-        let mut config = VirtualMachineConfig::default();
+        let mut config = get_test_config();
 
         let mut builder = config.device_map_builder();
         let com = Uart8250::new(0);
@@ -581,7 +579,7 @@ mod test {
 
     #[test]
     fn test_conflicting_portio_device() {
-        let mut config = VirtualMachineConfig::default();
+        let mut config = get_test_config();
 
         let mut builder = config.device_map_builder();
         let com = Uart8250::new(0);
@@ -596,7 +594,7 @@ mod test {
         // region 2 fully inside region 1
         let services = vec![0..=10, 2..=8];
         let dummy = DummyDevice::new(services);
-        let mut config = VirtualMachineConfig::default();
+        let mut config = get_test_config();
 
         let mut builder = config.device_map_builder();
 
@@ -608,7 +606,7 @@ mod test {
         // region 1 fully inside region 2
         let services = vec![2..=8, 0..=10];
         let dummy = DummyDevice::new(services);
-        let mut config = VirtualMachineConfig::default();
+        let mut config = get_test_config();
 
         let mut builder = config.device_map_builder();
 
@@ -621,7 +619,7 @@ mod test {
         // the start of region 2
         let services = vec![0..=4, 3..=8];
         let dummy = DummyDevice::new(services);
-        let mut config = VirtualMachineConfig::default();
+        let mut config = get_test_config();
 
         let mut builder = config.device_map_builder();
 
@@ -634,7 +632,7 @@ mod test {
         // the tail of region 2
         let services = vec![3..=8, 0..=4];
         let dummy = DummyDevice::new(services);
-        let mut config = VirtualMachineConfig::default();
+        let mut config = get_test_config();
 
         let mut builder = config.device_map_builder();
 
@@ -646,7 +644,7 @@ mod test {
         // region 1 and region 2 don't overlap
         let services = vec![0..=3, 4..=8];
         let dummy = DummyDevice::new(services);
-        let mut config = VirtualMachineConfig::default();
+        let mut config = get_test_config();
 
         let mut builder = config.device_map_builder();
 

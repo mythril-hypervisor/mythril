@@ -79,7 +79,6 @@ fn build_vm(
 
     acpi.add_sdt(madt).unwrap();
 
-    // let device_map = config.virtual_devices_mut();
     let mut builder = config.device_map_builder();
 
     builder
