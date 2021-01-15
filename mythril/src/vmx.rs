@@ -20,16 +20,24 @@ impl Vmx {
 
         unsafe {
             // Enable NE in CR0, This is fixed bit in VMX CR0
-            llvm_asm!("movq %cr0, %rax; orq %rdx, %rax; movq %rax, %cr0;"
-                      :
-                      : "{rdx}"(0x20)
-                      : "rax");
+            asm!(
+                "mov rax, cr0",
+                "or rax, rdx",
+                "mov cr0, rax",
+                in("rdx") 0x20,
+                lateout("rax") _,
+                options(nomem)
+            );
 
             // Enable vmx in CR4
-            llvm_asm!("movq %cr4, %rax; orq %rdx, %rax; movq %rax, %cr4;"
-                      :
-                      : "{rdx}"(VMX_ENABLE_FLAG)
-                      : "rax");
+            asm!(
+                "mov rax, cr4",
+                "or rax, rdx",
+                "mov cr4, rax",
+                in("rdx") VMX_ENABLE_FLAG,
+                lateout("rax") _,
+                options(nomem)
+            );
         }
 
         let revision_id = Self::revision();
