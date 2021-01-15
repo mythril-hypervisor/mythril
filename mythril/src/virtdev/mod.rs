@@ -1,8 +1,8 @@
 use crate::error::{Error, Result};
 use crate::memory::{GuestAddressSpaceView, GuestPhysAddr};
-use alloc::collections::btree_map::BTreeMap;
-use crate::vm::VirtualMachineConfig;
 use crate::percore::CoreId;
+use crate::vm::VirtualMachineConfig;
+use alloc::collections::btree_map::BTreeMap;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use arrayvec::ArrayVec;
@@ -521,11 +521,8 @@ mod test {
     // Default config used for testing
     pub fn get_test_config() -> VirtualMachineConfig {
         let cpus = [CoreId::from(0)];
-        VirtualMachineConfig::new(
-            &cpus,
-            1024,
-            PhysicalDeviceConfig::default(),
-        ).expect("Couldn't create a test VirtualMachineConfig")
+        VirtualMachineConfig::new(&cpus, 1024, PhysicalDeviceConfig::default())
+            .expect("Couldn't create a test VirtualMachineConfig")
     }
 
     impl EmulatedDevice for DummyDevice {

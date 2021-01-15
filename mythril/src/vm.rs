@@ -13,10 +13,10 @@ use crate::percore;
 use crate::physdev;
 use crate::time;
 use crate::vcpu;
+use crate::virtdev::DeviceMapBuilder;
 use crate::virtdev::{
     self, DeviceEvent, DeviceInteraction, DeviceMap, Event, ResponseEventArray,
 };
-use crate::virtdev::DeviceMapBuilder;
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
 use alloc::string::String;
