@@ -26,8 +26,12 @@ extern "C" {
 const PER_CORE_HOST_STACK_SIZE: usize = 1024 * 1024;
 
 declare_per_core! {
+    // NOTE: The per-core stack cannot be part of the VCpu type because an
+    // instance of VCpu will (briefly) reside _on_ the stack
     static mut HOST_STACK: [u8; PER_CORE_HOST_STACK_SIZE]
         = [0u8; PER_CORE_HOST_STACK_SIZE];
+
+    static mut VCPU: Option<VCpu> = None;
 }
 
 /// The post-startup point where a core begins executing its statically
@@ -47,7 +51,7 @@ pub fn mp_entry_point() -> ! {
         vm
     };
 
-    let mut vcpu = VCpu::new(vm).expect("Failed to create vcpu");
+    let vcpu = VCpu::new(vm).expect("Failed to create vcpu");
 
     let vm_id = vm.id;
     let is_vm_bsp = vm.bsp_id() == core_id;
@@ -108,17 +112,23 @@ impl VCpu {
     /// Note that the result must be `Pin`, as the `VCpu` pushes its own
     /// address on to the per-core host stack so it can be retrieved on
     /// VMEXIT.
-    pub fn new(vm: &'static VirtualMachine) -> Result<Pin<Box<Self>>> {
+    pub fn new(vm: &'static VirtualMachine) -> Result<&'static mut Self> {
         let vmx = vmx::Vmx::enable()?;
         let vmcs = vmcs::Vmcs::new()?.activate(vmx)?;
 
-        let mut vcpu = Box::pin(Self {
+        let vcpu = Self {
             vm: vm,
             vmcs: vmcs,
             local_apic: virtdev::lapic::LocalApic::new(),
             stack: get_per_core_mut!(HOST_STACK),
             pending_interrupts: BTreeMap::new(),
-        });
+        };
+
+        unsafe {
+            // Move the VCpu off the stack to the final static location
+            *get_per_core_mut!(VCPU) = Some(vcpu);
+        }
+        let vcpu = get_per_core_mut!(VCPU).as_mut().unwrap();
 
         // All VCpus in a VM must share the same address space
         let eptp = vcpu.vm.guest_space.eptp();
@@ -136,13 +146,13 @@ impl VCpu {
             - mem::size_of::<*const Self>() as u64;
 
         // 'push' the address of this VCpu to the host stack for the vmexit
-        let raw_vcpu: *mut Self = (&mut *vcpu) as *mut Self;
+        let raw_vcpu = vcpu as *mut Self;
         unsafe {
             core::ptr::write(stack_base as *mut *mut Self, raw_vcpu);
         }
 
         Self::initialize_host_vmcs(&mut vcpu.vmcs, stack_base)?;
-        Self::initialize_guest_vmcs(&mut vcpu)?;
+        Self::initialize_guest_vmcs(vcpu)?;
         Self::initialize_ctrl_vmcs(&mut vcpu.vmcs)?;
 
         Ok(vcpu)
@@ -157,7 +167,7 @@ impl VCpu {
     }
 
     /// Begin execution in the guest context for this core
-    pub fn launch(self: Pin<Box<Self>>) -> Result<!> {
+    pub fn launch(&mut self) -> Result<!> {
         let rflags = unsafe { vmlaunch_wrapper() };
         error::check_vm_insruction(rflags, "Failed to launch vm".into())?;
 

@@ -2,14 +2,13 @@ use crate::error::Result;
 use crate::memory::GuestPhysAddr;
 use crate::virtdev::{DeviceRegion, EmulatedDevice, Event};
 use alloc::vec::Vec;
-use spin::RwLock;
 
 #[derive(Default)]
 pub struct IoApic;
 
 impl IoApic {
-    pub fn new() -> Result<RwLock<Self>> {
-        Ok(RwLock::new(IoApic {}))
+    pub fn new() -> Result<Self> {
+        Ok(IoApic {})
     }
 }
 

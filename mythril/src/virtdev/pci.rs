@@ -4,7 +4,6 @@ use alloc::collections::btree_map::BTreeMap;
 use alloc::vec::Vec;
 use core::convert::TryInto;
 use num_enum::TryFromPrimitive;
-use spin::RwLock;
 use ux;
 
 #[derive(Clone, Copy, Debug, TryFromPrimitive)]
@@ -153,7 +152,7 @@ impl PciRootComplex {
     const PCI_CONFIG_DATA: Port = 0xcfc;
     const PCI_CONFIG_DATA_MAX: Port = Self::PCI_CONFIG_DATA + 3;
 
-    pub fn new() -> Result<RwLock<Self>> {
+    pub fn new() -> Result<Self> {
         let mut devices = BTreeMap::new();
 
         let host_bridge = PciDevice {
@@ -180,10 +179,10 @@ impl PciRootComplex {
         };
         devices.insert(ich9.bdf.into(), ich9);
 
-        Ok(RwLock::new(Self {
+        Ok(Self {
             current_address: 0,
             devices: devices,
-        }))
+        })
     }
 }
 
@@ -274,7 +273,7 @@ mod test {
         GuestAddressSpaceView::new(GuestPhysAddr::new(0), space)
     }
 
-    fn complex_ready_for_reg_read(reg: u8) -> RwLock<PciRootComplex> {
+    fn complex_ready_for_reg_read(reg: u8) -> PciRootComplex {
         let view = define_test_view();
         let complex = PciRootComplex::new().unwrap();
         let addr = ((reg << 2) as u32).to_be_bytes();
@@ -286,10 +285,7 @@ mod test {
             &mut responses,
         )
         .unwrap();
-        {
-            let mut complex = complex.write();
-            complex.on_event(event).unwrap();
-        }
+        complex.on_event(event).unwrap();
         complex
     }
 

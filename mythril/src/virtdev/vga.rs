@@ -6,7 +6,6 @@ use crate::virtdev::{
 use alloc::vec::Vec;
 use core::convert::{TryFrom, TryInto};
 use num_enum::TryFromPrimitive;
-use spin::RwLock;
 
 #[derive(Clone, Copy, Debug, TryFromPrimitive)]
 #[repr(u8)]
@@ -41,8 +40,8 @@ impl VgaController {
     const VGA_INDEX: Port = 0x03D4;
     const VGA_DATA: Port = 0x03D5;
 
-    pub fn new() -> Result<RwLock<Self>> {
-        Ok(RwLock::new(Self {
+    pub fn new() -> Result<Self> {
+        Ok(Self {
             index: VgaRegister::HorizontalTotalChars,
 
             registers: [
@@ -63,7 +62,7 @@ impl VgaController {
                 0x00, // CursorAddrMsb
                 0x00, // CursorAddrLsb
             ],
-        }))
+        })
     }
 
     fn on_port_read(

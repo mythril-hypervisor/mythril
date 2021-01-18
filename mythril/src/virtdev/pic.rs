@@ -2,7 +2,6 @@ use crate::error::Result;
 use crate::virtdev::{DeviceEvent, DeviceRegion, EmulatedDevice, Event, Port};
 use alloc::vec::Vec;
 use core::convert::TryInto;
-use spin::RwLock;
 
 #[derive(Default, Debug)]
 pub struct PicState {
@@ -23,8 +22,8 @@ impl Pic8259 {
     const PIC_ECLR_COMMAND: Port = 0x4d0;
     const PIC_ECLR_DATA: Port = Self::PIC_ECLR_COMMAND + 1;
 
-    pub fn new() -> Result<RwLock<Self>> {
-        Ok(RwLock::new(Pic8259::default()))
+    pub fn new() -> Result<Self> {
+        Ok(Pic8259::default())
     }
 }
 

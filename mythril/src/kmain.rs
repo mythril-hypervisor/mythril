@@ -126,7 +126,7 @@ fn build_vm(
     .unwrap();
 
     virtual_devices.push(RwLock::new(virtdev::DynamicVirtualDevice::Qemu(
-        fw_cfg_builder.build(),
+        fw_cfg_builder.build().expect("Failed to build FW Cfg"),
     )));
 
     vm::VirtualMachine::new(vm_id, config, info).expect("Failed to create vm")

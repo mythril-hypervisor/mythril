@@ -179,7 +179,7 @@ impl VirtualMachineSet {
 
     /// Returns the number of VMs
     pub fn count(&self) -> u32 {
-        self.contexts.len() as u32
+        self.vms.len() as u32
     }
 
     /// Returns whether a given CoreId is associated with any VM
@@ -305,14 +305,14 @@ pub struct StaticVirtualDevices {
 impl StaticVirtualDevices {
     fn new(config: &VirtualMachineConfig) -> Result<Self> {
         Ok(Self {
-            acpi_runtime: virtdev::acpi::AcpiRuntime::new(0x600)?,
-            vga_controller: virtdev::vga::VgaController::new()?,
-            pci_root: virtdev::pci::PciRootComplex::new()?,
-            pic: virtdev::pic::Pic8259::new()?,
-            keyboard: virtdev::keyboard::Keyboard8042::new()?,
-            pit: virtdev::pit::Pit8254::new()?,
-            rtc: virtdev::rtc::CmosRtc::new(config.memory)?,
-            io_apic: virtdev::ioapic::IoApic::new()?,
+            acpi_runtime: RwLock::new(virtdev::acpi::AcpiRuntime::new(0x600)?),
+            vga_controller: RwLock::new(virtdev::vga::VgaController::new()?),
+            pci_root: RwLock::new(virtdev::pci::PciRootComplex::new()?),
+            pic: RwLock::new(virtdev::pic::Pic8259::new()?),
+            keyboard: RwLock::new(virtdev::keyboard::Keyboard8042::new()?),
+            pit: RwLock::new(virtdev::pit::Pit8254::new()?),
+            rtc: RwLock::new(virtdev::rtc::CmosRtc::new(config.memory)?),
+            io_apic: RwLock::new(virtdev::ioapic::IoApic::new()?),
         })
     }
 

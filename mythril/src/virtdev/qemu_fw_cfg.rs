@@ -306,6 +306,12 @@ impl QemuFwCfg {
     fn read_selector(&mut self, length: usize) -> Option<&[u8]> {
         if self.data.contains_key(&self.selector) {
             let data = &self.data[&(self.selector)];
+            if self.data_idx + length > data.len() {
+                info!(
+                    "Invalid read from selector = {} (idx={}, len={})",
+                    self.selector, self.data_idx, length
+                );
+            }
             let slice = &data[self.data_idx..self.data_idx + length];
             self.data_idx += length;
             return Some(slice);
