@@ -497,10 +497,8 @@ mod test {
     }
 
     impl DummyDevice {
-        fn new(
-            services: Vec<RangeInclusive<Port>>,
-        ) -> Arc<RwLock<dyn EmulatedDevice>> {
-            Arc::new(RwLock::new(Self { services }))
+        fn new(services: Vec<RangeInclusive<Port>>) -> Self {
+            Self { services }
         }
     }
 
@@ -516,8 +514,8 @@ mod test {
     #[test]
     fn test_device_map() {
         let mut map = DeviceMap::default();
-        let com = Uart8250::new(0);
-        map.register_device(com).unwrap();
+        let com = RwLock::new(Uart8250::new(0).unwrap());
+        map.register_device(&com).unwrap();
         let _dev = map.find_device(0u16).unwrap();
 
         assert_eq!(map.find_device(10u16).is_none(), true);
@@ -552,31 +550,31 @@ mod test {
     #[test]
     fn test_conflicting_portio_device() {
         let mut map = DeviceMap::default();
-        let com = Uart8250::new(0);
-        map.register_device(com).unwrap();
-        let com = Uart8250::new(0);
+        let com = RwLock::new(Uart8250::new(0).unwrap());
+        map.register_device(&com).unwrap();
+        let com = RwLock::new(Uart8250::new(0).unwrap());
 
-        assert!(map.register_device(com).is_err());
+        assert!(map.register_device(&com).is_err());
     }
 
     #[test]
     fn test_fully_overlapping_portio_device() {
         // region 2 fully inside region 1
         let services = vec![0..=10, 2..=8];
-        let dummy = DummyDevice::new(services);
+        let dummy = RwLock::new(DummyDevice::new(services));
         let mut map = DeviceMap::default();
 
-        assert!(map.register_device(dummy).is_err());
+        assert!(map.register_device(&dummy).is_err());
     }
 
     #[test]
     fn test_fully_encompassing_portio_device() {
         // region 1 fully inside region 2
         let services = vec![2..=8, 0..=10];
-        let dummy = DummyDevice::new(services);
+        let dummy = RwLock::new(DummyDevice::new(services));
         let mut map = DeviceMap::default();
 
-        assert!(map.register_device(dummy).is_err());
+        assert!(map.register_device(&dummy).is_err());
     }
 
     #[test]
@@ -584,10 +582,10 @@ mod test {
         // region 1 and region 2 partially overlap at the tail of region 1 and
         // the start of region 2
         let services = vec![0..=4, 3..=8];
-        let dummy = DummyDevice::new(services);
+        let dummy = RwLock::new(DummyDevice::new(services));
         let mut map = DeviceMap::default();
 
-        assert!(map.register_device(dummy).is_err());
+        assert!(map.register_device(&dummy).is_err());
     }
 
     #[test]
@@ -595,19 +593,19 @@ mod test {
         // region 1 and region 2 partially overlap at the start of region 1 and
         // the tail of region 2
         let services = vec![3..=8, 0..=4];
-        let dummy = DummyDevice::new(services);
+        let dummy = RwLock::new(DummyDevice::new(services));
         let mut map = DeviceMap::default();
 
-        assert!(map.register_device(dummy).is_err());
+        assert!(map.register_device(&dummy).is_err());
     }
 
     #[test]
     fn test_non_overlapping_portio_device() {
         // region 1 and region 2 don't overlap
         let services = vec![0..=3, 4..=8];
-        let dummy = DummyDevice::new(services);
+        let dummy = RwLock::new(DummyDevice::new(services));
         let mut map = DeviceMap::default();
 
-        assert!(map.register_device(dummy).is_ok());
+        assert!(map.register_device(&dummy).is_ok());
     }
 }

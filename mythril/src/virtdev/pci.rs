@@ -275,7 +275,7 @@ mod test {
 
     fn complex_ready_for_reg_read(reg: u8) -> PciRootComplex {
         let view = define_test_view();
-        let complex = PciRootComplex::new().unwrap();
+        let mut complex = PciRootComplex::new().unwrap();
         let addr = ((reg << 2) as u32).to_be_bytes();
         let request = PortWriteRequest::try_from(&addr[..]).unwrap();
         let mut responses = ResponseEventArray::default();
@@ -292,11 +292,10 @@ mod test {
     #[test]
     fn test_full_register_read() {
         let view = define_test_view();
-        let complex = complex_ready_for_reg_read(0);
+        let mut complex = complex_ready_for_reg_read(0);
         let mut buff = [0u8; 4];
         let val = PortReadRequest::FourBytes(&mut buff);
         let mut responses = ResponseEventArray::default();
-        let mut complex = complex.write();
         let event = Event::new(
             DeviceEvent::PortRead(PciRootComplex::PCI_CONFIG_DATA, val),
             view,
@@ -311,11 +310,10 @@ mod test {
     #[test]
     fn test_half_register_read() {
         let view = define_test_view();
-        let complex = complex_ready_for_reg_read(0);
+        let mut complex = complex_ready_for_reg_read(0);
         let mut buff = [0u8; 2];
         let val = PortReadRequest::TwoBytes(&mut buff);
         let mut responses = ResponseEventArray::default();
-        let mut complex = complex.write();
         let event = Event::new(
             DeviceEvent::PortRead(PciRootComplex::PCI_CONFIG_DATA, val),
             view,
@@ -339,10 +337,9 @@ mod test {
 
     #[test]
     fn test_register_byte_read() {
-        let complex = complex_ready_for_reg_read(0);
+        let mut complex = complex_ready_for_reg_read(0);
         let mut buff = [0u8; 1];
         let mut responses = ResponseEventArray::default();
-        let mut complex = complex.write();
 
         let view = define_test_view();
         let val = PortReadRequest::OneByte(&mut buff);

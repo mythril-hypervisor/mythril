@@ -709,14 +709,15 @@ mod test {
     #[test]
     fn test_vm_creation() {
         let info = BootInfo::default();
-        let phys_config = PhysicalDeviceConfig::default();
+        let host_devices = HostPhysicalDevices::default();
 
         let config = VirtualMachineConfig::new(
             &[percore::CoreId::from(1)],
-            0,
-            phys_config,
+            32,
+            host_devices,
         )
         .unwrap();
+
         VirtualMachine::new(0, config, &info).unwrap();
     }
 }
