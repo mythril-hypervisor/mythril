@@ -127,7 +127,9 @@ macro_rules! get_per_core {
     ($name:ident) => {
         #[allow(unused_unsafe)]
         unsafe {
-            $crate::percore::get_per_core_impl(&$name)
+            $crate::percore::get_per_core_impl(&paste::paste! {
+                [<PERCORE_ $name>]
+            })
         }
     };
 }
@@ -137,7 +139,9 @@ macro_rules! get_per_core_mut {
     ($name:ident) => {
         #[allow(unused_unsafe)]
         unsafe {
-            $crate::percore::get_per_core_mut_impl(&mut $name)
+            $crate::percore::get_per_core_mut_impl(&mut paste::paste! {
+                [<PERCORE_ $name>]
+            })
         }
     };
 }
@@ -147,14 +151,19 @@ macro_rules! get_per_core_mut {
 #[doc(hidden)]
 macro_rules! __declare_per_core_internal {
     ($(#[$attr:meta])* ($($vis:tt)*) static mut $N:ident : $T:ty = $e:expr; $($t:tt)*) => {
-        #[link_section = ".per_core"]
-        $($vis)* static mut $N: $T = $e;
+        paste::paste! {
+            #[link_section = ".per_core"]
+            $($vis)* static mut [<PERCORE_ $N>]: $T = $e;
+        }
 
         declare_per_core!($($t)*);
     };
     ($(#[$attr:meta])* ($($vis:tt)*) static $N:ident : $T:ty = $e:expr; $($t:tt)*) => {
-        #[link_section = ".per_core"]
-        $($vis)* static $N: $T = $e;
+        use paste::paste;
+        paste! {
+            #[link_section = ".per_core"]
+            $($vis)* static [<PERCORE_ $N>]: $T = $e;
+        }
 
         declare_per_core!($($t)*);
     };
