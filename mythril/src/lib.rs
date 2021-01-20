@@ -5,6 +5,7 @@
 #![feature(get_mut_unchecked)]
 #![feature(fixed_size_array)]
 #![feature(panic_info_message)]
+#![feature(pin_static_ref)]
 #![feature(array_value_iter)]
 #![feature(alloc_error_handler)]
 #![feature(lang_items)]

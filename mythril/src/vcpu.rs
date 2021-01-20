@@ -51,7 +51,7 @@ pub fn mp_entry_point() -> ! {
         vm
     };
 
-    let vcpu = VCpu::new(vm).expect("Failed to create vcpu");
+    let mut vcpu = VCpu::new(vm).expect("Failed to create vcpu");
 
     let vm_id = vm.id;
     let is_vm_bsp = vm.bsp_id() == core_id;
@@ -99,7 +99,7 @@ pub enum InjectedInterruptType {
 /// ultimate handling will occur within an emulated device in the `VirtualMachine`'s
 /// `DeviceMap`)
 pub struct VCpu {
-    pub vm: &'static VirtualMachine,
+    pub vm: Pin<&'static VirtualMachine>,
     pub vmcs: vmcs::ActiveVmcs,
     pub local_apic: virtdev::lapic::LocalApic,
     pending_interrupts: BTreeMap<u8, InjectedInterruptType>,
@@ -112,7 +112,9 @@ impl VCpu {
     /// Note that the result must be `Pin`, as the `VCpu` pushes its own
     /// address on to the per-core host stack so it can be retrieved on
     /// VMEXIT.
-    pub fn new(vm: &'static VirtualMachine) -> Result<&'static mut Self> {
+    pub fn new(
+        vm: Pin<&'static VirtualMachine>,
+    ) -> Result<Pin<&'static mut Self>> {
         let vmx = vmx::Vmx::enable()?;
         let vmcs = vmcs::Vmcs::new()?.activate(vmx)?;
 
@@ -155,7 +157,7 @@ impl VCpu {
         Self::initialize_guest_vmcs(vcpu)?;
         Self::initialize_ctrl_vmcs(&mut vcpu.vmcs)?;
 
-        Ok(vcpu)
+        Ok(Pin::new(vcpu))
     }
 
     pub fn inject_interrupt(

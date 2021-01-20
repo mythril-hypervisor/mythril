@@ -23,6 +23,7 @@ use arraydeque::ArrayDeque;
 use arrayvec::ArrayVec;
 use core::default::Default;
 use core::mem;
+use core::pin::Pin;
 use core::sync::atomic::AtomicU32;
 use spin::RwLock;
 
@@ -92,7 +93,7 @@ pub enum VirtualMachineMsg {
 struct VirtualMachineContext {
     core_id: percore::CoreId,
 
-    vm: &'static VirtualMachine,
+    vm: Pin<&'static VirtualMachine>,
 
     /// The per-core RX message queue
     msgqueue: RwLock<ArrayDeque<[VirtualMachineMsg; MAX_PENDING_MSG]>>,
@@ -138,13 +139,13 @@ impl VirtualMachineSet {
         }
 
         // Initialize the per-VM local apic access page
-        vm.setup_guest_local_apic_page()?;
+        Pin::static_ref(vm).setup_guest_local_apic_page()?;
 
         // Create the communication queues
         for cpu in vm.cpus.iter() {
             self.contexts.push(VirtualMachineContext {
                 core_id: *cpu,
-                vm: vm,
+                vm: Pin::static_ref(vm),
                 msgqueue: RwLock::new(ArrayDeque::new()),
             })
         }
@@ -194,12 +195,15 @@ impl VirtualMachineSet {
     pub unsafe fn get_by_core_id(
         &self,
         core_id: percore::CoreId,
-    ) -> Option<&'static VirtualMachine> {
+    ) -> Option<Pin<&'static VirtualMachine>> {
         self.context_by_core_id(core_id).map(|context| context.vm)
     }
 
     /// Get a VirtualMachine by its vmid
-    pub fn get_by_vm_id(&self, vmid: u32) -> Option<&'static VirtualMachine> {
+    pub fn get_by_vm_id(
+        &self,
+        vmid: u32,
+    ) -> Option<Pin<&'static VirtualMachine>> {
         self.context_by_vm_id(vmid).map(|context| context.vm)
     }
 
@@ -479,7 +483,7 @@ impl VirtualMachine {
 
     /// Setup the local APIC access page for the guest. This _must_ be called
     /// only once the VirtualMachine is in a final location.
-    pub fn setup_guest_local_apic_page(&'static self) -> Result<()> {
+    pub fn setup_guest_local_apic_page(self: Pin<&'static Self>) -> Result<()> {
         // Map the guest local apic addr to the access page. This will be set in each
         // core's vmcs
         let apic_frame = memory::HostPhysFrame::from_start_address(

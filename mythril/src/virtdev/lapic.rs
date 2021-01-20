@@ -4,6 +4,7 @@ use crate::memory;
 use crate::percore;
 use crate::vm;
 use core::convert::TryFrom;
+use core::pin::Pin;
 use core::sync::atomic::AtomicU32;
 use num_enum::TryFromPrimitive;
 
@@ -141,7 +142,7 @@ impl LocalApic {
 
     fn process_interrupt_command(
         &mut self,
-        vm: &vm::VirtualMachine,
+        vm: Pin<&vm::VirtualMachine>,
         value: u32,
     ) -> Result<()> {
         let mode = DeliveryMode::try_from((value >> 8) as u8 & 0b111)?;
@@ -221,7 +222,7 @@ impl LocalApic {
 
     pub fn register_write(
         &mut self,
-        vm: &vm::VirtualMachine,
+        vm: Pin<&vm::VirtualMachine>,
         offset: u16,
         value: u32,
     ) -> Result<()> {
