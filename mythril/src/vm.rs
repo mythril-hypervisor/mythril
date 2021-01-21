@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use crate::apic;
 use crate::boot_info::BootInfo;
 use crate::error::{Error, Result};
@@ -10,8 +12,9 @@ use crate::memory::{
 use crate::percore;
 use crate::physdev;
 use crate::time;
+use crate::vcpu;
 use crate::virtdev::{
-    DeviceEvent, DeviceInteraction, DeviceMap, Event, ResponseEventArray,
+    self, DeviceEvent, DeviceInteraction, DeviceMap, Event, ResponseEventArray,
 };
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
@@ -19,7 +22,9 @@ use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use arraydeque::ArrayDeque;
+use arrayvec::ArrayVec;
 use core::mem;
+use core::sync::atomic::AtomicU32;
 use spin::RwLock;
 
 static BIOS_BLOB: &'static [u8] = include_bytes!("blob/bios.bin");
@@ -28,60 +33,69 @@ static BIOS_BLOB: &'static [u8] = include_bytes!("blob/bios.bin");
 /// The location of the local apic in the guest address space
 pub const GUEST_LOCAL_APIC_ADDR: GuestPhysAddr = GuestPhysAddr::new(0xfee00000);
 
-static VIRTUAL_MACHINES: RoAfterInit<VirtualMachines> =
+static VIRTUAL_MACHINES: RoAfterInit<VirtualMachineSet> =
     RoAfterInit::uninitialized();
 
-pub unsafe fn init_virtual_machines(machines: VirtualMachines) {
-    RoAfterInit::init(&VIRTUAL_MACHINES, machines);
-}
-
-/// Get the virtual machine that owns the core with the given core id
-///
-/// This method is unsafe as it should almost certainly not be used (use message
-/// passing instead of directly access the remote VM).
-pub unsafe fn get_vm_for_core_id(
-    core_id: percore::CoreId,
-) -> Option<Arc<RwLock<VirtualMachine>>> {
-    VIRTUAL_MACHINES.get_by_core_id(core_id)
-}
-
-//FIXME(alschwalm): this breaks if the current VM is already locked
-pub fn send_vm_msg(msg: VirtualMachineMsg, vmid: u32) -> Result<()> {
-    VIRTUAL_MACHINES.send_msg(msg, vmid)
-}
-
-pub fn send_vm_msg_core(
-    msg: VirtualMachineMsg,
-    core_id: percore::CoreId,
-) -> Result<()> {
-    VIRTUAL_MACHINES.send_msg_core(msg, core_id)
-}
-
-pub fn recv_vm_msg() -> Option<VirtualMachineMsg> {
-    VIRTUAL_MACHINES.resv_msg()
-}
-
-pub fn max_vm_id() -> u32 {
-    VIRTUAL_MACHINES.len() as u32
-}
+/// The maximum numer of cores that can be assigned to a single VM
+pub const MAX_PER_VM_CORE_COUNT: usize = 32;
 
 const MAX_PENDING_MSG: usize = 100;
 
+/// Initialize the global VirtualMachineSet
+///
+/// This method must be called before calling 'virtual_machines'
+pub unsafe fn init_virtual_machines(machines: VirtualMachineSet) {
+    RoAfterInit::init(&VIRTUAL_MACHINES, machines);
+}
+
+/// Get the global VirtualMachineSet
+pub fn virtual_machines() -> &'static VirtualMachineSet {
+    &*VIRTUAL_MACHINES
+}
+
+/// A message for inter-core or inter-VM communication
+///
+/// These messages can be sent and received through the
+/// VirtualMachineSet type, accessible via the 'virtual_machines'
+/// method after startup
 pub enum VirtualMachineMsg {
+    /// Transfer control of a physical serial console to another VM
     GrantConsole(physdev::com::Uart8250),
+
+    /// Cancel a the given timer
     CancelTimer(time::TimerId),
+
+    /// Start a core at the given physical address
+    StartVcpu(GuestPhysAddr),
+
+    /// Inject a guest interrupt with the given vector
+    GuestInterrupt {
+        /// The type of the injected interrupt
+        kind: vcpu::InjectedInterruptType,
+
+        /// The injected interrupt vector
+        vector: u8,
+    },
 }
 
 struct VirtualMachineContext {
-    vm: Arc<RwLock<VirtualMachine>>,
+    vm: Arc<VirtualMachine>,
+
+    /// The per-core RX message queue
     msgqueue: RwLock<ArrayDeque<[VirtualMachineMsg; MAX_PENDING_MSG]>>,
 }
 
-pub struct VirtualMachines {
+/// The set of configured virtual machines
+///
+/// This structure represents the set of all configured machines
+/// in the hypervisor and can be used to transmit and receive
+/// inter-vm or inter-core messages.
+pub struct VirtualMachineSet {
+    machine_count: u32,
     map: BTreeMap<percore::CoreId, VirtualMachineContext>,
 }
 
-impl VirtualMachines {
+impl VirtualMachineSet {
     fn context_by_core_id(
         &self,
         core_id: percore::CoreId,
@@ -93,7 +107,7 @@ impl VirtualMachines {
         self.map
             .iter()
             .filter_map(|(_core_id, context)| {
-                if context.vm.read().id == id {
+                if context.vm.id == id {
                     Some(context)
                 } else {
                     None
@@ -102,26 +116,47 @@ impl VirtualMachines {
             .next()
     }
 
-    pub fn len(&self) -> usize {
-        self.map.len()
+    /// Returns the number of VMs
+    pub fn count(&self) -> u32 {
+        self.machine_count
     }
 
-    pub fn get_by_core_id(
+    /// Returns whether a given CoreId is associated with any VM
+    pub fn is_assigned_core_id(&self, core_id: percore::CoreId) -> bool {
+        self.map.contains_key(&core_id)
+    }
+
+    /// Get the virtual machine that owns the core with the given core id
+    ///
+    /// This method is unsafe as it should almost certainly not be used (use message
+    /// passing instead of directly accessing the remote VM).
+    pub unsafe fn get_by_core_id(
         &self,
         core_id: percore::CoreId,
-    ) -> Option<Arc<RwLock<VirtualMachine>>> {
+    ) -> Option<Arc<VirtualMachine>> {
         self.context_by_core_id(core_id)
             .map(|context| context.vm.clone())
     }
 
-    pub fn get_by_vm_id(&self, id: u32) -> Option<Arc<RwLock<VirtualMachine>>> {
-        self.context_by_vm_id(id).map(|context| context.vm.clone())
+    /// Get a VirtualMachine by its vmid
+    pub fn get_by_vm_id(&self, vmid: u32) -> Option<Arc<VirtualMachine>> {
+        self.context_by_vm_id(vmid)
+            .map(|context| context.vm.clone())
     }
 
+    /// Get the CoreId for the BSP core of a VM by its vmid
+    pub fn bsp_core_id(&self, vmid: u32) -> Option<percore::CoreId> {
+        self.get_by_vm_id(vmid).map(|vm| vm.config.bsp_id())
+    }
+
+    /// Send the given message to a specific core
+    ///
+    /// If 'notify' is true, an interrupt will be sent to the recipient.
     pub fn send_msg_core(
         &self,
         msg: VirtualMachineMsg,
         core_id: percore::CoreId,
+        notify: bool,
     ) -> Result<()> {
         let context = self
             .context_by_core_id(core_id)
@@ -132,6 +167,10 @@ impl VirtualMachines {
                 core_id
             ))
         })?;
+
+        if !notify {
+            return Ok(());
+        }
 
         // Transmit the IPC external interrupt vector to the other vm, so it will
         // process the message.
@@ -144,57 +183,90 @@ impl VirtualMachines {
                 apic::Level::Assert,
                 apic::DstMode::Physical,
                 apic::DeliveryMode::Fixed,
-                interrupt::IPC_VECTOR,
+                interrupt::vector::IPC,
             );
         }
 
         Ok(())
     }
 
-    pub fn send_msg(&self, msg: VirtualMachineMsg, vm_id: u32) -> Result<()> {
-        //TODO(alschwalm): this should actually be the BSP core_id of the other vm
-        self.send_msg_core(msg, vm_id.into())
+    /// Send the given message to a specific virtual machine
+    ///
+    /// The sent message will be received by the BSP of the target
+    /// virtual machine. If 'notify' is true, an interrupt will
+    /// be sent to the recipient.
+    pub fn send_msg(
+        &self,
+        msg: VirtualMachineMsg,
+        vm_id: u32,
+        notify: bool,
+    ) -> Result<()> {
+        let vm_bsp = self.bsp_core_id(vm_id).ok_or_else(|| {
+            Error::InvalidValue(format!(
+                "Unable to find BSP for VM id '{}'",
+                vm_id
+            ))
+        })?;
+        self.send_msg_core(msg, vm_bsp, notify)
     }
 
-    pub fn resv_msg(&self) -> Option<VirtualMachineMsg> {
+    /// Receive any pending message for the current core
+    pub fn recv_msg(&self) -> Option<VirtualMachineMsg> {
         let context = self
             .context_by_core_id(percore::read_core_id())
             .expect("No VirtualMachineContext for apic id");
         context.msgqueue.write().pop_front()
     }
+
+    /// Receive all pending messages for the current core
+    pub fn recv_all_msgs(&self) -> impl Iterator<Item = VirtualMachineMsg> {
+        let context = self
+            .context_by_core_id(percore::read_core_id())
+            .expect("No VirtualMachineContext for apic id");
+        let pending_messages = context.msgqueue.write().split_off(0);
+        pending_messages.into_iter()
+    }
 }
 
-pub struct VirtualMachineBuilder {
-    // Mapping of core_id to VirtualMachine
-    map: BTreeMap<percore::CoreId, Arc<RwLock<VirtualMachine>>>,
+/// A structure to build up the set of VirtualMachines
+pub struct VirtualMachineSetBuilder {
+    /// The number of virtual machines added to the builder
+    machine_count: u32,
+
+    /// Mapping of core_id to VirtualMachine
+    map: BTreeMap<percore::CoreId, Arc<VirtualMachine>>,
 }
 
-impl VirtualMachineBuilder {
+impl VirtualMachineSetBuilder {
+    /// Returns a new VirtualMachineSetBuilder
     pub fn new() -> Self {
-        VirtualMachineBuilder {
+        Self {
+            machine_count: 0,
             map: BTreeMap::new(),
         }
     }
 
-    pub fn insert_machine(
-        &mut self,
-        vm: Arc<RwLock<VirtualMachine>>,
-    ) -> Result<()> {
-        for cpu in vm.read().config.cpus() {
+    /// Add a VirtualMachine to the set
+    pub fn insert_machine(&mut self, vm: Arc<VirtualMachine>) -> Result<()> {
+        self.machine_count += 1;
+        for cpu in vm.config.cpus() {
             self.map.insert(percore::CoreId::from(*cpu), vm.clone());
         }
         Ok(())
     }
 
+    /// Get the virtual machine that owns the core with the given core id
     pub fn get_by_core_id(
         &self,
         core_id: percore::CoreId,
-    ) -> Option<Arc<RwLock<VirtualMachine>>> {
+    ) -> Option<Arc<VirtualMachine>> {
         self.map.get(&core_id).map(|vm| vm.clone())
     }
 
-    pub fn finalize(self) -> VirtualMachines {
-        VirtualMachines {
+    /// Finish building the VirtualMachineSet
+    pub fn finalize(self) -> VirtualMachineSet {
+        VirtualMachineSet {
+            machine_count: self.machine_count,
             map: self
                 .map
                 .into_iter()
@@ -212,18 +284,19 @@ impl VirtualMachineBuilder {
     }
 }
 
+/// A set of physical hardware that may be attached to a VM
 #[derive(Default)]
 pub struct PhysicalDeviceConfig {
     /// The physical serial connection for this VM (if any).
-    pub serial: Option<physdev::com::Uart8250>,
+    pub serial: RwLock<Option<physdev::com::Uart8250>>,
 
     /// The physical ps2 keyboard connection for this VM (if any).
-    pub ps2_keyboard: Option<physdev::keyboard::Ps2Controller>,
+    pub ps2_keyboard: RwLock<Option<physdev::keyboard::Ps2Controller>>,
 }
 
 /// A configuration for a `VirtualMachine`
 pub struct VirtualMachineConfig {
-    cpus: Vec<percore::CoreId>,
+    cpus: ArrayVec<[percore::CoreId; MAX_PER_VM_CORE_COUNT]>,
     images: Vec<(String, GuestPhysAddr)>,
     virtual_devices: DeviceMap,
     physical_devices: PhysicalDeviceConfig,
@@ -238,23 +311,25 @@ impl VirtualMachineConfig {
     /// * `cpus` - A list of the cores used by the VM (by APIC id)
     /// * `memory` - The amount of VM memory (in MB)
     pub fn new(
-        cpus: Vec<percore::CoreId>,
+        cpus: &[percore::CoreId],
         memory: u64,
         physical_devices: PhysicalDeviceConfig,
-    ) -> VirtualMachineConfig {
-        VirtualMachineConfig {
-            cpus: cpus,
+    ) -> Result<VirtualMachineConfig> {
+        let mut cpu_array = ArrayVec::new();
+        cpu_array.try_extend_from_slice(cpus)?;
+        Ok(VirtualMachineConfig {
+            cpus: cpu_array,
             images: vec![],
             virtual_devices: DeviceMap::default(),
             physical_devices: physical_devices,
             memory: memory,
-        }
+        })
     }
 
     /// Specify that the given image 'path' should be mapped to the given address
     ///
-    /// The precise meaning of `image` will vary by platform. This will be a
-    /// value suitable to be passed to `VmServices::read_file`.
+    /// The precise meaning of `image` will vary by platform. On multiboot2 platforms
+    /// it is a module.
     pub fn map_image(
         &mut self,
         image: String,
@@ -274,16 +349,19 @@ impl VirtualMachineConfig {
         &mut self.virtual_devices
     }
 
+    /// Access the configurations physical hardware
     pub fn physical_devices(&self) -> &PhysicalDeviceConfig {
         &self.physical_devices
     }
 
-    pub fn physical_devices_mut(&mut self) -> &mut PhysicalDeviceConfig {
-        &mut self.physical_devices
+    /// Get the list of CoreIds assicated with this VM
+    pub fn cpus(&self) -> &ArrayVec<[percore::CoreId; MAX_PER_VM_CORE_COUNT]> {
+        &self.cpus
     }
 
-    pub fn cpus(&self) -> &Vec<percore::CoreId> {
-        &self.cpus
+    /// Get the CoreId of the BSP for this VM
+    pub fn bsp_id(&self) -> percore::CoreId {
+        self.cpus[0]
     }
 }
 
@@ -304,6 +382,13 @@ pub struct VirtualMachine {
     ///
     /// See section 29.4 of the Intel software developer's manual
     pub apic_access_page: Raw4kPage,
+
+    /// Portions of the per-core Local APIC state needed for logical addressing
+    pub logical_apic_state:
+        BTreeMap<percore::CoreId, virtdev::lapic::LogicalApicState>,
+
+    /// The number of vcpus that are up and waiting to start
+    cpus_ready: AtomicU32,
 }
 
 impl VirtualMachine {
@@ -315,34 +400,67 @@ impl VirtualMachine {
         id: u32,
         config: VirtualMachineConfig,
         info: &BootInfo,
-    ) -> Result<Arc<RwLock<Self>>> {
+    ) -> Result<Arc<Self>> {
         let guest_space = Self::setup_ept(&config, info)?;
 
-        let vm = Arc::new(RwLock::new(Self {
+        // Prepare the portion of per-core local apic state that is stored at the
+        // VM level (as needed for logical addressing)
+        let mut logical_apic_states = BTreeMap::new();
+        for core in config.cpus.iter() {
+            logical_apic_states.insert(
+                core.clone(),
+                virtdev::lapic::LogicalApicState::default(),
+            );
+        }
+
+        let vm = Arc::new(Self {
             id: id,
             config: config,
             guest_space: guest_space,
             apic_access_page: Raw4kPage([0u8; 4096]),
-        }));
+            logical_apic_state: logical_apic_states,
+            cpus_ready: AtomicU32::new(0),
+        });
 
         // Map the guest local apic addr to the access page. This will be set in each
         // core's vmcs
         let apic_frame = memory::HostPhysFrame::from_start_address(
-            memory::HostPhysAddr::new(
-                vm.read().apic_access_page.as_ptr() as u64
-            ),
+            memory::HostPhysAddr::new(vm.apic_access_page.as_ptr() as u64),
         )?;
-        vm.write().guest_space.map_frame(
-            GUEST_LOCAL_APIC_ADDR,
-            apic_frame,
-            false,
-        )?;
+        vm.guest_space
+            .map_frame(GUEST_LOCAL_APIC_ADDR, apic_frame, false)?;
 
         Ok(vm)
     }
 
+    /// Notify this VirtualMachine that the current core is ready to start
+    ///
+    /// Each core associated with this VirtualMachine must call this method
+    /// in order for 'all_cores_ready' to return true. Cores must _not_
+    /// invoke this method more than once.
+    pub fn notify_ready(&self) {
+        self.cpus_ready
+            .fetch_add(1, core::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// Returns true when all VirtualMachine cores have called 'notify_ready'
+    pub fn all_cores_ready(&self) -> bool {
+        self.cpus_ready.load(core::sync::atomic::Ordering::SeqCst)
+            == self.config.cpus.len() as u32
+    }
+
+    /// Process the given DeviceEvent on the virtual hardware matching 'ident'
+    ///
+    /// # Arguments
+    ///
+    /// * `ident` - A DeviceInteraction like a Port I/O port or address used to
+    ///             find the relevant device.
+    /// * `kind` - The DeviceEvent kind to dispatch
+    /// * `vcpu` - A handle to the current vcpu
+    /// * `responses` - A ResponseEventArray for any responses from the virtual
+    ///                 hardware
     pub fn dispatch_event(
-        &mut self,
+        &self,
         ident: impl DeviceInteraction + core::fmt::Debug,
         kind: DeviceEvent,
         vcpu: &crate::vcpu::VCpu,
@@ -356,14 +474,77 @@ impl VirtualMachine {
                 Error::MissingDevice("Unable to dispatch event".into())
             })?;
 
-        let space = crate::memory::GuestAddressSpaceViewMut::from_vmcs(
+        let space = crate::memory::GuestAddressSpaceView::from_vmcs(
             &vcpu.vmcs,
-            &mut self.guest_space,
+            &self.guest_space,
         )?;
 
         let event = Event::new(kind, space, responses)?;
 
         dev.write().on_event(event)
+    }
+
+    /// Returns an iterator of the CoreIds that are logically addressed by the given mask
+    ///
+    /// # Arguments
+    ///
+    /// * `mask` - The APIC ICR address contents (e.g., the upper 32 bits) for a
+    ///            logically addressed IPC
+    pub fn logical_apic_destination(
+        &self,
+        mask: u32,
+    ) -> Result<impl Iterator<Item = &percore::CoreId>> {
+        // FIXME: currently we only support the 'Flat Model' logical mode
+        // (so we just ignore the destination format register). See 10.6.2.2
+        // of Volume 3A of the Intel software developer's manual
+        Ok(self.config.cpus.iter().filter(move |core| {
+            let apic_state = self
+                .logical_apic_state
+                .get(core)
+                .expect("Missing logical state for core");
+            // TODO(alschwalm): This may not need to be as strict as SeqCst
+            let destination = apic_state
+                .logical_destination
+                .load(core::sync::atomic::Ordering::SeqCst);
+            destination & mask != 0
+        }))
+    }
+
+    /// Notify the VirtualMachine of a change in the Logical Destination register
+    /// for the current core
+    pub fn update_core_logical_destination(&self, dest: u32) {
+        let apic_state = self
+            .logical_apic_state
+            .get(&percore::read_core_id())
+            .expect("Missing logical state for core");
+        apic_state
+            .logical_destination
+            .store(dest, core::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// Resolve a guest GSI to a specific CoreId, vector and interrupt type
+    pub fn gsi_destination(
+        &self,
+        gsi: u32,
+    ) -> Result<(percore::CoreId, u8, vcpu::InjectedInterruptType)> {
+        //TODO(alschwalm): For now just route the UART interrupts to the BSP,
+        // but this should ulimately do actual interrupt routing based on the
+        // guest IO APICs. For now just blindly translate GSI to vector based
+        // on this basic formula.
+        let vector = (gsi + 48) as u8;
+        if gsi == interrupt::gsi::UART {
+            Ok((
+                self.config.bsp_id(),
+                vector,
+                vcpu::InjectedInterruptType::ExternalInterrupt,
+            ))
+        } else {
+            Ok((
+                percore::read_core_id(),
+                vector,
+                vcpu::InjectedInterruptType::ExternalInterrupt,
+            ))
+        }
     }
 
     fn map_data(
@@ -469,10 +650,11 @@ mod test {
         let phys_config = PhysicalDeviceConfig::default();
 
         let config = VirtualMachineConfig::new(
-            vec![percore::CoreId::from(1)],
+            &[percore::CoreId::from(1)],
             0,
             phys_config,
-        );
+        )
+        .unwrap();
         VirtualMachine::new(0, config, &info).unwrap();
     }
 }

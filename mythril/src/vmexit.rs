@@ -11,7 +11,6 @@ extern "C" {
 }
 
 #[repr(C)]
-#[repr(packed)]
 #[derive(Clone, Copy, Debug)]
 pub struct GuestCpuState {
     pub cr2: u64,

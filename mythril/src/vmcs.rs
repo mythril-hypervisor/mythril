@@ -4,6 +4,7 @@ use crate::vmx;
 use alloc::boxed::Box;
 use bitflags::bitflags;
 use core::fmt;
+use num_enum::TryFromPrimitive;
 use x86::msr::rdmsr;
 
 #[allow(dead_code)]
@@ -283,6 +284,15 @@ bitflags! {
         const NMI_BLOCKING      = 0x00000008;
         const ENCLAVE_INTERRUPT = 0x00000010;
     }
+}
+
+#[derive(Copy, Clone, TryFromPrimitive)]
+#[repr(u32)]
+pub enum ActivityState {
+    Active = 0,
+    Hlt = 1,
+    Shutdown = 2,
+    WaitForSipi = 3,
 }
 
 fn vmcs_write_with_fixed(

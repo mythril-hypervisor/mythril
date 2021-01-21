@@ -57,6 +57,27 @@ fn frequency() -> u64 {
     TIME_SRC.frequency()
 }
 
+/// An interrupt to be delivered by a timer
+#[derive(Clone)]
+pub enum TimerInterruptType {
+    /// An interrupt to be delivered to the core that is running the timer.
+    /// For example, when virtualizing the guest local apic timer, the
+    /// generated interrupt is _not_ a guest GSI, but a directly delivered
+    /// interrupt.
+    Direct {
+        /// The interrupt vector to be delivered by the timer
+        vector: u8,
+
+        /// The kind of interrupt to be delivered by the timer
+        kind: vcpu::InjectedInterruptType,
+    },
+
+    /// An interrupt to be delivered to the guest via a GSI.
+    /// For example, any hardware timer external to the core will generate
+    /// a GSI and be routed to a vector through the guest IO APIC
+    GSI(u32),
+}
+
 /// A point in time on the system in terms of the global system `TimeSource`
 ///
 /// An `Instant` can be added/subtracted with a `Duration` to produce an
@@ -123,12 +144,7 @@ enum TimerMode {
 pub struct ReadyTimer {
     duration: Duration,
     mode: TimerMode,
-
-    // The interrupt vector to deliver to the guest when this timer
-    // expires.
-    // TODO: Not all timers represent interrupts to deliver to the guest,
-    // so we will need to make this more abstract.
-    vector: u8,
+    kind: TimerInterruptType,
 }
 
 /// A started one-shot or periodic timer
@@ -136,25 +152,25 @@ pub struct RunningTimer {
     duration: Duration,
     mode: TimerMode,
     started: Instant,
-    vector: u8,
+    kind: TimerInterruptType,
 }
 
 impl ReadyTimer {
     /// Create a new one-shot timer.
-    pub fn one_shot(duration: Duration, vector: u8) -> Self {
+    pub fn one_shot(duration: Duration, kind: TimerInterruptType) -> Self {
         Self {
-            duration: duration,
+            duration,
             mode: TimerMode::OneShot,
-            vector: vector,
+            kind,
         }
     }
 
     /// Create a new periodic timer.
-    pub fn periodic(period: Duration, vector: u8) -> Self {
+    pub fn periodic(period: Duration, kind: TimerInterruptType) -> Self {
         Self {
             duration: period,
             mode: TimerMode::Periodic,
-            vector: vector,
+            kind,
         }
     }
 
@@ -164,7 +180,7 @@ impl ReadyTimer {
             duration: self.duration,
             mode: self.mode,
             started: now(),
-            vector: self.vector,
+            kind: self.kind,
         }
     }
 
@@ -183,7 +199,7 @@ impl RunningTimer {
         ReadyTimer {
             duration: self.duration,
             mode: self.mode,
-            vector: self.vector,
+            kind: self.kind,
         }
     }
 
@@ -273,7 +289,7 @@ impl TimerWheel {
     /// expired and will reset any periodic timers.
     pub fn expire_elapsed_timers(
         &mut self,
-    ) -> Result<vec::Vec<(u8, vcpu::InjectedInterruptType)>> {
+    ) -> Result<vec::Vec<TimerInterruptType>> {
         let mut interrupts = vec![];
         let elapsed_oneshots = self
             .timers
@@ -288,10 +304,7 @@ impl TimerWheel {
             .collect::<vec::Vec<_>>();
 
         for id in elapsed_oneshots {
-            interrupts.push((
-                self.timers[&id].vector,
-                vcpu::InjectedInterruptType::ExternalInterrupt,
-            ));
+            interrupts.push(self.timers[&id].kind.clone());
             self.timers.remove(&id);
         }
 
@@ -300,10 +313,7 @@ impl TimerWheel {
             .iter_mut()
             .filter(|(_, timer)| timer.elapsed() && timer.is_periodic())
         {
-            interrupts.push((
-                timer.vector,
-                vcpu::InjectedInterruptType::ExternalInterrupt,
-            ));
+            interrupts.push(timer.kind.clone());
             timer.reset();
         }
 
@@ -315,15 +325,15 @@ impl TimerWheel {
         let soonest = self
             .timers
             .values()
-            .map(|timer| (timer.elapses_at(), timer.vector))
-            .min();
+            .map(|timer| (timer.elapses_at(), &timer.kind))
+            .min_by(|(time1, _), (time2, _)| time1.cmp(time2));
 
         // TODO: we should only actually reset this if the new time
         // is sooner than the last time we set
         if let Some((when, _)) = soonest {
             unsafe {
                 apic::get_local_apic_mut()
-                    .schedule_interrupt(when, interrupt::TIMER_VECTOR);
+                    .schedule_interrupt(when, interrupt::vector::TIMER);
             }
         }
     }
@@ -382,10 +392,7 @@ impl TimerWheel {
 pub fn busy_wait(duration: core::time::Duration) {
     let start = now();
     while now() < start + duration {
-        unsafe {
-            // Relax the cpu
-            asm!("rep", "nop");
-        }
+        crate::lock::relax_cpu();
     }
 }
 
@@ -395,9 +402,10 @@ pub fn cancel_timer(id: &TimerId) -> Result<()> {
     if wheel.is_local_timer(id) {
         wheel.remove_timer(id);
     } else {
-        vm::send_vm_msg_core(
+        vm::virtual_machines().send_msg_core(
             vm::VirtualMachineMsg::CancelTimer(id.clone()),
             id.core_id,
+            true,
         )?;
     }
     Ok(())
@@ -406,19 +414,19 @@ pub fn cancel_timer(id: &TimerId) -> Result<()> {
 /// Set a one shot timer on this core
 pub fn set_oneshot_timer(
     duration: core::time::Duration,
-    vector: u8,
+    kind: TimerInterruptType,
 ) -> TimerId {
     let wheel = unsafe { get_timer_wheel_mut() };
-    let timer = ReadyTimer::one_shot(duration, vector);
+    let timer = ReadyTimer::one_shot(duration, kind);
     wheel.register_timer(timer)
 }
 
 /// Set a periodic timer on this core
 pub fn set_periodic_timer(
     interval: core::time::Duration,
-    vector: u8,
+    kind: TimerInterruptType,
 ) -> TimerId {
     let wheel = unsafe { get_timer_wheel_mut() };
-    let timer = ReadyTimer::periodic(interval, vector);
+    let timer = ReadyTimer::periodic(interval, kind);
     wheel.register_timer(timer)
 }
