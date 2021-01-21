@@ -26,7 +26,7 @@ impl Vmx {
                 "mov cr0, rax",
                 in("rdx") 0x20,
                 lateout("rax") _,
-                options(nomem)
+                options(nomem, nostack)
             );
 
             // Enable vmx in CR4
@@ -36,7 +36,7 @@ impl Vmx {
                 "mov cr4, rax",
                 in("rdx") VMX_ENABLE_FLAG,
                 lateout("rax") _,
-                options(nomem)
+                options(nomem, nostack)
             );
         }
 

@@ -81,8 +81,11 @@ impl fmt::Display for CoreId {
 pub fn read_core_id() -> CoreId {
     unsafe {
         let value: u64;
-        asm!("mov rax, fs",
-             out("rax") value);
+        asm!(
+            "mov rax, fs",
+            lateout("rax") value,
+            options(nomem, nostack)
+        );
         ((value >> 3) as u32).into() // Shift away the RPL and TI bits (they will always be 0)
     }
 }

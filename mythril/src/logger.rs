@@ -89,6 +89,7 @@ pub unsafe fn raw_write_console(s: impl AsRef<str>) {
         in("rdx") 0x3f8,
         in("rcx") len as u64,
         inout("rsi") ptr as u64 => _,
+        options(nostack)
     );
 }
 

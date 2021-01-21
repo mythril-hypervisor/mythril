@@ -15,7 +15,8 @@ impl IdtrBase {
             };
             asm!(
                 "sidt fword ptr [{0}]",
-                in(reg) &mut info
+                in(reg) &mut info,
+                options(nostack)
             );
             info.base_addr
         }
@@ -36,7 +37,8 @@ impl GdtrBase {
             let mut info = GdtInfo { size: 0, offset: 0 };
             asm!(
                 "sgdt fword ptr [{0}]",
-                in(reg) &mut info
+                in(reg) &mut info,
+                options(nostack)
             );
             info.offset
         }
