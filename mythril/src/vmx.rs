@@ -98,9 +98,14 @@ impl Vmx {
 
         let rflags = unsafe {
             let rflags: u64;
-            llvm_asm!("invept $1, $2; pushfq; popq $0"
-                      : "=r"(rflags)
-                      : "m"(val), "r"(t));
+            asm!(
+                "invept {}, [{}]",
+                "pushfq",
+                "pop {}",
+                in(reg) t,
+                in(reg) &val,
+                lateout(reg) rflags
+            );
             rflags
         };
         error::check_vm_insruction(rflags, "Failed to execute invept".into())
@@ -120,9 +125,14 @@ impl Vmx {
 
         let rflags = unsafe {
             let rflags: u64;
-            llvm_asm!("invvpid $1, $2; pushfq; popq $0"
-                      : "=r"(rflags)
-                      : "m"(val), "r"(t));
+            asm!(
+                "invvpid {}, [{}]",
+                "pushfq",
+                "pop {}",
+                in(reg) t,
+                in(reg) &val,
+                lateout(reg) rflags
+            );
             rflags
         };
         error::check_vm_insruction(rflags, "Failed to execute invvpid".into())
