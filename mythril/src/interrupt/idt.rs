@@ -134,8 +134,8 @@ macro_rules! interrupt_fn_impl {
 
              let rbp: usize;
              asm!(
-                "mov rax, rbp",
-                out("rax") rbp,
+                "mov {}, rbp",
+                out(reg) rbp,
                 options(nomem, nostack)
              );
 
