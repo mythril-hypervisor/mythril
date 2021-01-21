@@ -133,7 +133,11 @@ macro_rules! interrupt_fn_impl {
              push_regs!();
 
              let rbp: usize;
-             asm!("mov rax, rbp", out("eax") rbp);
+             asm!(
+                "mov rax, rbp",
+                out("rax") rbp,
+                options(nomem, nostack)
+             );
 
              // Plus usize to skip the old rpb value pushed in the preamble
              let stack = &*( (rbp + core::mem::size_of::<usize>()) as *const $type);
