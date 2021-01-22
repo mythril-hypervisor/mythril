@@ -1,10 +1,8 @@
-use crate::apic::get_local_apic;
 use crate::error::Result;
 use crate::vcpu::VCpu;
 use crate::{vcpu, vmexit};
 use arrayvec::ArrayVec;
 use bitfield::bitfield;
-use bitflags::_core::num::flt2dec::to_shortest_exp_str;
 use core::convert::TryInto;
 use raw_cpuid::CpuIdResult;
 
@@ -26,17 +24,18 @@ const MAX_CPUID_INPUT: u32 = 0x80000008;
 //todo //CPUID leaves above 2 and below 80000000H are visible only when
 //     // IA32_MISC_ENABLE[bit 22] has its default value of 0.
 
+const NAME_CREATION_ERROR_MESSAGE: &'static str =
+    "Somehow bytes was not actually a 12 element array";
+
 fn get_cpu_id_result(
     vcpu: &vcpu::VCpu,
     eax_in: u32,
     ecx_in: u32,
 ) -> CpuIdResult {
-    const NAME_CREATION_ERROR_MESSAGE: &'static str =
-        "Somehow bytes was not actually a 12 element array";
 
     let mut actual = raw_cpuid::native_cpuid::cpuid_count(
-        guest_cpu.rax as u32,
-        guest_cpu.rcx as u32,
+        eax_in,
+        ecx_in,
     );
 
     match eax_in {
@@ -78,7 +77,7 @@ fn get_cpu_id_result(
             }
         }
         CPUID_BRAND_STRING_1..=CPUID_BRAND_STRING_3 => {
-            if vcpu.vm.read().config.override_cpu_name() { todo!("CPU Brand string not implemented yet") }
+            if vcpu.vm.config.override_cpu_name() { todo!("CPU Brand string not implemented yet") }
             actual
         }
         _ => {
@@ -92,12 +91,12 @@ fn get_cpu_id_result(
 bitfield! {
     pub struct IntelCoreCacheTopologyEaxRes(u32);
     impl Debug;
-    cache_type,_:4,0;
-    cache_level,_:7,5;
-    self_init_cache_level,_:8;
-    fully_associative,_:9;
-    max_addressable_ids_logical,_:14,25;
-    max_addressable_ids_physical,_:26,31;
+    cache_type,set_cache_type:4,0;
+    cache_level,set_cache_level:7,5;
+    self_init_cache_level,set_self_init_cache_level:8;
+    fully_associative,set_fully_associative:9;
+    max_addressable_ids_logical,set_max_addressable_ids_logical:14,25;
+    max_addressable_ids_physical,set_max_addressable_ids_physical:26,31;
 }
 
 fn intel_cache_topo(mut actual: CpuIdResult) -> CpuIdResult {
@@ -130,23 +129,23 @@ bitfield! {
     impl Debug;
     brand_idx, _: 7,0;
     cflush,_:15,8;
-    max_processor_ids,_:23,16;
-    apic_id,_:31,24;
+    max_processor_ids,set_max_processor_ids:23,16;
+    apic_id, set_apic_id:31,24;
 }
 
 bitfield! {
     pub struct FeatureInformationECX(u32);
     impl Debug;
     //there are a lot of features here, so only add the ones we care about for now.
-    xsave, _: 26;
-    hypervissor, _: 31;
+    xsave, set_xsave: 26;
+    hypervisor, set_hypervisor: 31;
 }
 
 bitfield! {
     pub struct FeatureInformationEDX(u32);
     impl Debug;
     //there are a lot of features here, so only add the ones we care about for now.
-    mtrr, _: 12;
+    mtrr, set_mtrr: 12;
 }
 
 fn cpuid_model_family_stepping(actual: CpuIdResult) -> CpuIdResult {
@@ -164,21 +163,21 @@ fn cpuid_model_family_stepping(actual: CpuIdResult) -> CpuIdResult {
     // I would have made type safe bindings for this but then I saw how many fields there where...
 
     // Disable MTRR
-    features_edx.set_mtrr(0);
+    features_edx.set_mtrr(false);
 
     // Disable XSAVE
     // ecx &= !(1 << 26);
-    features_ecx.set_xsave(0);
+    features_ecx.set_xsave(false);
 
     // Hide hypervisor feature
-    features_ecx.set_hypervisor(0);
+    features_ecx.set_hypervisor(false);
     let ecx = features_ecx.0;
     let edx = features_edx.0;
     CpuIdResult { eax, ebx, ecx, edx }
 }
 
 fn cpuid_name(vcpu: &VCpu, actual: CpuIdResult) -> CpuIdResult {
-    if vcpu.vm.read().config.override_cpu_name() {
+    if vcpu.vm.config.override_cpu_name() {
         let cpu_name = "MythrilCPU__";
         let bytes = cpu_name
             .chars()

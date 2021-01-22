@@ -125,6 +125,7 @@ impl VCpu {
             local_apic: virtdev::lapic::LocalApic::new(),
             stack: get_per_core_mut!(HOST_STACK),
             pending_interrupts: BTreeMap::new(),
+            vcpu_apic_id: todo!()
         };
 
         unsafe {
