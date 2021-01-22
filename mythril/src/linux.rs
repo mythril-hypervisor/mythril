@@ -99,14 +99,15 @@ pub fn load_linux(
     }
 
     let protocol = LittleEndian::read_u16(&kernel[offsets::BOOTP_VERSION]);
-    let (real_addr, cmdline_addr, prot_addr) =
-        if protocol < 0x200 || (kernel[offsets::LOAD_FLAGS] & LoadFlags::LOADED_HIGH.bits()) == 0 {
-            (0x90000, 0x9a000 - cmdline.len() as i32, 0x10000)
-        } else if protocol < 0x202 {
-            (0x90000, 0x9a000 - cmdline.len() as i32, 0x100000)
-        } else {
-            (0x10000, 0x20000, 0x100000)
-        };
+    let (real_addr, cmdline_addr, prot_addr) = if protocol < 0x200
+        || (kernel[offsets::LOAD_FLAGS] & LoadFlags::LOADED_HIGH.bits()) == 0
+    {
+        (0x90000, 0x9a000 - cmdline.len() as i32, 0x10000)
+    } else if protocol < 0x202 {
+        (0x90000, 0x9a000 - cmdline.len() as i32, 0x100000)
+    } else {
+        (0x10000, 0x20000, 0x100000)
+    };
 
     info!("Protocol = 0x{:x}", protocol);
 
@@ -133,10 +134,15 @@ pub fn load_linux(
     builder.add_i32(FwCfgSelector::CMDLINE_SIZE, cmdline.len() as i32);
 
     if protocol >= 0x202 {
-        LittleEndian::write_i32(&mut kernel[offsets::CMD_LINE_PTR], cmdline_addr);
+        LittleEndian::write_i32(
+            &mut kernel[offsets::CMD_LINE_PTR],
+            cmdline_addr,
+        );
     } else {
-        LittleEndian::write_u16(&mut kernel[offsets::OLD_CMD_LINE_MAGIC],
-                                OLD_CMD_LINE_MAGIC_VALUE);
+        LittleEndian::write_u16(
+            &mut kernel[offsets::OLD_CMD_LINE_MAGIC],
+            OLD_CMD_LINE_MAGIC_VALUE,
+        );
         LittleEndian::write_i16(
             &mut kernel[offsets::OLD_CMD_LINE_OFFSET],
             (cmdline_addr - real_addr) as i16,
