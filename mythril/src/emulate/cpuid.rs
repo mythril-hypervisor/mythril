@@ -32,11 +32,7 @@ fn get_cpu_id_result(
     eax_in: u32,
     ecx_in: u32,
 ) -> CpuIdResult {
-
-    let mut actual = raw_cpuid::native_cpuid::cpuid_count(
-        eax_in,
-        ecx_in,
-    );
+    let mut actual = raw_cpuid::native_cpuid::cpuid_count(eax_in, ecx_in);
 
     match eax_in {
         CPUID_NAME => cpuid_name(vcpu, actual),
@@ -57,27 +53,25 @@ fn get_cpu_id_result(
         EXTENDED_TOPOLOGY_ENUMERATION => {
             todo!("This basically requires APIC stuff to be done.")
         }
-        PROCESSOR_EXTENDED_STATE_ENUMERATION => {
-            actual
-        }
+        PROCESSOR_EXTENDED_STATE_ENUMERATION => actual,
         // There are bunch more leaves after PROCESSOR_EXTENDED_STATE_ENUMERATION, however most of them seem unlikely to be used/ not relevant
         V2_EXTENDED_TOPOLOGY_ENUMERATION => {
             todo!("Requires APIC")
         }
-        0x40000000..=0x4FFFFFFF=> {
+        0x40000000..=0x4FFFFFFF => {
             // these are software reserved.
             actual
         }
-        EXTENDED_FUNCTION_CPUID_INFORMATION => {
-            CpuIdResult{
-                eax: MAX_CPUID_INPUT,
-                ebx: 0,
-                ecx: 0,
-                edx: 0
-            }
-        }
+        EXTENDED_FUNCTION_CPUID_INFORMATION => CpuIdResult {
+            eax: MAX_CPUID_INPUT,
+            ebx: 0,
+            ecx: 0,
+            edx: 0,
+        },
         CPUID_BRAND_STRING_1..=CPUID_BRAND_STRING_3 => {
-            if vcpu.vm.config.override_cpu_name() { todo!("CPU Brand string not implemented yet") }
+            if vcpu.vm.config.override_cpu_name() {
+                todo!("CPU Brand string not implemented yet")
+            }
             actual
         }
         _ => {
@@ -99,7 +93,7 @@ bitfield! {
     max_addressable_ids_physical,set_max_addressable_ids_physical:26,31;
 }
 
-fn intel_cache_topo(mut actual: CpuIdResult) -> CpuIdResult {
+fn intel_cache_topo(actual: CpuIdResult) -> CpuIdResult {
     let mut cache_topo_eax = IntelCoreCacheTopologyEaxRes(actual.eax);
     cache_topo_eax.set_max_addressable_ids_logical(todo!("waiting on apics"));
     cache_topo_eax.set_max_addressable_ids_physical(todo!("waiting on apics"));
@@ -210,7 +204,6 @@ pub fn emulate_cpuid(
 
     //todo move this into get_cpu_id_result
     if guest_cpu.rax as u32 == 1 {
-
         // Hide hypervisor feature
         res.ecx &= !(1 << 31);
 
@@ -219,7 +212,6 @@ pub fn emulate_cpuid(
     } else if guest_cpu.rax as u32 == 0x0b {
         res.edx = crate::percore::read_core_id().raw as u32;
     }
-
 
     guest_cpu.rax = res.eax as u64 | (guest_cpu.rax & 0xffffffff00000000);
     guest_cpu.rbx = res.ebx as u64 | (guest_cpu.rbx & 0xffffffff00000000);
