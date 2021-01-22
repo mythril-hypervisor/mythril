@@ -75,10 +75,9 @@ impl VgaController {
                 val.copy_from_u32(self.registers[self.index as usize] as u32);
             }
             _ => {
-                return Err(Error::NotImplemented(format!(
-                    "Unsupported attempt to read from vga port 0x{:x}",
-                    port
-                )))
+                error!("Unsupported attempt to read from vga port 0x{:x}",
+                       port);
+                return Err(Error::NotImplemented)
             }
         }
         Ok(())
@@ -105,20 +104,18 @@ impl VgaController {
                     self.registers[self.index as usize] = data;
                 }
                 _ => {
-                    return Err(Error::InvalidValue(format!(
-                        "Invalid port write to VGA index register: {:?}",
-                        val
-                    )))
+                    error!("Invalid port write to VGA index register: {:?}",
+                           val);
+                    return Err(Error::InvalidValue)
                 }
             },
             Self::VGA_DATA => {
                 self.registers[self.index as usize] = val.try_into()?;
             }
             _ => {
-                return Err(Error::NotImplemented(format!(
-                    "Unsupported attempt to write to vga port 0x{:x}",
-                    port
-                )))
+                error!("Unsupported attempt to write to vga port 0x{:x}",
+                       port);
+                return Err(Error::NotImplemented)
             }
         }
         Ok(())

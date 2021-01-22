@@ -64,38 +64,34 @@ pub fn load_linux(
     let mut kernel = info
         .find_module(kernel_name.as_ref())
         .ok_or_else(|| {
-            Error::InvalidValue(format!(
-                "No such kernel '{}'",
-                kernel_name.as_ref()
-            ))
+            error!("No such kernel '{}'",
+                   kernel_name.as_ref());
+            Error::InvalidValue
         })?
         .data()
         .to_vec();
     let initramfs = info
         .find_module(initramfs_name.as_ref())
         .ok_or_else(|| {
-            Error::InvalidValue(format!(
-                "No such initramfs '{}'",
-                initramfs_name.as_ref()
-            ))
+            error!("No such initramfs '{}'",
+                   initramfs_name.as_ref());
+            Error::InvalidValue
         })?
         .data();
 
     if kernel.len() < 8192 {
-        return Err(Error::InvalidValue(format!(
-            "Kernel image is too small ({} < 8192)",
-            kernel.len()
-        )));
+        error!("Kernel image is too small ({} < 8192)",
+               kernel.len());
+        return Err(Error::InvalidValue);
     }
 
     let magic = LittleEndian::read_u32(&kernel[offsets::HEADER_MAGIC]);
 
     // HdrS
-    if magic != HEADER_MAGIC_VALUE {
-        return Err(Error::InvalidValue(format!(
-            "Invalid kernel image (bad magic = 0x{:x})",
-            magic
-        )));
+    if magic != 0x53726448 {
+        error!("Invalid kernel image (bad magic = 0x{:x})",
+               magic);
+        return Err(Error::InvalidValue);
     }
 
     let protocol = LittleEndian::read_u16(&kernel[offsets::BOOTP_VERSION]);
@@ -167,17 +163,15 @@ pub fn load_linux(
     }
 
     if protocol < 0x200 {
-        return Err(Error::InvalidValue(
-            "Kernel too old for initrd support".into(),
-        ));
+        error!("Kernel too old for initrd support");
+        return Err(Error::InvalidValue);
     }
 
     if initramfs.len() as u32 > initrd_max {
-        return Err(Error::InvalidValue(format!(
-            "Initramfs too large (0x{:x} bytes > max of 0x{:x})",
-            initramfs.len(),
-            initrd_max
-        )));
+        error!("Initramfs too large (0x{:x} bytes > max of 0x{:x})",
+               initramfs.len(),
+               initrd_max);
+        return Err(Error::InvalidValue);
     }
 
     let initrd_addr = ((initrd_max - initramfs.len() as u32) & !4095) as i32;
@@ -198,9 +192,8 @@ pub fn load_linux(
         * 512;
 
     if setup_size as usize > kernel.len() {
-        return Err(Error::InvalidValue(
-            "Invalid kernel header (setup size > kernel size)".into(),
-        ));
+        error!("Invalid kernel header (setup size > kernel size)");
+        return Err(Error::InvalidValue);
     }
     let kernel_size = kernel.len() as i32 - setup_size;
 

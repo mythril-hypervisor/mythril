@@ -68,10 +68,9 @@ impl TryFrom<u16> for ApicRegisterOffset {
 
     fn try_from(value: u16) -> Result<ApicRegisterOffset> {
         if value & 0b1111 != 0 {
-            return Err(Error::InvalidValue(format!(
-                "APIC register offset not aligned: 0x{:x}",
-                value
-            )));
+            error!("APIC register offset not aligned: 0x{:x}",
+                   value);
+            return Err(Error::InvalidValue);
         }
 
         if let Ok(simple_reg) = ApicRegisterSimpleOffset::try_from(value) {
@@ -92,10 +91,9 @@ impl TryFrom<u16> for ApicRegisterOffset {
                 ApicRegisterOffset::InterruptCommand((value - 0x300) >> 4)
             }
             offset => {
-                return Err(Error::InvalidValue(format!(
-                    "Invalid APIC register offset: 0x{:x}",
-                    offset
-                )))
+                error!("Invalid APIC register offset: 0x{:x}",
+                       offset);
+                return Err(Error::InvalidValue)
             }
         };
 

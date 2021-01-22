@@ -35,11 +35,16 @@ pub enum AccessMode {
 #[derive(Clone, Copy, Debug)]
 #[repr(u8)]
 pub enum OperatingMode {
-    Mode0 = 0b000, // interrupt on terminal count
-    Mode1 = 0b001, // hardware re-triggerable one-shot
-    Mode2 = 0b010, // rate generator
-    Mode3 = 0b011, // square wave generator
-    Mode4 = 0b100, // software triggered strobe
+    Mode0 = 0b000,
+    // interrupt on terminal count
+    Mode1 = 0b001,
+    // hardware re-triggerable one-shot
+    Mode2 = 0b010,
+    // rate generator
+    Mode3 = 0b011,
+    // square wave generator
+    Mode4 = 0b100,
+    // software triggered strobe
     Mode5 = 0b101, // hardware triggered strobe
 }
 
@@ -55,10 +60,11 @@ impl TryFrom<u8> for OperatingMode {
             0b101 => Ok(OperatingMode::Mode5),
             0b110 => Ok(OperatingMode::Mode2),
             0b111 => Ok(OperatingMode::Mode3),
-            _ => Err(Error::InvalidValue(format!(
-                "Invalid PIT operating mode: {}",
-                val
-            ))),
+            _ => {
+                error!("Invalid PIT operating mode: {}",
+                       val);
+                Err(Error::InvalidValue)
+            }
         }
     }
 }

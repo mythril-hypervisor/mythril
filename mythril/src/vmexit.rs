@@ -221,10 +221,9 @@ impl ExitReason {
             63 => ExitInformation::Xsaves,
             64 => ExitInformation::Xrstors,
             reason => {
-                return Err(Error::InvalidValue(format!(
-                    "Unexpected basic vmexit reason: {}",
-                    reason
-                )))
+                error!("Unexpected basic vmexit reason: {}",
+                       reason);
+                return Err(Error::InvalidValue)
             }
         };
         Ok(ExitReason {

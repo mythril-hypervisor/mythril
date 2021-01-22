@@ -16,6 +16,7 @@ use num_enum::TryFromPrimitive;
 /// SDT (the end of the Creator Revision at offset 36).
 mod offsets {
     use super::*;
+
     /// 32-bit physical address at which each processor can access its
     /// local APIC.
     pub const LOCAL_INT_CTRL_ADDR: Range<usize> = 0..4;
@@ -80,10 +81,9 @@ impl IcsType {
         if length == self.expected_len() as usize - 2 {
             Ok(())
         } else {
-            Err(Error::InvalidValue(format!(
-                "Invalid length={} for type=0x{:x}",
-                *self as u8, length
-            )))
+            error!("Invalid length={} for type=0x{:x}",
+                   *self as u8, length);
+            Err(Error::InvalidValue)
         }
     }
 }
@@ -254,16 +254,17 @@ impl Ics {
                 ),
                 apic_proc_uid: NativeEndian::read_u32(&bytes[10..14]),
             }),
-            _ => Err(Error::NotImplemented(format!(
-                "type=0x{:x} length={} not implemented",
-                ty as u8,
-                bytes.len()
-            ))),
+            _ => {
+                error!("type=0x{:x} length={} not implemented",
+                       ty as u8,
+                       bytes.len());
+                Err(Error::NotImplemented)
+            }
         }
     }
 
     /// Encode into the byte sequence
-    pub fn encode<T: Array<Item = u8>>(
+    pub fn encode<T: Array<Item=u8>>(
         &self,
         buffer: &mut ArrayVec<T>,
     ) -> Result<()> {
@@ -294,10 +295,9 @@ impl Ics {
                 NativeEndian::write_u32(&mut tmp_buf[8..12], gsi_base);
             }
             _ => {
-                return Err(Error::NotImplemented(format!(
-                    "The ICS Type {:?} has not been implemented",
-                    self.ics_type()
-                )))
+                error!("The ICS Type {:?} has not been implemented",
+                       self.ics_type());
+                return Err(Error::NotImplemented);
             }
         }
         buffer.try_extend_from_slice(
@@ -393,26 +393,23 @@ impl<'a> Iterator for IcsIterator<'a> {
         let ty = match IcsType::try_from(self.bytes[0]) {
             Ok(ty) => ty,
             _ => {
-                return Some(Err(Error::InvalidValue(format!(
-                    "Invalid ICS type: {}",
-                    self.bytes[0]
-                ))));
+                error!("Invalid ICS type: {}",
+                       self.bytes[0]);
+                return Some(Err(Error::InvalidValue));
             }
         };
         let len = self.bytes[1] as usize;
 
         if len > self.bytes.len() {
-            return Some(Err(Error::InvalidValue(format!(
-                "Payload for type=0x{:x} and len={} to big for buffer len={}",
-                ty as u8,
-                len,
-                self.bytes.len()
-            ))));
+            error!("Payload for type=0x{:x} and len={} to big for buffer len={}",
+                   ty as u8,
+                   len,
+                   self.bytes.len());
+            return Some(Err(Error::InvalidValue));
         } else if len < 3 {
-            return Some(Err(Error::InvalidValue(format!(
-                "length `{}` provided is too small",
-                len,
-            ))));
+            error!("length `{}` provided is too small",
+                   len);
+            return Some(Err(Error::InvalidValue));
         }
 
         let bytes = &self.bytes[2..len];
@@ -437,7 +434,7 @@ pub struct MADTBuilder<T: Array> {
     structures: ArrayVec<T>,
 }
 
-impl<T: Array<Item = Ics>> MADTBuilder<T> {
+impl<T: Array<Item=Ics>> MADTBuilder<T> {
     /// Create a new builder for the MADT SDT.
     pub fn new() -> MADTBuilder<T> {
         MADTBuilder {
@@ -465,8 +462,8 @@ impl<T: Array<Item = Ics>> MADTBuilder<T> {
 }
 
 impl<U> SDTBuilder for MADTBuilder<U>
-where
-    U: Array<Item = Ics>,
+    where
+        U: Array<Item=Ics>,
 {
     const SIGNATURE: [u8; 4] = [b'A', b'P', b'I', b'C'];
 
@@ -475,7 +472,7 @@ where
         5u8
     }
 
-    fn encode_table<T: Array<Item = u8>>(
+    fn encode_table<T: Array<Item=u8>>(
         &mut self,
         buffer: &mut ArrayVec<T>,
     ) -> Result<()> {

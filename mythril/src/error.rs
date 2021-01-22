@@ -48,7 +48,8 @@ pub fn check_vm_insruction(rflags: u64, error: String) -> Result<()> {
     let rflags = rflags::RFlags::from_bits_truncate(rflags);
 
     if rflags.contains(RFlags::FLAGS_CF) {
-        Err(Error::VmFailInvalid(error))
+        error!("{}",error);
+        Err(Error::VmFailInvalid)
     } else if rflags.contains(RFlags::FLAGS_ZF) {
         let errno = unsafe {
             let value: u64;
@@ -63,7 +64,9 @@ pub fn check_vm_insruction(rflags: u64, error: String) -> Result<()> {
         let vm_error = VmInstructionError::try_from(errno)
             .unwrap_or(VmInstructionError::UnknownError);
 
-        Err(Error::VmFailValid((vm_error, error)))
+        error!("{:?}",vm_error);
+        error!("{}",error);
+        Err(Error::VmFailValid)
     } else {
         Ok(())
     }
@@ -71,40 +74,37 @@ pub fn check_vm_insruction(rflags: u64, error: String) -> Result<()> {
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
-    Vmcs(String),
-    VmFailInvalid(String),
-    VmFailValid((VmInstructionError, String)),
-    DuplicateMapping(String),
-    AllocError(String),
-    MissingDevice(String),
-    MissingFile(String),
-    NullPtr(String),
+    Vmcs,
+    VmFailInvalid,
+    VmFailValid,
+    DuplicateMapping,
     NotSupported,
     NotFound,
-    Exists,
     Exhausted,
-    Uefi(String),
-    InvalidValue(String),
-    InvalidDevice(String),
-    NotImplemented(String),
-    DeviceError(String),
+    InvalidValue,
+    InvalidDevice,
+    NotImplemented,
+    DeviceError,
 }
 
 impl<T: TryFromPrimitive> From<TryFromPrimitiveError<T>> for Error {
     fn from(error: TryFromPrimitiveError<T>) -> Error {
-        Error::InvalidValue(format!("{}", error))
+        error!("{}",error);
+        Error::InvalidValue
     }
 }
 
 impl From<TryFromIntError> for Error {
     fn from(error: TryFromIntError) -> Error {
-        Error::InvalidValue(format!("{}", error))
+        error!("{}",error);
+        Error::InvalidValue
     }
 }
 
 impl From<core::str::Utf8Error> for Error {
     fn from(error: core::str::Utf8Error) -> Error {
-        Error::InvalidValue(format!("{}", error))
+        error!("{}",error);
+        Error::InvalidValue
     }
 }
 

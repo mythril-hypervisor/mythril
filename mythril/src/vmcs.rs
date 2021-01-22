@@ -309,14 +309,13 @@ fn vmcs_write_with_fixed(
     required_value |= low; /* bit == 1 in low word  ==> must be one  */
 
     if (value & !required_value) != 0 {
-        return Err(Error::Vmcs(format!(
-            "Requested field ({:?}) bit not allowed by MSR (requested=0x{:x} forbidden=0x{:x} required=0x{:x} res=0x{:x})",
-            field,
-            value,
-            high,
-            low,
-            required_value
-        )));
+        error!("Requested field ({:?}) bit not allowed by MSR (requested=0x{:x} forbidden=0x{:x} required=0x{:x} res=0x{:x})",
+               field,
+               value,
+               high,
+               low,
+               required_value);
+        return Err(Error::Vmcs);
     }
 
     vmcs_write(field, required_value)?;

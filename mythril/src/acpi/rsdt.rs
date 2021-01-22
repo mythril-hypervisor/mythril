@@ -246,11 +246,10 @@ fn write_sdt_header(
     // The SDT length value is the value of the entire SDT including
     // the header.
     if buffer.len() < sdt_len {
-        return Err(Error::InvalidValue(format!(
-            "Buffer length should be at least `{}` but was `{}`",
-            sdt_len,
-            buffer.len()
-        )));
+        error!("Buffer length should be at least `{}` but was `{}`",
+               sdt_len,
+               buffer.len());
+        return Err(Error::InvalidValue);
     }
     // Fill in the SDT header with the implementations values
     buffer[offsets::SIGNATURE].copy_from_slice(signature);
@@ -339,10 +338,9 @@ impl<'a, T: Array<Item = u8>> RSDTBuilder<'a, T> {
                 Ok(())
             }
         } else {
-            Err(Error::InvalidValue(format!(
-                "The key `{}` already exists",
-                str::from_utf8(&U::SIGNATURE).unwrap()
-            )))
+            error!("The key `{}` already exists",
+                   str::from_utf8(&U::SIGNATURE).unwrap());
+            Err(Error::InvalidValue)
         }
     }
 

@@ -48,11 +48,8 @@ pub(self) fn verify_checksum(bytes: &[u8], cksum_idx: usize) -> Result<()> {
     if (result & 0xff) == 0x00 {
         Ok(())
     } else {
-        Err(Error::InvalidValue(format!(
-            "Checksum mismatch checksum={:x} {:x} != 0x00",
-            bytes[cksum_idx],
-            result & 0xff,
-        )))
+        error!("Checksum mismatch checksum={:x} {:x} != 0x00", bytes[cksum_idx], result & 0xff);
+        Err(Error::InvalidValue)
     }
 }
 
@@ -137,11 +134,12 @@ impl GenericAddressStructure {
     /// Create a new GAS from a slice of bytes.
     pub fn new(bytes: &[u8]) -> Result<GenericAddressStructure> {
         if bytes.len() != GAS_SIZE {
-            return Err(Error::InvalidValue(format!(
+            error!(
                 "Invalid number of bytes for GAS: {} != {}",
                 bytes.len(),
                 GAS_SIZE
-            )));
+            );
+            return Err(Error::InvalidValue);
         }
 
         let address_space =
@@ -168,10 +166,8 @@ impl GenericAddressStructure {
 
             // verify that the address is only 32 bits for 32-bit platforms.
             if !is_64bit && ((address >> 32) & 0xFFFFFFFF) != 0 {
-                return Err(Error::InvalidValue(format!(
-                    "Invalid address for a 32-bit system: {:x}",
-                    address
-                )));
+                error!("Invalid address for a 32-bit system: {:x}", address);
+                return Err(Error::InvalidValue);
             }
         }
 

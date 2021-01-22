@@ -33,7 +33,8 @@ static TSC: RoAfterInit<TscTimeSource> = RoAfterInit::uninitialized();
 
 pub unsafe fn calibrate_tsc() -> Result<&'static dyn TimeSource> {
     if RoAfterInit::is_initialized(&TSC) {
-        return Err(Error::InvalidValue("TSC is already calibrated".into()));
+        error!("TSC is already calibrated");
+        return Err(Error::InvalidValue);
     }
 
     let orig: u8 = inb(pit::PIT_PS2_CTRL_B);

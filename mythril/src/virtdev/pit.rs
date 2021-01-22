@@ -111,9 +111,8 @@ impl Pit8254 {
                 let operating = (0b00001110 & val) >> 1;
 
                 if val & 0b00000001 != 0 {
-                    return Err(Error::InvalidValue(
-                        "PIT BCD mode is not supported".into(),
-                    ));
+                    error!("PIT BCD mode is not supported");
+                    return Err(Error::InvalidValue);
                 }
 
                 let operating_state = match operating {
@@ -128,10 +127,9 @@ impl Pit8254 {
                         start_time: None,
                     },
                     value => {
-                        return Err(Error::InvalidValue(format!(
-                            "Invalid PIT operating state '0x{:x}'",
-                            value
-                        )))
+                        error!("Invalid PIT operating state '0x{:x}'",
+                               value);
+                        return Err(Error::InvalidValue)
                     }
                 };
 
@@ -141,10 +139,9 @@ impl Pit8254 {
                     0b10 => AccessModeState::HiByte,
                     0b11 => AccessModeState::Word { lo_byte: None },
                     value => {
-                        return Err(Error::InvalidValue(format!(
-                            "Invalid PIT access state '0x{:x}'",
-                            value
-                        )))
+                        error!("Invalid PIT access state '0x{:x}'",
+                               value);
+                        return Err(Error::InvalidValue)
                     }
                 };
 
@@ -157,10 +154,9 @@ impl Pit8254 {
                     0b00 => &mut self.channel0,
                     0b10 => &mut self.channel2,
                     value => {
-                        return Err(Error::InvalidValue(format!(
-                            "Invalid PIT channel '0x{:x}'",
-                            value
-                        )))
+                        error!("Invalid PIT channel '0x{:x}'",
+                               value);
+                        return Err(Error::InvalidValue)
                     }
                 };
 
@@ -179,10 +175,9 @@ impl Pit8254 {
                 let channel_state = match port {
                     PIT_COUNTER_0 => &mut self.channel0,
                     PIT_COUNTER_1 => {
-                        return Err(Error::InvalidValue(format!(
-                            "Invalid PIT port '0x{:x}'",
-                            port
-                        )))
+                        error!("Invalid PIT port '0x{:x}'",
+                               port);
+                        return Err(Error::InvalidValue)
                     }
                     PIT_COUNTER_2 => &mut self.channel2,
                     _ => unreachable!(),

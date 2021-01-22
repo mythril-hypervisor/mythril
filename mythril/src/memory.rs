@@ -231,9 +231,8 @@ impl HostPhysFrame {
 
     pub fn from_start_address(addr: HostPhysAddr) -> Result<Self> {
         if !addr.is_frame_aligned() {
-            Err(Error::InvalidValue(
-                "Invalid start address for HostPhysFrame".into(),
-            ))
+            error!("Invalid start address for HostPhysFrame");
+            Err(Error::InvalidValue)
         } else {
             Ok(HostPhysFrame(addr))
         }
@@ -367,31 +366,27 @@ impl GuestAddressSpace {
     ) -> Result<HostPhysFrame> {
         let ept_pml4e = &self.root.read()[addr.p4_index()];
         if ept_pml4e.is_unused() {
-            return Err(Error::InvalidValue(
-                "No PML4 entry for GuestPhysAddr".into(),
-            ));
+            error!("No PML4 entry for GuestPhysAddr");
+            return Err(Error::InvalidValue);
         }
         let ept_pdpt =
             ept_pml4e.addr().as_u64() as *const EptPageDirectoryPointerTable;
         let ept_pdpe = unsafe { &(*ept_pdpt)[addr.p3_index()] };
         if ept_pdpe.is_unused() {
-            return Err(Error::InvalidValue(
-                "No PDP entry for GuestPhysAddr".into(),
-            ));
+            error!("No PDP entry for GuestPhysAddr");
+            return Err(Error::InvalidValue);
         }
         let ept_pdt = ept_pdpe.addr().as_u64() as *const EptPageDirectory;
         let ept_pde = unsafe { &(*ept_pdt)[addr.p2_index()] };
         if ept_pde.is_unused() {
-            return Err(Error::InvalidValue(
-                "No PD entry for GuestPhysAddr".into(),
-            ));
+            error!("No PD entry for GuestPhysAddr");
+            return Err(Error::InvalidValue);
         }
         let ept_pt = ept_pde.addr().as_u64() as *const EptPageTable;
         let ept_pte = unsafe { &(*ept_pt)[addr.p1_index()] };
         if ept_pte.is_unused() {
-            return Err(Error::InvalidValue(
-                "No PT entry for GuestPhysAddr".into(),
-            ));
+            error!("No PT entry for GuestPhysAddr");
+            return Err(Error::InvalidValue);
         }
         HostPhysFrame::from_start_address(ept_pte.addr())
     }
@@ -753,10 +748,9 @@ fn map_guest_memory(
     let ept_pte = unsafe { &mut (*ept_pt)[guest_addr.p1_index()] };
 
     if !ept_pte.is_unused() {
-        return Err(Error::DuplicateMapping(format!(
-            "Duplicate mapping for address 0x{:x}",
-            guest_addr.as_u64()
-        )));
+        error!("Duplicate mapping for address 0x{:x}",
+               guest_addr.as_u64());
+        return Err(Error::DuplicateMapping);
     }
 
     let mut page_flags = EptTableFlags::READ_ACCESS
