@@ -63,7 +63,7 @@ impl Vmx {
             rflags
         };
 
-        error::check_vm_insruction(rflags, "Failed to enable vmx".into())?;
+        error::check_vm_instruction(rflags, ||error!("Failed to enable vmx"))?;
         Ok(Vmx {
             _vmxon_region: vmxon_region,
         })
@@ -83,7 +83,7 @@ impl Vmx {
             rflags
         };
 
-        error::check_vm_insruction(rflags, "Failed to disable vmx".into())
+        error::check_vm_instruction(rflags, ||error!("Failed to disable vmx"))
     }
 
     pub fn revision() -> u32 {
@@ -108,7 +108,7 @@ impl Vmx {
             );
             rflags
         };
-        error::check_vm_insruction(rflags, "Failed to execute invept".into())
+        error::check_vm_instruction(rflags, ||error!("Failed to execute invept"))
     }
 
     pub fn invvpid(&self, mode: InvVpidMode) -> Result<()> {
@@ -135,7 +135,7 @@ impl Vmx {
             );
             rflags
         };
-        error::check_vm_insruction(rflags, "Failed to execute invvpid".into())
+        error::check_vm_instruction(rflags, ||error!("Failed to execute invvpid"))
     }
 }
 

@@ -246,9 +246,11 @@ fn write_sdt_header(
     // The SDT length value is the value of the entire SDT including
     // the header.
     if buffer.len() < sdt_len {
-        error!("Buffer length should be at least `{}` but was `{}`",
-               sdt_len,
-               buffer.len());
+        error!(
+            "Buffer length should be at least `{}` but was `{}`",
+            sdt_len,
+            buffer.len()
+        );
         return Err(Error::InvalidValue);
     }
     // Fill in the SDT header with the implementations values
@@ -338,8 +340,10 @@ impl<'a, T: Array<Item = u8>> RSDTBuilder<'a, T> {
                 Ok(())
             }
         } else {
-            error!("The key `{}` already exists",
-                   str::from_utf8(&U::SIGNATURE).unwrap());
+            error!(
+                "The key `{}` already exists",
+                str::from_utf8(&U::SIGNATURE).unwrap()
+            );
             Err(Error::InvalidValue)
         }
     }
@@ -371,10 +375,11 @@ impl<'a, T: Array<Item = u8>> RSDTBuilder<'a, T> {
         })?;
 
         for (i, (name, (sdt, size))) in self.map.iter().enumerate() {
-            const LEN_OF_ETC_MYTHRIL :usize = 12;
+            const LEN_OF_ETC_MYTHRIL: usize = 12;
             const LEN_OF_NAME: usize = 4;
-            let mut table_name_bytes = [0u8;LEN_OF_ETC_MYTHRIL + LEN_OF_NAME];
-            table_name_bytes[0..LEN_OF_ETC_MYTHRIL].copy_from_slice("etc/mythril/".as_bytes());
+            let mut table_name_bytes = [0u8; LEN_OF_ETC_MYTHRIL + LEN_OF_NAME];
+            table_name_bytes[0..LEN_OF_ETC_MYTHRIL]
+                .copy_from_slice("etc/mythril/".as_bytes());
             table_name_bytes[LEN_OF_ETC_MYTHRIL..].copy_from_slice(name);
             let table_name = str::from_utf8(&table_name_bytes)?;
 

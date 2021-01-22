@@ -1,5 +1,4 @@
 use crate::vmcs;
-use alloc::string::String;
 use arrayvec::CapacityError;
 use core::convert::TryFrom;
 use core::num::TryFromIntError;
@@ -44,11 +43,11 @@ pub enum VmInstructionError {
     InvalidOperandToInveptInvvpid = 28,
 }
 
-pub fn check_vm_insruction(rflags: u64, error: String) -> Result<()> {
+pub fn check_vm_instruction(rflags: u64, log_error: impl Fn()) -> Result<()> {
     let rflags = rflags::RFlags::from_bits_truncate(rflags);
 
     if rflags.contains(RFlags::FLAGS_CF) {
-        error!("{}",error);
+        log_error();
         Err(Error::VmFailInvalid)
     } else if rflags.contains(RFlags::FLAGS_ZF) {
         let errno = unsafe {
@@ -64,8 +63,8 @@ pub fn check_vm_insruction(rflags: u64, error: String) -> Result<()> {
         let vm_error = VmInstructionError::try_from(errno)
             .unwrap_or(VmInstructionError::UnknownError);
 
-        error!("{:?}",vm_error);
-        error!("{}",error);
+        error!("{:?}", vm_error);
+        log_error();
         Err(Error::VmFailValid)
     } else {
         Ok(())
@@ -89,21 +88,21 @@ pub enum Error {
 
 impl<T: TryFromPrimitive> From<TryFromPrimitiveError<T>> for Error {
     fn from(error: TryFromPrimitiveError<T>) -> Error {
-        error!("{}",error);
+        error!("{}", error);
         Error::InvalidValue
     }
 }
 
 impl From<TryFromIntError> for Error {
     fn from(error: TryFromIntError) -> Error {
-        error!("{}",error);
+        error!("{}", error);
         Error::InvalidValue
     }
 }
 
 impl From<core::str::Utf8Error> for Error {
     fn from(error: core::str::Utf8Error) -> Error {
-        error!("{}",error);
+        error!("{}", error);
         Error::InvalidValue
     }
 }

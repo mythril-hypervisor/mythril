@@ -748,8 +748,7 @@ fn map_guest_memory(
     let ept_pte = unsafe { &mut (*ept_pt)[guest_addr.p1_index()] };
 
     if !ept_pte.is_unused() {
-        error!("Duplicate mapping for address 0x{:x}",
-               guest_addr.as_u64());
+        error!("Duplicate mapping for address 0x{:x}", guest_addr.as_u64());
         return Err(Error::DuplicateMapping);
     }
 

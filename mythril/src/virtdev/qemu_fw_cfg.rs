@@ -191,8 +191,7 @@ impl QemuFwCfgBuilder {
         data: &[u8],
     ) -> Result<()> {
         if name.as_ref().len() > FW_CFG_MAX_FILE_NAME {
-            error!("qemu_fw_cfg: file name too long: {}",
-                   name.as_ref());
+            error!("qemu_fw_cfg: file name too long: {}", name.as_ref());
             return Err(Error::InvalidValue);
         }
         let selector = self.next_file_selector();
@@ -369,7 +368,7 @@ impl QemuFwCfg {
             }
             Self::FW_CFG_PORT_DATA => {
                 error!("Write to QEMU FW CFG data port not yet supported");
-                return Err(Error::NotImplemented)
+                return Err(Error::NotImplemented);
             }
             Self::FW_CFG_PORT_DMA_LOW => {
                 let low = u32::from_be(val.try_into()?);

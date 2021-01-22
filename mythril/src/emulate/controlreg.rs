@@ -61,7 +61,7 @@ pub fn emulate_access(
         },
         _ => {
             error!("Unsupported CR number access");
-            return Err(Error::InvalidValue)
+            return Err(Error::InvalidValue);
         }
     }
     Ok(())

@@ -226,8 +226,7 @@ impl VirtualMachineSet {
             .context_by_core_id(core_id)
             .ok_or_else(|| Error::NotFound)?;
         context.msgqueue.write().push_back(msg).map_err(|_| {
-            error!("RX queue is full for core_id = {}",
-                   core_id);
+            error!("RX queue is full for core_id = {}", core_id);
             Error::InvalidValue
         })?;
 
@@ -265,8 +264,7 @@ impl VirtualMachineSet {
         notify: bool,
     ) -> Result<()> {
         let vm_bsp = self.bsp_core_id(vm_id).ok_or_else(|| {
-            error!("Unable to find BSP for VM id '{}'",
-                   vm_id);
+            error!("Unable to find BSP for VM id '{}'", vm_id);
             Error::InvalidValue
         })?;
         self.send_msg_core(msg, vm_bsp, notify)

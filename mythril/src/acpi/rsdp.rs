@@ -117,10 +117,8 @@ impl RSDP {
                 xsdt_addr: NativeEndian::read_u64(&bytes[offsets::XSDT_ADDR]),
             },
             _ => {
-                error!("Invalid RSDP revision: {}",
-                       bytes[offsets::REVISION]);
-                return Err(Error::InvalidValue)
-                    .into();
+                error!("Invalid RSDP revision: {}", bytes[offsets::REVISION]);
+                return Err(Error::InvalidValue).into();
             }
         };
 
@@ -179,9 +177,11 @@ impl RSDP {
                         Ok(&range[i..rsdp_v2_end])
                     }
                     _ => {
-                        error!("Invalid RSDP revision: {} at {:p}",
-                               candidate[offsets::REVISION],
-                               candidate.as_ptr());
+                        error!(
+                            "Invalid RSDP revision: {} at {:p}",
+                            candidate[offsets::REVISION],
+                            candidate.as_ptr()
+                        );
                         Err(Error::InvalidValue)
                     }
                 };
@@ -205,8 +205,7 @@ impl RSDP {
                 offsets::EXT_CHECKSUM,
             ),
             _ => {
-                error!("Invalid RSDP revision: {}",
-                       bytes[offsets::REVISION]);
+                error!("Invalid RSDP revision: {}", bytes[offsets::REVISION]);
                 Err(Error::InvalidValue)
             }
         }
@@ -222,11 +221,11 @@ impl RSDP {
 }
 
 /// Builder structure for the RSDP
-pub struct RSDPBuilder<'a, T: Array<Item=u8>> {
+pub struct RSDPBuilder<'a, T: Array<Item = u8>> {
     builder: RSDTBuilder<'a, T>,
 }
 
-impl<'a, T: Array<Item=u8>> RSDPBuilder<'a, T> {
+impl<'a, T: Array<Item = u8>> RSDPBuilder<'a, T> {
     /// Create a new RSDP Builder.
     pub fn new(
         map: ManagedMap<'a, [u8; 4], (ArrayVec<T>, usize)>,

@@ -25,7 +25,7 @@ pub mod vga;
 const MAX_EVENT_RESPONSES: usize = 8;
 
 pub type ResponseEventArray =
-ArrayVec<[DeviceEventResponse; MAX_EVENT_RESPONSES]>;
+    ArrayVec<[DeviceEventResponse; MAX_EVENT_RESPONSES]>;
 pub type Port = u16;
 
 /// Dynamic virtual devices are devices that are not part of the architectural
@@ -287,8 +287,7 @@ impl<'a> TryFrom<&'a mut [u8]> for PortReadRequest<'a> {
                 &mut *(buff.as_mut_ptr() as *mut [u8; 4])
             }),
             len => {
-                error!("Invalid slice length: {}",
-                       len);
+                error!("Invalid slice length: {}", len);
                 return Err(Error::InvalidValue);
             }
         };
@@ -344,8 +343,7 @@ impl<'a> TryFrom<&'a [u8]> for PortWriteRequest<'a> {
                 Self::FourBytes(unsafe { &*(buff.as_ptr() as *const [u8; 4]) })
             }
             len => {
-                error!("Invalid slice length: {}",
-                       len);
+                error!("Invalid slice length: {}", len);
                 return Err(Error::InvalidValue);
             }
         };
@@ -360,10 +358,9 @@ impl<'a> TryFrom<PortWriteRequest<'a>> for u8 {
         match value {
             PortWriteRequest::OneByte(val) => Ok(val[0]),
             val => {
-                error!("Value {} cannot be converted to u8",
-                       val);
+                error!("Value {} cannot be converted to u8", val);
                 Err(Error::InvalidValue)
-            },
+            }
         }
     }
 }
@@ -375,8 +372,7 @@ impl<'a> TryFrom<PortWriteRequest<'a>> for u16 {
         match value {
             PortWriteRequest::TwoBytes(val) => Ok(u16::from_be_bytes(*val)),
             val => {
-                error!("Value {} cannot be converted to u16",
-                       val);
+                error!("Value {} cannot be converted to u16", val);
                 Err(Error::InvalidValue)
             }
         }
@@ -390,8 +386,7 @@ impl<'a> TryFrom<PortWriteRequest<'a>> for u32 {
         match value {
             PortWriteRequest::FourBytes(val) => Ok(u32::from_be_bytes(*val)),
             val => {
-                error!("Value {} cannot be converted to u32",
-                       val);
+                error!("Value {} cannot be converted to u32", val);
                 Err(Error::InvalidValue)
             }
         }
@@ -451,8 +446,7 @@ impl<'a> TryInto<u8> for MemWriteRequest<'a> {
         if self.data.len() == 1 {
             Ok(self.data[0])
         } else {
-            error!("Value {} cannot be converted to u8",
-                   self);
+            error!("Value {} cannot be converted to u8", self);
             Err(Error::InvalidValue)
         }
     }

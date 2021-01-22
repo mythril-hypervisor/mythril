@@ -127,9 +127,8 @@ impl Pit8254 {
                         start_time: None,
                     },
                     value => {
-                        error!("Invalid PIT operating state '0x{:x}'",
-                               value);
-                        return Err(Error::InvalidValue)
+                        error!("Invalid PIT operating state '0x{:x}'", value);
+                        return Err(Error::InvalidValue);
                     }
                 };
 
@@ -139,9 +138,8 @@ impl Pit8254 {
                     0b10 => AccessModeState::HiByte,
                     0b11 => AccessModeState::Word { lo_byte: None },
                     value => {
-                        error!("Invalid PIT access state '0x{:x}'",
-                               value);
-                        return Err(Error::InvalidValue)
+                        error!("Invalid PIT access state '0x{:x}'", value);
+                        return Err(Error::InvalidValue);
                     }
                 };
 
@@ -154,9 +152,8 @@ impl Pit8254 {
                     0b00 => &mut self.channel0,
                     0b10 => &mut self.channel2,
                     value => {
-                        error!("Invalid PIT channel '0x{:x}'",
-                               value);
-                        return Err(Error::InvalidValue)
+                        error!("Invalid PIT channel '0x{:x}'", value);
+                        return Err(Error::InvalidValue);
                     }
                 };
 
@@ -175,9 +172,8 @@ impl Pit8254 {
                 let channel_state = match port {
                     PIT_COUNTER_0 => &mut self.channel0,
                     PIT_COUNTER_1 => {
-                        error!("Invalid PIT port '0x{:x}'",
-                               port);
-                        return Err(Error::InvalidValue)
+                        error!("Invalid PIT port '0x{:x}'", port);
+                        return Err(Error::InvalidValue);
                     }
                     PIT_COUNTER_2 => &mut self.channel2,
                     _ => unreachable!(),

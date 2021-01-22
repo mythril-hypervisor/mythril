@@ -171,7 +171,7 @@ impl VCpu {
     /// Begin execution in the guest context for this core
     pub fn launch(&mut self) -> Result<!> {
         let rflags = unsafe { vmlaunch_wrapper() };
-        error::check_vm_insruction(rflags, "Failed to launch vm".into())?;
+        error::check_vm_instruction(rflags, ||error!("Failed to launch vm"))?;
 
         unreachable!()
     }

@@ -145,7 +145,7 @@ fn read_register_value(
 
         _ => {
             error!("Invalid register '{:?}'", register);
-            return Err(Error::InvalidValue)
+            return Err(Error::InvalidValue);
         }
     }
 
@@ -351,9 +351,8 @@ fn do_mmio_read(
             }
 
             register => {
-                error!("mmio read into invalid register '{:?}'",
-                       register);
-                return Err(Error::InvalidValue)
+                error!("mmio read into invalid register '{:?}'", register);
+                return Err(Error::InvalidValue);
             }
         },
         _ => return Err(Error::NotSupported),
@@ -431,10 +430,12 @@ fn process_memio_op(
     {
         do_mmio_read(addr, vcpu, guest_cpu, responses, instr, on_read)?;
     } else {
-        error!("Unsupported mmio instruction: {:?} (rip=0x{:x}, bytes={:?})",
-               instr.code(),
-               ip,
-               bytes);
+        error!(
+            "Unsupported mmio instruction: {:?} (rip=0x{:x}, bytes={:?})",
+            instr.code(),
+            ip,
+            bytes
+        );
         return Err(Error::InvalidValue);
     }
     Ok(())

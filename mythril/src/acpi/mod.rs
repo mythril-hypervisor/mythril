@@ -48,7 +48,11 @@ pub(self) fn verify_checksum(bytes: &[u8], cksum_idx: usize) -> Result<()> {
     if (result & 0xff) == 0x00 {
         Ok(())
     } else {
-        error!("Checksum mismatch checksum={:x} {:x} != 0x00", bytes[cksum_idx], result & 0xff);
+        error!(
+            "Checksum mismatch checksum={:x} {:x} != 0x00",
+            bytes[cksum_idx],
+            result & 0xff
+        );
         Err(Error::InvalidValue)
     }
 }

@@ -171,8 +171,7 @@ impl IoApic {
     /// See section 3.2.1 of the I/O APIC specification.
     pub fn set_id(&self, id: u32) -> Result<()> {
         if id > 0x0f {
-            error!("I/O APIC ID `0x{:x}` too large",
-                   id);
+            error!("I/O APIC ID `0x{:x}` too large", id);
             Err(Error::InvalidValue)
         } else {
             unsafe {
@@ -211,8 +210,7 @@ impl IoApic {
     /// See section 3.2.3 of the I/O APIC specification.
     pub fn set_arbitration_id(&self, id: u8) -> Result<()> {
         if id > 15 {
-            error!("I/O APIC Arbitration ID `0x{:x}` too large",
-                   id);
+            error!("I/O APIC Arbitration ID `0x{:x}` too large", id);
             Err(Error::InvalidValue)
         } else {
             unsafe {
@@ -237,8 +235,7 @@ impl IoApic {
     /// Read the IO Redirect Table Register for a given id.
     pub fn read_ioredtbl(&self, id: u8) -> Result<IoRedTblEntry> {
         if id > 23 {
-            error!("I/O APIC IO Redirect Table register`0x{:x}` too large",
-                   id);
+            error!("I/O APIC IO Redirect Table register`0x{:x}` too large", id);
             Err(Error::InvalidValue)
         } else {
             let bits = unsafe { self.read_ioredtbl_raw(id) };
@@ -267,12 +264,13 @@ impl IoApic {
     pub fn write_ioredtbl(&self, id: u8, entry: IoRedTblEntry) -> Result<()> {
         let val: u64 = entry.into();
         if id > 23 {
-            error!("I/O APIC IO Redirect Table register`0x{:x}` too large",
-                   id);
+            error!("I/O APIC IO Redirect Table register`0x{:x}` too large", id);
             Err(Error::InvalidValue)
         } else if (val & !IOREDTBL_RW_MASK) != 0 {
-            error!("Read-only IO Redirect Table Entry bits set: 0x{:x}",
-                   val & !IOREDTBL_RW_MASK);
+            error!(
+                "Read-only IO Redirect Table Entry bits set: 0x{:x}",
+                val & !IOREDTBL_RW_MASK
+            );
             Err(Error::InvalidValue)
         } else {
             unsafe {
@@ -303,8 +301,10 @@ impl TryFrom<Ics> for IoApic {
                 ..
             } => IoApic::new(ioapic_addr, gsi_base),
             _ => {
-                error!("Attempting to create an IoApic from: {:?}",
-                       value.ics_type());
+                error!(
+                    "Attempting to create an IoApic from: {:?}",
+                    value.ics_type()
+                );
                 Err(Error::InvalidValue)
             }
         }
@@ -346,8 +346,7 @@ impl TryFrom<u8> for DestinationMode {
             0x00 => Ok(DestinationMode::Physical),
             0x01 => Ok(DestinationMode::Logical),
             _ => {
-                error!("Invalid destination mode: 0x{:x}",
-                       value);
+                error!("Invalid destination mode: 0x{:x}", value);
                 Err(Error::InvalidValue)
             }
         }
@@ -372,8 +371,7 @@ impl TryFrom<u8> for TriggerMode {
             0x00 => Ok(TriggerMode::Edge),
             0x01 => Ok(TriggerMode::Level),
             _ => {
-                error!("Invalid trigger mode: 0x{:x}",
-                       value);
+                error!("Invalid trigger mode: 0x{:x}", value);
                 Err(Error::InvalidValue)
             }
         }
@@ -398,8 +396,7 @@ impl TryFrom<u8> for PinPolarity {
             0x00 => Ok(PinPolarity::ActiveHigh),
             0x01 => Ok(PinPolarity::ActiveLow),
             _ => {
-                error!("Invalid pin polarity: 0x{:x}",
-                       value);
+                error!("Invalid pin polarity: 0x{:x}", value);
                 Err(Error::InvalidValue)
             }
         }
@@ -454,10 +451,9 @@ impl TryFrom<u8> for DeliveryMode {
             0b101 => Ok(DeliveryMode::INIT),
             0b111 => Ok(DeliveryMode::ExtINT),
             _ => {
-                error!("Invalid pin polarity: 0x{:x}",
-                       value);
+                error!("Invalid pin polarity: 0x{:x}", value);
                 Err(Error::InvalidValue)
-            },
+            }
         }
     }
 }
@@ -480,8 +476,7 @@ impl TryFrom<u8> for DeliveryStatus {
             0x00 => Ok(DeliveryStatus::Idle),
             0x01 => Ok(DeliveryStatus::SendPending),
             _ => {
-                error!("Invalid delivery status: 0x{:x}",
-                       value);
+                error!("Invalid delivery status: 0x{:x}", value);
                 Err(Error::InvalidValue)
             }
         }
@@ -550,8 +545,10 @@ impl IoRedTblEntry {
         if self.trigger_mode == TriggerMode::Level
             && !self.delivery_mode.valid_for_level_trigger()
         {
-            error!("The delivery mode `0b{:b}` is invalid for level trigger mode",
-                   self.delivery_mode as u8);
+            error!(
+                "The delivery mode `0b{:b}` is invalid for level trigger mode",
+                self.delivery_mode as u8
+            );
             return Err(Error::InvalidValue);
         }
 
@@ -561,14 +558,18 @@ impl IoRedTblEntry {
         if self.destination_mode == DestinationMode::Physical
             && self.destination > 15
         {
-            error!("Invalid Physical APIC ID destination: 0x{:x}",
-                   self.destination);
+            error!(
+                "Invalid Physical APIC ID destination: 0x{:x}",
+                self.destination
+            );
             return Err(Error::InvalidValue);
         }
 
         if self.delivery_mode == DeliveryMode::SMI && self.vector != 0 {
-            error!("SMI delivery mode requires an empty vector: 0x{:x}",
-                   self.vector);
+            error!(
+                "SMI delivery mode requires an empty vector: 0x{:x}",
+                self.vector
+            );
             return Err(Error::InvalidValue);
         }
 
@@ -701,8 +702,8 @@ mod test {
         // is used.
         let invalid_dest = 0xff000000_0000_0000;
         let err = Error::InvalidValue;
-            // (
-            // "Invalid Physical APIC ID destination: 0xff".to_string(),
+        // (
+        // "Invalid Physical APIC ID destination: 0xff".to_string(),
         // );
         assert_eq!(err, IoRedTblEntry::try_from(invalid_dest).unwrap_err());
     }

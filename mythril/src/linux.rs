@@ -64,8 +64,7 @@ pub fn load_linux(
     let mut kernel = info
         .find_module(kernel_name.as_ref())
         .ok_or_else(|| {
-            error!("No such kernel '{}'",
-                   kernel_name.as_ref());
+            error!("No such kernel '{}'", kernel_name.as_ref());
             Error::InvalidValue
         })?
         .data()
@@ -73,15 +72,13 @@ pub fn load_linux(
     let initramfs = info
         .find_module(initramfs_name.as_ref())
         .ok_or_else(|| {
-            error!("No such initramfs '{}'",
-                   initramfs_name.as_ref());
+            error!("No such initramfs '{}'", initramfs_name.as_ref());
             Error::InvalidValue
         })?
         .data();
 
     if kernel.len() < 8192 {
-        error!("Kernel image is too small ({} < 8192)",
-               kernel.len());
+        error!("Kernel image is too small ({} < 8192)", kernel.len());
         return Err(Error::InvalidValue);
     }
 
@@ -89,8 +86,7 @@ pub fn load_linux(
 
     // HdrS
     if magic != 0x53726448 {
-        error!("Invalid kernel image (bad magic = 0x{:x})",
-               magic);
+        error!("Invalid kernel image (bad magic = 0x{:x})", magic);
         return Err(Error::InvalidValue);
     }
 
@@ -168,9 +164,11 @@ pub fn load_linux(
     }
 
     if initramfs.len() as u32 > initrd_max {
-        error!("Initramfs too large (0x{:x} bytes > max of 0x{:x})",
-               initramfs.len(),
-               initrd_max);
+        error!(
+            "Initramfs too large (0x{:x} bytes > max of 0x{:x})",
+            initramfs.len(),
+            initrd_max
+        );
         return Err(Error::InvalidValue);
     }
 

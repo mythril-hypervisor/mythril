@@ -233,9 +233,8 @@ impl EmulatedDevice for PciRootComplex {
                         }
                     }
                     _ => {
-                        error!("Invalid PCI port read 0x{:x}",
-                               port);
-                        return Err(Error::InvalidValue)
+                        error!("Invalid PCI port read 0x{:x}", port);
+                        return Err(Error::InvalidValue);
                     }
                 }
             }

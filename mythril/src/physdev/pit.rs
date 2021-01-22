@@ -61,8 +61,7 @@ impl TryFrom<u8> for OperatingMode {
             0b110 => Ok(OperatingMode::Mode2),
             0b111 => Ok(OperatingMode::Mode3),
             _ => {
-                error!("Invalid PIT operating mode: {}",
-                       val);
+                error!("Invalid PIT operating mode: {}", val);
                 Err(Error::InvalidValue)
             }
         }
