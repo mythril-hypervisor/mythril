@@ -643,6 +643,10 @@ impl From<IoRedTblEntry> for u64 {
 
 #[cfg(test)]
 mod test {
+
+    use log::Level;
+    extern crate testing_logger;
+
     use super::*;
 
     fn get_ioapic(buf: *mut u8) -> Result<IoApic> {
@@ -674,17 +678,22 @@ mod test {
 
     #[test]
     fn ioredtblentry_invalid_trigger_mode() {
+        testing_logger::setup();
         // ExtINT is invalid for level trigger mode.
         let invalid_for_level = 0x0f000000_00008700;
         let err = Error::InvalidValue;
-        //     (
-        //     "The delivery mode `0b111` is invalid for level trigger mode"
-        //         .to_string(),
-        // );
         assert_eq!(
             IoRedTblEntry::try_from(invalid_for_level).unwrap_err(),
             err
         );
+        testing_logger::validate(|captured_logs| {
+            assert_eq!(captured_logs.len(), 1);
+            assert_eq!(
+                captured_logs[0].body,
+                "The delivery mode `0b111` is invalid for level trigger mode"
+            );
+            assert_eq!(captured_logs[0].level, Level::Error);
+        })
     }
 
     #[test]
@@ -700,16 +709,23 @@ mod test {
     fn ioredtblentry_invalid_dest() {
         // Destination is a full byte but a physical destination mode
         // is used.
+        testing_logger::setup();
         let invalid_dest = 0xff000000_0000_0000;
         let err = Error::InvalidValue;
-        // (
-        // "Invalid Physical APIC ID destination: 0xff".to_string(),
-        // );
         assert_eq!(err, IoRedTblEntry::try_from(invalid_dest).unwrap_err());
+        testing_logger::validate(|captured_logs| {
+            assert_eq!(captured_logs.len(), 1);
+            assert_eq!(
+                captured_logs[0].body,
+                "Invalid Physical APIC ID destination: 0xff"
+            );
+            assert_eq!(captured_logs[0].level, Level::Error);
+        })
     }
 
     #[test]
     fn ioredtblentry_write_ro_bit() {
+        testing_logger::setup();
         let mut buf: [u8; 24] = [
             0x00,
             0x00,
@@ -741,11 +757,16 @@ mod test {
         let entry = IoRedTblEntry::try_from(bits).unwrap();
 
         let err = Error::InvalidValue;
-        //     (
-        //     "Read-only IO Redirect Table Entry bits set: 0x1000".to_string(),
-        // );
         // The delivery status is set, which should be read-only.
         assert_eq!(err, ioapic.write_ioredtbl(0, entry).unwrap_err());
+        testing_logger::validate(|captured_logs| {
+            assert_eq!(captured_logs.len(), 1);
+            assert_eq!(
+                captured_logs[0].body,
+                "Read-only IO Redirect Table Entry bits set: 0x1000"
+            );
+            assert_eq!(captured_logs[0].level, Level::Error);
+        })
     }
 
     #[test]

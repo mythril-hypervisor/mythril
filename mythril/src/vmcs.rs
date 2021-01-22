@@ -336,10 +336,9 @@ fn vmcs_write(field: VmcsField, value: u64) -> Result<()> {
         rflags
     };
 
-    error::check_vm_instruction(
-        rflags,
-        ||error!("Failed to write 0x{:x} to field {:?}", value, field),
-    )
+    error::check_vm_instruction(rflags, || {
+        error!("Failed to write 0x{:x} to field {:?}", value, field)
+    })
 }
 
 fn vmcs_read(field: VmcsField) -> Result<u64> {
@@ -375,7 +374,7 @@ fn vmcs_activate(vmcs: &mut Vmcs, _vmx: &vmx::Vmx) -> Result<()> {
         rflags
     };
 
-    error::check_vm_instruction(rflags, ||error!("Failed to activate VMCS"))
+    error::check_vm_instruction(rflags, || error!("Failed to activate VMCS"))
 }
 
 fn vmcs_clear(vmcs_page: &mut Raw4kPage) -> Result<()> {
@@ -390,7 +389,7 @@ fn vmcs_clear(vmcs_page: &mut Raw4kPage) -> Result<()> {
         );
         rflags
     };
-    error::check_vm_instruction(rflags, ||error!("Failed to clear VMCS"))
+    error::check_vm_instruction(rflags, || error!("Failed to clear VMCS"))
 }
 
 pub struct Vmcs {
