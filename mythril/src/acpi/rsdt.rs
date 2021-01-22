@@ -371,16 +371,21 @@ impl<'a, T: Array<Item = u8>> RSDTBuilder<'a, T> {
         })?;
 
         for (i, (name, (sdt, size))) in self.map.iter().enumerate() {
-            let table_name = format!("etc/mythril/{}", str::from_utf8(name)?);
+            const LEN_OF_ETC_MYTHRIL :usize = 12;
+            const LEN_OF_NAME: usize = 4;
+            let mut table_name_bytes = [0u8;LEN_OF_ETC_MYTHRIL + LEN_OF_NAME];
+            table_name_bytes[0..LEN_OF_ETC_MYTHRIL].copy_from_slice("etc/mythril/".as_bytes());
+            table_name_bytes[LEN_OF_ETC_MYTHRIL..].copy_from_slice(name);
+            let table_name = str::from_utf8(&table_name_bytes)?;
 
             table_loader.add_command(TableLoaderCommand::Allocate {
-                file: &table_name,
+                file: table_name,
                 align: 8,
                 zone: AllocZone::Fseg,
             })?;
 
             table_loader.add_command(TableLoaderCommand::AddPointer {
-                src: &table_name,
+                src: table_name,
                 dst: "etc/mythril/xsdt",
                 offset: ((i * 8) + offsets::CREATOR_REVISION.end) as u32,
                 size: 8,
