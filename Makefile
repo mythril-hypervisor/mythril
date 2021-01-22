@@ -98,9 +98,9 @@ test: test_common
 .PHONY: clean
 clean:
 	$(CARGO) clean $(CARGO_MANIFEST)
-	rm $(seabios_blob)
+	rm $(seabios_blob) -f
 	make -C seabios clean
-	rm $(GUEST_ASSETS)
+	rm $(GUEST_ASSETS) -f
 
 .PHONY: dev-init
 dev-init: install-git-hooks
