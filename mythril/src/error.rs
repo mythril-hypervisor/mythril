@@ -52,11 +52,12 @@ pub fn check_vm_insruction(rflags: u64, error: String) -> Result<()> {
     } else if rflags.contains(RFlags::FLAGS_ZF) {
         let errno = unsafe {
             let value: u64;
-            llvm_asm!("vmread %rax, %rdx;"
-                      : "={rdx}"(value)
-                      : "{rax}"(vmcs::VmcsField::VmInstructionError as u64)
-                      : "rflags"
-                      : "volatile");
+            asm!(
+                "vmread rdx, rax",
+                in("rax") vmcs::VmcsField::VmInstructionError as u64,
+                out("rdx") value,
+                options(nostack)
+            );
             value
         };
         let vm_error = VmInstructionError::try_from(errno)
@@ -137,7 +138,7 @@ fn panic_handler(info: &core::panic::PanicInfo) -> ! {
     loop {
         unsafe {
             // Try to at least keep CPU from running at 100%
-            llvm_asm!("hlt" :::: "volatile");
+            asm!("hlt", options(nostack, nomem));
         }
     }
 }

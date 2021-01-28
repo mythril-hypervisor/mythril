@@ -4,6 +4,6 @@ pub mod ro_after_init;
 #[inline(always)]
 pub fn relax_cpu() {
     unsafe {
-        llvm_asm!("rep; nop" ::: "memory");
+        asm!("rep", "nop");
     }
 }

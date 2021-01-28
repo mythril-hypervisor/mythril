@@ -12,9 +12,9 @@ pub mod gsi {
 }
 
 pub unsafe fn enable_interrupts() {
-    llvm_asm!("sti" :::: "volatile");
+    asm!("sti", options(nomem, nostack));
 }
 
 pub unsafe fn disable_interrupts() {
-    llvm_asm!("cli" :::: "volatile");
+    asm!("cli", options(nomem, nostack));
 }

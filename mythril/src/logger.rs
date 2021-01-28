@@ -83,11 +83,14 @@ pub unsafe fn raw_write_console(s: impl AsRef<str>) {
     let len = s.as_ref().len();
     let ptr = s.as_ref().as_ptr();
 
-    llvm_asm!("cld; rep outsb"
-         :
-         :"{rdx}"(0x3f8), "{rcx}"(len as u64), "{rsi}"(ptr as u64)
-         : "rflags", "rsi"
-         : "volatile");
+    asm!(
+        "cld",
+        "rep outsb",
+        in("rdx") 0x3f8,
+        in("rcx") len as u64,
+        inout("rsi") ptr as u64 => _,
+        options(nostack)
+    );
 }
 
 pub struct VgaWriter {

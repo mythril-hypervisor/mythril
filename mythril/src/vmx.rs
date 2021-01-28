@@ -20,16 +20,24 @@ impl Vmx {
 
         unsafe {
             // Enable NE in CR0, This is fixed bit in VMX CR0
-            llvm_asm!("movq %cr0, %rax; orq %rdx, %rax; movq %rax, %cr0;"
-                      :
-                      : "{rdx}"(0x20)
-                      : "rax");
+            asm!(
+                "mov rax, cr0",
+                "or rax, rdx",
+                "mov cr0, rax",
+                in("rdx") 0x20,
+                lateout("rax") _,
+                options(nomem, nostack)
+            );
 
             // Enable vmx in CR4
-            llvm_asm!("movq %cr4, %rax; orq %rdx, %rax; movq %rax, %cr4;"
-                      :
-                      : "{rdx}"(VMX_ENABLE_FLAG)
-                      : "rax");
+            asm!(
+                "mov rax, cr4",
+                "or rax, rdx",
+                "mov cr4, rax",
+                in("rdx") VMX_ENABLE_FLAG,
+                lateout("rax") _,
+                options(nomem, nostack)
+            );
         }
 
         let revision_id = Self::revision();
@@ -45,10 +53,13 @@ impl Vmx {
 
         let rflags = unsafe {
             let rflags: u64;
-            llvm_asm!("vmxon $1; pushfq; popq $0"
-                      : "=r"(rflags)
-                      : "m"(vmxon_region_addr)
-                      : "rflags");
+            asm!(
+                "vmxon [{}]",
+                "pushf",
+                "pop {}",
+                in(reg) &vmxon_region_addr,
+                lateout(reg) rflags,
+            );
             rflags
         };
 
@@ -63,10 +74,12 @@ impl Vmx {
         //      was originally activated from
         let rflags = unsafe {
             let rflags: u64;
-            llvm_asm!("vmxoff; pushfq; popq $0"
-                      : "=r"(rflags)
-                      :
-                      : "rflags");
+            asm!(
+                "vmxoff",
+                "pushf",
+                "pop {}",
+                lateout(reg) rflags,
+            );
             rflags
         };
 
@@ -85,9 +98,14 @@ impl Vmx {
 
         let rflags = unsafe {
             let rflags: u64;
-            llvm_asm!("invept $1, $2; pushfq; popq $0"
-                      : "=r"(rflags)
-                      : "m"(val), "r"(t));
+            asm!(
+                "invept {}, [{}]",
+                "pushfq",
+                "pop {}",
+                in(reg) t,
+                in(reg) &val,
+                lateout(reg) rflags
+            );
             rflags
         };
         error::check_vm_insruction(rflags, "Failed to execute invept".into())
@@ -107,9 +125,14 @@ impl Vmx {
 
         let rflags = unsafe {
             let rflags: u64;
-            llvm_asm!("invvpid $1, $2; pushfq; popq $0"
-                      : "=r"(rflags)
-                      : "m"(val), "r"(t));
+            asm!(
+                "invvpid {}, [{}]",
+                "pushfq",
+                "pop {}",
+                in(reg) t,
+                in(reg) &val,
+                lateout(reg) rflags
+            );
             rflags
         };
         error::check_vm_insruction(rflags, "Failed to execute invvpid".into())
