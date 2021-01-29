@@ -1,4 +1,3 @@
-use crate::error::{Error, Result};
 use crate::memory::{
     GuestAccess, GuestAddressSpaceView, GuestPhysAddr, GuestVirtAddr,
     PrivilegeLevel,
@@ -6,6 +5,10 @@ use crate::memory::{
 use crate::virtdev::{
     DeviceEvent, DeviceRegion, EmulatedDevice, Event, Port, PortReadRequest,
     PortWriteRequest,
+};
+use crate::{
+    error::{Error, Result},
+    vm::VirtualMachineConfig,
 };
 use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
@@ -388,7 +391,7 @@ impl QemuFwCfg {
 }
 
 impl EmulatedDevice for QemuFwCfg {
-    fn services(&self) -> Vec<DeviceRegion> {
+    fn services(&self, _vm_config: &VirtualMachineConfig) -> Vec<DeviceRegion> {
         vec![
             DeviceRegion::PortIo(
                 Self::FW_CFG_PORT_SEL..=Self::FW_CFG_PORT_DATA,

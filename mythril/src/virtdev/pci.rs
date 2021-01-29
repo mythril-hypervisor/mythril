@@ -1,5 +1,8 @@
-use crate::error::{Error, Result};
 use crate::virtdev::{DeviceEvent, DeviceRegion, EmulatedDevice, Event, Port};
+use crate::{
+    error::{Error, Result},
+    vm::VirtualMachineConfig,
+};
 use alloc::collections::btree_map::BTreeMap;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
@@ -189,7 +192,7 @@ impl PciRootComplex {
 }
 
 impl EmulatedDevice for PciRootComplex {
-    fn services(&self) -> Vec<DeviceRegion> {
+    fn services(&self, _vm_config: &VirtualMachineConfig) -> Vec<DeviceRegion> {
         vec![
             DeviceRegion::PortIo(
                 Self::PCI_CONFIG_ADDRESS..=Self::PCI_CONFIG_ADDRESS,

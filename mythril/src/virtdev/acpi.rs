@@ -1,6 +1,6 @@
-use crate::error::Result;
 use crate::time;
 use crate::virtdev::{DeviceEvent, DeviceRegion, EmulatedDevice, Event, Port};
+use crate::{error::Result, vm::VirtualMachineConfig};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use spin::RwLock;
@@ -42,7 +42,7 @@ impl AcpiRuntime {
 }
 
 impl EmulatedDevice for AcpiRuntime {
-    fn services(&self) -> Vec<DeviceRegion> {
+    fn services(&self, _vm_config: &VirtualMachineConfig) -> Vec<DeviceRegion> {
         vec![
             DeviceRegion::PortIo(
                 Self::FADT_SMI_COMMAND..=Self::FADT_SMI_COMMAND,

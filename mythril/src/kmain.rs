@@ -83,45 +83,45 @@ fn build_vm(
 
     acpi.add_sdt(madt).unwrap();
 
-    let device_map = config.virtual_devices_mut();
+    let mut builder = config.device_map_builder();
 
-    device_map
+    builder
         .register_device(virtdev::acpi::AcpiRuntime::new(0x600).unwrap())
         .unwrap();
-    device_map
+    builder
         .register_device(virtdev::debug::DebugPort::new(0x402))
         .unwrap();
-    device_map
+    builder
         .register_device(virtdev::com::Uart8250::new(0x3F8))
         .unwrap();
-    device_map
+    builder
         .register_device(virtdev::vga::VgaController::new())
         .unwrap();
-    device_map
+    builder
         .register_device(virtdev::dma::Dma8237::new())
         .unwrap();
-    device_map
+    builder
         .register_device(virtdev::ignore::IgnoredDevice::new())
         .unwrap();
-    device_map
+    builder
         .register_device(virtdev::pci::PciRootComplex::new())
         .unwrap();
-    device_map
+    builder
         .register_device(virtdev::pic::Pic8259::new())
         .unwrap();
-    device_map
+    builder
         .register_device(virtdev::keyboard::Keyboard8042::new())
         .unwrap();
-    device_map
+    builder
         .register_device(virtdev::pit::Pit8254::new())
         .unwrap();
-    device_map
+    builder
         .register_device(virtdev::pos::ProgrammableOptionSelect::new())
         .unwrap();
-    device_map
+    builder
         .register_device(virtdev::rtc::CmosRtc::new(cfg.memory))
         .unwrap();
-    device_map
+    builder
         .register_device(virtdev::ioapic::IoApic::new())
         .unwrap();
 
@@ -155,7 +155,7 @@ fn build_vm(
     )
     .unwrap();
 
-    device_map.register_device(fw_cfg_builder.build()).unwrap();
+    builder.register_device(fw_cfg_builder.build()).unwrap();
 
     vm::VirtualMachine::new(vm_id, config, info).expect("Failed to create vm")
 }

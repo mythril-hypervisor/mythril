@@ -13,6 +13,7 @@ use crate::percore;
 use crate::physdev;
 use crate::time;
 use crate::vcpu;
+use crate::virtdev::DeviceMapBuilder;
 use crate::virtdev::{
     self, DeviceEvent, DeviceInteraction, DeviceMap, Event, ResponseEventArray,
 };
@@ -349,7 +350,12 @@ impl VirtualMachineConfig {
         &mut self.virtual_devices
     }
 
-    /// Access the configurations physical hardware
+    /// Creates a DeviceMapBuilder based on this config
+    pub fn device_map_builder(&mut self) -> DeviceMapBuilder<'_> {
+        DeviceMapBuilder { vm_config: self }
+    }
+
+    /// Access the physical_devices `PhysicalDeviceConfig` attribute
     pub fn physical_devices(&self) -> &PhysicalDeviceConfig {
         &self.physical_devices
     }

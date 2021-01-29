@@ -1,7 +1,10 @@
-use crate::error::{Error, Result};
 use crate::virtdev::{
     DeviceEvent, DeviceRegion, EmulatedDevice, Event, Port, PortReadRequest,
     PortWriteRequest,
+};
+use crate::{
+    error::{Error, Result},
+    vm::VirtualMachineConfig,
 };
 use alloc::sync::Arc;
 use alloc::vec::Vec;
@@ -128,7 +131,7 @@ impl VgaController {
 }
 
 impl EmulatedDevice for VgaController {
-    fn services(&self) -> Vec<DeviceRegion> {
+    fn services(&self, _vm_config: &VirtualMachineConfig) -> Vec<DeviceRegion> {
         vec![
             // vga stuff
             DeviceRegion::PortIo(Self::VGA_INDEX..=Self::VGA_DATA),

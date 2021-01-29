@@ -6,6 +6,7 @@ use crate::virtdev::{
     DeviceEvent, DeviceRegion, EmulatedDevice, Event, Port, PortReadRequest,
     PortWriteRequest,
 };
+use crate::vm::VirtualMachineConfig;
 
 use alloc::sync::Arc;
 use alloc::vec::Vec;
@@ -264,7 +265,7 @@ impl Pit8254 {
 }
 
 impl EmulatedDevice for Pit8254 {
-    fn services(&self) -> Vec<DeviceRegion> {
+    fn services(&self, _vm_config: &VirtualMachineConfig) -> Vec<DeviceRegion> {
         vec![
             DeviceRegion::PortIo(PIT_COUNTER_0..=PIT_MODE_CONTROL),
             DeviceRegion::PortIo(PIT_PS2_CTRL_B..=PIT_PS2_CTRL_B),

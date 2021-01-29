@@ -1,5 +1,6 @@
 use crate::error::{Error, Result};
 use crate::memory::{GuestAddressSpaceView, GuestPhysAddr};
+use crate::vm::VirtualMachineConfig;
 use alloc::collections::btree_map::BTreeMap;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
@@ -159,6 +160,22 @@ impl DeviceInteraction for GuestPhysAddr {
     }
 }
 
+pub struct DeviceMapBuilder<'config> {
+    pub vm_config: &'config mut VirtualMachineConfig,
+}
+
+impl<'config> DeviceMapBuilder<'config> {
+    pub fn register_device(
+        &mut self,
+        dev: Arc<RwLock<dyn EmulatedDevice>>,
+    ) -> Result<()> {
+        let services = dev.read().services(&self.vm_config);
+        self.vm_config
+            .virtual_devices_mut()
+            .register_services(services, dev)
+    }
+}
+
 /// A structure for looking up `EmulatedDevice`s by port or address
 #[derive(Default)]
 pub struct DeviceMap {
@@ -175,11 +192,11 @@ impl DeviceMap {
         op.find_device(self)
     }
 
-    pub fn register_device(
+    pub fn register_services(
         &mut self,
+        services: Vec<DeviceRegion>,
         dev: Arc<RwLock<dyn EmulatedDevice>>,
     ) -> Result<()> {
-        let services = dev.read().services();
         for region in services.into_iter() {
             match region {
                 DeviceRegion::PortIo(val) => {
@@ -220,7 +237,7 @@ impl DeviceMap {
 }
 
 pub trait EmulatedDevice: Send + Sync {
-    fn services(&self) -> Vec<DeviceRegion>;
+    fn services(&self, vm_config: &VirtualMachineConfig) -> Vec<DeviceRegion>;
 
     fn on_event(&mut self, _event: Event) -> Result<()> {
         Ok(())
@@ -483,7 +500,8 @@ impl<'a> fmt::Display for MemReadRequest<'a> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::virtdev::com::*;
+    use crate::percore::CoreId;
+    use crate::{virtdev::com::*, vm::PhysicalDeviceConfig};
     use core::convert::TryInto;
 
     // This is just a dummy device so we can have arbitrary port ranges
@@ -500,8 +518,18 @@ mod test {
         }
     }
 
+    // Default config used for testing
+    pub fn get_test_config() -> VirtualMachineConfig {
+        let cpus = [CoreId::from(0)];
+        VirtualMachineConfig::new(&cpus, 1024, PhysicalDeviceConfig::default())
+            .expect("Couldn't create a test VirtualMachineConfig")
+    }
+
     impl EmulatedDevice for DummyDevice {
-        fn services(&self) -> Vec<DeviceRegion> {
+        fn services(
+            &self,
+            _vm_config: &VirtualMachineConfig,
+        ) -> Vec<DeviceRegion> {
             self.services
                 .iter()
                 .map(|x| DeviceRegion::PortIo(x.clone()))
@@ -511,9 +539,13 @@ mod test {
 
     #[test]
     fn test_device_map() {
-        let mut map = DeviceMap::default();
+        let mut config = get_test_config();
+
+        let mut builder = config.device_map_builder();
         let com = Uart8250::new(0);
-        map.register_device(com).unwrap();
+        builder.register_device(com).unwrap();
+
+        let map = config.virtual_devices();
         let _dev = map.find_device(0u16).unwrap();
 
         assert_eq!(map.find_device(10u16).is_none(), true);
@@ -547,12 +579,14 @@ mod test {
 
     #[test]
     fn test_conflicting_portio_device() {
-        let mut map = DeviceMap::default();
+        let mut config = get_test_config();
+
+        let mut builder = config.device_map_builder();
         let com = Uart8250::new(0);
-        map.register_device(com).unwrap();
+        builder.register_device(com).unwrap();
         let com = Uart8250::new(0);
 
-        assert!(map.register_device(com).is_err());
+        assert!(builder.register_device(com).is_err());
     }
 
     #[test]
@@ -560,9 +594,11 @@ mod test {
         // region 2 fully inside region 1
         let services = vec![0..=10, 2..=8];
         let dummy = DummyDevice::new(services);
-        let mut map = DeviceMap::default();
+        let mut config = get_test_config();
 
-        assert!(map.register_device(dummy).is_err());
+        let mut builder = config.device_map_builder();
+
+        assert!(builder.register_device(dummy).is_err());
     }
 
     #[test]
@@ -570,9 +606,11 @@ mod test {
         // region 1 fully inside region 2
         let services = vec![2..=8, 0..=10];
         let dummy = DummyDevice::new(services);
-        let mut map = DeviceMap::default();
+        let mut config = get_test_config();
 
-        assert!(map.register_device(dummy).is_err());
+        let mut builder = config.device_map_builder();
+
+        assert!(builder.register_device(dummy).is_err());
     }
 
     #[test]
@@ -581,9 +619,11 @@ mod test {
         // the start of region 2
         let services = vec![0..=4, 3..=8];
         let dummy = DummyDevice::new(services);
-        let mut map = DeviceMap::default();
+        let mut config = get_test_config();
 
-        assert!(map.register_device(dummy).is_err());
+        let mut builder = config.device_map_builder();
+
+        assert!(builder.register_device(dummy).is_err());
     }
 
     #[test]
@@ -592,9 +632,11 @@ mod test {
         // the tail of region 2
         let services = vec![3..=8, 0..=4];
         let dummy = DummyDevice::new(services);
-        let mut map = DeviceMap::default();
+        let mut config = get_test_config();
 
-        assert!(map.register_device(dummy).is_err());
+        let mut builder = config.device_map_builder();
+
+        assert!(builder.register_device(dummy).is_err());
     }
 
     #[test]
@@ -602,8 +644,10 @@ mod test {
         // region 1 and region 2 don't overlap
         let services = vec![0..=3, 4..=8];
         let dummy = DummyDevice::new(services);
-        let mut map = DeviceMap::default();
+        let mut config = get_test_config();
 
-        assert!(map.register_device(dummy).is_ok());
+        let mut builder = config.device_map_builder();
+
+        assert!(builder.register_device(dummy).is_ok());
     }
 }
