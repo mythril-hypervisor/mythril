@@ -1,4 +1,4 @@
-// #![deny(missing_docs)]
+#![deny(missing_docs)]
 
 use crate::apic;
 use crate::boot_info::BootInfo;
@@ -18,7 +18,6 @@ use crate::virtdev::{
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
 use alloc::string::String;
-use alloc::vec::Vec;
 use arraydeque::ArrayDeque;
 use arrayvec::ArrayVec;
 use core::default::Default;
@@ -47,6 +46,8 @@ static mut VIRTUAL_MACHINE_SET: VirtualMachineSet = VirtualMachineSet::new();
 const MAX_DYNAMIC_VIRTUAL_DEVICES: usize = 32;
 
 const MAX_PENDING_MSG: usize = 100;
+
+const MAX_IMAGE_MAPPING_PER_VM: usize = 16;
 
 /// Initialize the global VirtualMachineSet
 ///
@@ -348,13 +349,22 @@ pub struct HostPhysicalDevices {
 
 /// A configuration for a `VirtualMachine`
 pub struct VirtualMachineConfig {
+    /// The cores assigned as part of this configuration
     pub cpus: ArrayVec<[percore::CoreId; MAX_PER_VM_CORE_COUNT]>,
-    pub images: Vec<(String, GuestPhysAddr)>,
+
+    /// The images that will be mapped into the address space of this virtual machine
+    pub images: ArrayVec<[(String, GuestPhysAddr); MAX_IMAGE_MAPPING_PER_VM]>,
+
+    /// The 'dnyamic' virtual devices assigned to this virtual machine
     pub virtual_devices: ArrayVec<
         [RwLock<virtdev::DynamicVirtualDevice>; MAX_DYNAMIC_VIRTUAL_DEVICES],
     >,
+
+    /// The host physical devices assigned to this virtual machine
     pub host_devices: HostPhysicalDevices,
-    pub memory: u64, // in MB
+
+    /// The size of this machines physical address space in MiB
+    pub memory: u64,
 }
 
 impl VirtualMachineConfig {
@@ -373,7 +383,7 @@ impl VirtualMachineConfig {
         cpu_array.try_extend_from_slice(cpus)?;
         Ok(VirtualMachineConfig {
             cpus: cpu_array,
-            images: vec![],
+            images: ArrayVec::new(),
             virtual_devices: ArrayVec::new(),
             host_devices: physical_devices,
             memory: memory,
@@ -531,8 +541,21 @@ impl VirtualMachine {
         let dev = match self.virtual_device_map.find_device(ident) {
             Some(dev) => dev,
             None => {
-                // warn!("Unable to dispatch event");
-                return Ok(());
+                // TODO(alschwalm): port operations can produce GP faults
+                return match kind {
+                    DeviceEvent::PortRead(_, mut req) => {
+                        // Port reads from unknown devices return 0
+                        req.copy_from_u32(0);
+                        Ok(())
+                    }
+                    DeviceEvent::PortWrite(_, _) => {
+                        // Just ignore writes to unknown ports
+                        Ok(())
+                    }
+                    _ => Err(Error::MissingDevice(
+                        "Unable to dispatch event".into(),
+                    )),
+                };
             }
         };
 
