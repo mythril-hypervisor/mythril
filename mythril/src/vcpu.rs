@@ -16,6 +16,7 @@ use core::mem;
 use core::pin::Pin;
 use x86::controlregs::{cr0, cr3, cr4};
 use x86::msr;
+use crate::virtdev::lapic::VirtualAPICID;
 
 extern "C" {
     pub fn vmlaunch_wrapper() -> u64;
@@ -51,7 +52,7 @@ pub fn mp_entry_point() -> ! {
         vm
     };
 
-    let mut vcpu = VCpu::new(vm).expect("Failed to create vcpu");
+    let mut vcpu = VCpu::new(vm,VirtualAPICID(0)).expect("Failed to create vcpu");
 
     let vm_id = vm.id;
     let is_vm_bsp = vm.bsp_id() == core_id;
@@ -114,6 +115,7 @@ impl VCpu {
     /// VMEXIT.
     pub fn new(
         vm: Pin<&'static VirtualMachine>,
+        virtual_apic_id: VirtualAPICID
     ) -> Result<Pin<&'static mut Self>> {
         let vmx = vmx::Vmx::enable()?;
         let vmcs = vmcs::Vmcs::new()?.activate(vmx)?;
@@ -121,7 +123,7 @@ impl VCpu {
         let vcpu = Self {
             vm: vm,
             vmcs: vmcs,
-            local_apic: virtdev::lapic::LocalApic::new(),
+            local_apic: virtdev::lapic::LocalApic::new(virtual_apic_id),
             stack: get_per_core_mut!(HOST_STACK),
             pending_interrupts: BTreeMap::new(),
         };
