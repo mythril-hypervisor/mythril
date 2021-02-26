@@ -34,7 +34,8 @@ macro_rules! read_register {
     ($out:ident, $value:expr, $type:ty) => {{
         let data = ($value as $type).to_be_bytes();
         $out.try_extend_from_slice(&data).map_err(|_| {
-            Error::InvalidValue("Invalid length with reading register".into())
+            error!("Invalid length with reading register");
+            Error::InvalidValue
         })?;
     }};
 }
@@ -143,10 +144,8 @@ fn read_register_value(
         iced_x86::Register::RBP => read_register!(res, guest_cpu.rbp, u64),
 
         _ => {
-            return Err(Error::InvalidValue(format!(
-                "Invalid register '{:?}'",
-                register
-            )))
+            error!("Invalid register '{:?}'", register);
+            return Err(Error::InvalidValue);
         }
     }
 
@@ -352,10 +351,8 @@ fn do_mmio_read(
             }
 
             register => {
-                return Err(Error::InvalidValue(format!(
-                    "mmio read into invalid register '{:?}'",
-                    register
-                )))
+                error!("mmio read into invalid register '{:?}'", register);
+                return Err(Error::InvalidValue);
             }
         },
         _ => return Err(Error::NotSupported),
@@ -433,12 +430,13 @@ fn process_memio_op(
     {
         do_mmio_read(addr, vcpu, guest_cpu, responses, instr, on_read)?;
     } else {
-        return Err(Error::InvalidValue(format!(
+        error!(
             "Unsupported mmio instruction: {:?} (rip=0x{:x}, bytes={:?})",
             instr.code(),
             ip,
-            bytes,
-        )));
+            bytes
+        );
+        return Err(Error::InvalidValue);
     }
     Ok(())
 }

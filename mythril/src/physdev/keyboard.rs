@@ -83,9 +83,8 @@ impl Ps2Controller {
         controller.write_command_port(Command::TestController);
 
         if controller.read_data_port() != 0x55 {
-            return Err(Error::DeviceError(
-                "Failed to init Ps2Controller".into(),
-            ));
+            error!("Failed to init Ps2Controller");
+            return Err(Error::DeviceError);
         }
 
         controller.write_command_port(Command::EnableFirst);
@@ -95,14 +94,12 @@ impl Ps2Controller {
         controller.write_data_port(0xff);
 
         if controller.read_data_port() != 0xFA {
-            return Err(Error::DeviceError(
-                "Failed to init Ps2Controller".into(),
-            ));
+            error!("Failed to init Ps2Controller");
+            return Err(Error::DeviceError);
         }
         if controller.read_data_port() != 0xAA {
-            return Err(Error::DeviceError(
-                "Failed to init Ps2Controller".into(),
-            ));
+            error!("Failed to init Ps2Controller");
+            return Err(Error::DeviceError);
         }
 
         controller.flush_read("defaults");

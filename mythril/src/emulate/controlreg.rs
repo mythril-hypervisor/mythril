@@ -60,9 +60,8 @@ pub fn emulate_access(
             op => panic!("Unsupported MovFromCr cr0 operation: {:?}", op),
         },
         _ => {
-            return Err(Error::InvalidValue(format!(
-                "Unsupported CR number access"
-            )))
+            error!("Unsupported CR number access");
+            return Err(Error::InvalidValue);
         }
     }
     Ok(())

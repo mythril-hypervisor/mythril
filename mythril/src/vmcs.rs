@@ -309,14 +309,13 @@ fn vmcs_write_with_fixed(
     required_value |= low; /* bit == 1 in low word  ==> must be one  */
 
     if (value & !required_value) != 0 {
-        return Err(Error::Vmcs(format!(
-            "Requested field ({:?}) bit not allowed by MSR (requested=0x{:x} forbidden=0x{:x} required=0x{:x} res=0x{:x})",
-            field,
-            value,
-            high,
-            low,
-            required_value
-        )));
+        error!("Requested field ({:?}) bit not allowed by MSR (requested=0x{:x} forbidden=0x{:x} required=0x{:x} res=0x{:x})",
+               field,
+               value,
+               high,
+               low,
+               required_value);
+        return Err(Error::Vmcs);
     }
 
     vmcs_write(field, required_value)?;
@@ -326,28 +325,30 @@ fn vmcs_write_with_fixed(
 fn vmcs_write(field: VmcsField, value: u64) -> Result<()> {
     let rflags = unsafe {
         let rflags: u64;
-        llvm_asm!("vmwrite %rdx, %rax; pushfq; popq $0"
-                  : "=r"(rflags)
-                  : "{rdx}"(value), "{rax}"(field as u64)
-                  : "rflags"
-                  : "volatile");
+        asm!(
+            "vmwrite rax, rdx",
+            "pushf",
+            "pop {}",
+            lateout(reg) rflags,
+            in("rdx") value,
+            in("rax") field as u64,
+        );
         rflags
     };
 
-    error::check_vm_insruction(
-        rflags,
-        format!("Failed to write 0x{:x} to field {:?}", value, field),
-    )
+    error::check_vm_instruction(rflags, || {
+        error!("Failed to write 0x{:x} to field {:?}", value, field)
+    })
 }
 
 fn vmcs_read(field: VmcsField) -> Result<u64> {
     let value = unsafe {
         let value: u64;
-        llvm_asm!("vmreadq %rdx, %rax"
-                  : "={rax}"(value)
-                  : "{rdx}"(field as u64)
-                  : "rflags"
-                  : "volatile");
+        asm!(
+            "vmread rax, rdx",
+            out("rax") value,
+            in("rdx") field as u64
+        );
         value
     };
 
@@ -363,27 +364,32 @@ fn vmcs_activate(vmcs: &mut Vmcs, _vmx: &vmx::Vmx) -> Result<()> {
     }
     let rflags = unsafe {
         let rflags: u64;
-        llvm_asm!("vmptrld $1; pushfq; popq $0"
-                  : "=r"(rflags)
-                  : "m"(vmcs_region_addr)
-                  : "rflags");
+        asm!(
+            "vmptrld [{}]",
+            "pushf",
+            "pop {}",
+            in(reg) &vmcs_region_addr,
+            lateout(reg) rflags
+        );
         rflags
     };
 
-    error::check_vm_insruction(rflags, "Failed to activate VMCS".into())
+    error::check_vm_instruction(rflags, || error!("Failed to activate VMCS"))
 }
 
 fn vmcs_clear(vmcs_page: &mut Raw4kPage) -> Result<()> {
     let rflags = unsafe {
         let rflags: u64;
-        llvm_asm!("vmclear $1; pushfq; popq $0"
-                  : "=r"(rflags)
-                  : "m"(vmcs_page as *const _ as u64)
-                  : "rflags"
-                  : "volatile");
+        asm!(
+            "vmclear [{}]",
+            "pushf",
+            "pop {}",
+            in(reg) &(vmcs_page as *const _ as u64),
+            lateout(reg) rflags
+        );
         rflags
     };
-    error::check_vm_insruction(rflags, "Failed to clear VMCS".into())
+    error::check_vm_instruction(rflags, || error!("Failed to clear VMCS"))
 }
 
 pub struct Vmcs {

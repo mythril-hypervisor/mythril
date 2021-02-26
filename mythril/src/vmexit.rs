@@ -54,7 +54,7 @@ pub extern "C" fn vmexit_handler(state: *mut GuestCpuState) {
 
 #[no_mangle]
 pub extern "C" fn vmresume_failure_handler(rflags: u64) {
-    error::check_vm_insruction(rflags, "Failed to vmresume".into())
+    error::check_vm_instruction(rflags, || error!("Failed to vmresume"))
         .expect("vmresume failed");
 }
 
@@ -221,10 +221,8 @@ impl ExitReason {
             63 => ExitInformation::Xsaves,
             64 => ExitInformation::Xrstors,
             reason => {
-                return Err(Error::InvalidValue(format!(
-                    "Unexpected basic vmexit reason: {}",
-                    reason
-                )))
+                error!("Unexpected basic vmexit reason: {}", reason);
+                return Err(Error::InvalidValue);
             }
         };
         Ok(ExitReason {

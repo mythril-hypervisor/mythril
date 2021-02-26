@@ -1,5 +1,4 @@
 use crate::vmcs;
-use alloc::string::String;
 use arrayvec::CapacityError;
 use core::convert::TryFrom;
 use core::num::TryFromIntError;
@@ -44,25 +43,29 @@ pub enum VmInstructionError {
     InvalidOperandToInveptInvvpid = 28,
 }
 
-pub fn check_vm_insruction(rflags: u64, error: String) -> Result<()> {
+pub fn check_vm_instruction(rflags: u64, log_error: impl Fn()) -> Result<()> {
     let rflags = rflags::RFlags::from_bits_truncate(rflags);
 
     if rflags.contains(RFlags::FLAGS_CF) {
-        Err(Error::VmFailInvalid(error))
+        log_error();
+        Err(Error::VmFailInvalid)
     } else if rflags.contains(RFlags::FLAGS_ZF) {
         let errno = unsafe {
             let value: u64;
-            llvm_asm!("vmread %rax, %rdx;"
-                      : "={rdx}"(value)
-                      : "{rax}"(vmcs::VmcsField::VmInstructionError as u64)
-                      : "rflags"
-                      : "volatile");
+            asm!(
+                "vmread rdx, rax",
+                in("rax") vmcs::VmcsField::VmInstructionError as u64,
+                out("rdx") value,
+                options(nostack)
+            );
             value
         };
         let vm_error = VmInstructionError::try_from(errno)
             .unwrap_or(VmInstructionError::UnknownError);
 
-        Err(Error::VmFailValid((vm_error, error)))
+        error!("{:?}", vm_error);
+        log_error();
+        Err(Error::VmFailValid)
     } else {
         Ok(())
     }
@@ -70,40 +73,38 @@ pub fn check_vm_insruction(rflags: u64, error: String) -> Result<()> {
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
-    Vmcs(String),
-    VmFailInvalid(String),
-    VmFailValid((VmInstructionError, String)),
-    DuplicateMapping(String),
-    AllocError(String),
-    MissingDevice(String),
-    MissingFile(String),
-    NullPtr(String),
+    Vmcs,
+    VmFailInvalid,
+    VmFailValid,
+    DuplicateMapping,
     NotSupported,
     NotFound,
-    Exists,
     Exhausted,
-    Uefi(String),
-    InvalidValue(String),
-    InvalidDevice(String),
-    NotImplemented(String),
-    DeviceError(String),
+    InvalidValue,
+    InvalidDevice,
+    NotImplemented,
+    DeviceError,
+    MissingDevice,
 }
 
 impl<T: TryFromPrimitive> From<TryFromPrimitiveError<T>> for Error {
     fn from(error: TryFromPrimitiveError<T>) -> Error {
-        Error::InvalidValue(format!("{}", error))
+        error!("{}", error);
+        Error::InvalidValue
     }
 }
 
 impl From<TryFromIntError> for Error {
     fn from(error: TryFromIntError) -> Error {
-        Error::InvalidValue(format!("{}", error))
+        error!("{}", error);
+        Error::InvalidValue
     }
 }
 
 impl From<core::str::Utf8Error> for Error {
     fn from(error: core::str::Utf8Error) -> Error {
-        Error::InvalidValue(format!("{}", error))
+        error!("{}", error);
+        Error::InvalidValue
     }
 }
 
@@ -137,7 +138,7 @@ fn panic_handler(info: &core::panic::PanicInfo) -> ! {
     loop {
         unsafe {
             // Try to at least keep CPU from running at 100%
-            llvm_asm!("hlt" :::: "volatile");
+            asm!("hlt", options(nostack, nomem));
         }
     }
 }

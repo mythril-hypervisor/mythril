@@ -226,10 +226,8 @@ impl VirtualMachineSet {
             .context_by_core_id(core_id)
             .ok_or_else(|| Error::NotFound)?;
         context.msgqueue.write().push_back(msg).map_err(|_| {
-            Error::InvalidValue(format!(
-                "RX queue is full for core_id = {}",
-                core_id
-            ))
+            error!("RX queue is full for core_id = {}", core_id);
+            Error::InvalidValue
         })?;
 
         if !notify {
@@ -266,10 +264,8 @@ impl VirtualMachineSet {
         notify: bool,
     ) -> Result<()> {
         let vm_bsp = self.bsp_core_id(vm_id).ok_or_else(|| {
-            Error::InvalidValue(format!(
-                "Unable to find BSP for VM id '{}'",
-                vm_id
-            ))
+            error!("Unable to find BSP for VM id '{}'", vm_id);
+            Error::InvalidValue
         })?;
         self.send_msg_core(msg, vm_bsp, notify)
     }
@@ -552,9 +548,10 @@ impl VirtualMachine {
                         // Just ignore writes to unknown ports
                         Ok(())
                     }
-                    _ => Err(Error::MissingDevice(
-                        "Unable to dispatch event".into(),
-                    )),
+                    _ => {
+                        error!("Unable to dispatch event");
+                        Err(Error::MissingDevice)
+                    }
                 };
             }
         };
@@ -674,7 +671,8 @@ impl VirtualMachine {
         let data = info
             .find_module(image)
             .ok_or_else(|| {
-                Error::InvalidValue(format!("No such module '{}'", image))
+                error!("No such module '{}'", image);
+                Error::InvalidValue
             })?
             .data();
         Self::map_data(data, addr, space)
@@ -716,7 +714,7 @@ impl VirtualMachine {
                 ),
                 false,
             ) {
-                Ok(_) | Err(Error::DuplicateMapping(_)) => continue,
+                Ok(_) | Err(Error::DuplicateMapping) => continue,
                 Err(e) => return Err(e),
             }
         }

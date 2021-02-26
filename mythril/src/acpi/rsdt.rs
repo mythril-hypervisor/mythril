@@ -246,11 +246,12 @@ fn write_sdt_header(
     // The SDT length value is the value of the entire SDT including
     // the header.
     if buffer.len() < sdt_len {
-        return Err(Error::InvalidValue(format!(
+        error!(
             "Buffer length should be at least `{}` but was `{}`",
             sdt_len,
             buffer.len()
-        )));
+        );
+        return Err(Error::InvalidValue);
     }
     // Fill in the SDT header with the implementations values
     buffer[offsets::SIGNATURE].copy_from_slice(signature);
@@ -339,10 +340,11 @@ impl<'a, T: Array<Item = u8>> RSDTBuilder<'a, T> {
                 Ok(())
             }
         } else {
-            Err(Error::InvalidValue(format!(
+            error!(
                 "The key `{}` already exists",
                 str::from_utf8(&U::SIGNATURE).unwrap()
-            )))
+            );
+            Err(Error::InvalidValue)
         }
     }
 
@@ -373,16 +375,22 @@ impl<'a, T: Array<Item = u8>> RSDTBuilder<'a, T> {
         })?;
 
         for (i, (name, (sdt, size))) in self.map.iter().enumerate() {
-            let table_name = format!("etc/mythril/{}", str::from_utf8(name)?);
+            const ETC_MYTHRIL: &'static str = "etc/mythril/";
+            const LEN_OF_NAME: usize = 4;
+            let mut table_name_bytes = [0u8; ETC_MYTHRIL.len() + LEN_OF_NAME];
+            table_name_bytes[0..ETC_MYTHRIL.len()]
+                .copy_from_slice(ETC_MYTHRIL.as_bytes());
+            table_name_bytes[ETC_MYTHRIL.len()..].copy_from_slice(name);
+            let table_name = str::from_utf8(&table_name_bytes)?;
 
             table_loader.add_command(TableLoaderCommand::Allocate {
-                file: &table_name,
+                file: table_name,
                 align: 8,
                 zone: AllocZone::Fseg,
             })?;
 
             table_loader.add_command(TableLoaderCommand::AddPointer {
-                src: &table_name,
+                src: table_name,
                 dst: "etc/mythril/xsdt",
                 offset: ((i * 8) + offsets::CREATOR_REVISION.end) as u32,
                 size: 8,

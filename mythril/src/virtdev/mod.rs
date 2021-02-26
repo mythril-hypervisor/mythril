@@ -23,6 +23,7 @@ pub mod rtc;
 pub mod vga;
 
 const MAX_EVENT_RESPONSES: usize = 8;
+
 pub type ResponseEventArray =
     ArrayVec<[DeviceEventResponse; MAX_EVENT_RESPONSES]>;
 pub type Port = u16;
@@ -195,10 +196,9 @@ impl<'a> DeviceMap<'a> {
                             .expect("Could not get conflicting device")
                             .0;
 
-                        return Err(Error::InvalidDevice(format!(
-                            "I/O Port already registered: 0x{:x}-0x{:x} conflicts with existing map of 0x{:x}-0x{:x}",
-                            key.0.start(), key.0.end(), conflict.0.start(), conflict.0.end()
-                        )));
+                        error!("I/O Port already registered: 0x{:x}-0x{:x} conflicts with existing map of 0x{:x}-0x{:x}",
+                               key.0.start(), key.0.end(), conflict.0.start(), conflict.0.end());
+                        return Err(Error::InvalidDevice);
                     }
                     self.portio_map.insert(key, dev);
                 }
@@ -210,10 +210,9 @@ impl<'a> DeviceMap<'a> {
                             .get_key_value(&key)
                             .expect("Could not get conflicting device")
                             .0;
-                        return Err(Error::InvalidDevice(format!(
-                            "Memory region already registered: 0x{:x}-0x{:x} conflicts with existing map of 0x{:x}-0x{:x}",
-                            key.0.start().as_u64(), key.0.end().as_u64(), conflict.0.start().as_u64(), conflict.0.end().as_u64()
-                        )));
+                        error!("Memory region already registered: 0x{:x}-0x{:x} conflicts with existing map of 0x{:x}-0x{:x}",
+                               key.0.start().as_u64(), key.0.end().as_u64(), conflict.0.start().as_u64(), conflict.0.end().as_u64());
+                        return Err(Error::InvalidDevice);
                     }
                     self.memio_map.insert(key, dev.clone());
                 }
@@ -288,10 +287,8 @@ impl<'a> TryFrom<&'a mut [u8]> for PortReadRequest<'a> {
                 &mut *(buff.as_mut_ptr() as *mut [u8; 4])
             }),
             len => {
-                return Err(Error::InvalidValue(format!(
-                    "Invalid slice length: {}",
-                    len
-                )))
+                error!("Invalid slice length: {}", len);
+                return Err(Error::InvalidValue);
             }
         };
         Ok(res)
@@ -346,10 +343,8 @@ impl<'a> TryFrom<&'a [u8]> for PortWriteRequest<'a> {
                 Self::FourBytes(unsafe { &*(buff.as_ptr() as *const [u8; 4]) })
             }
             len => {
-                return Err(Error::InvalidValue(format!(
-                    "Invalid slice length: {}",
-                    len
-                )))
+                error!("Invalid slice length: {}", len);
+                return Err(Error::InvalidValue);
             }
         };
         Ok(res)
@@ -362,10 +357,10 @@ impl<'a> TryFrom<PortWriteRequest<'a>> for u8 {
     fn try_from(value: PortWriteRequest<'a>) -> Result<Self> {
         match value {
             PortWriteRequest::OneByte(val) => Ok(val[0]),
-            val => Err(Error::InvalidValue(format!(
-                "Value {} cannot be converted to u8",
-                val
-            ))),
+            val => {
+                error!("Value {} cannot be converted to u8", val);
+                Err(Error::InvalidValue)
+            }
         }
     }
 }
@@ -376,10 +371,10 @@ impl<'a> TryFrom<PortWriteRequest<'a>> for u16 {
     fn try_from(value: PortWriteRequest<'a>) -> Result<Self> {
         match value {
             PortWriteRequest::TwoBytes(val) => Ok(u16::from_be_bytes(*val)),
-            val => Err(Error::InvalidValue(format!(
-                "Value {} cannot be converted to u16",
-                val
-            ))),
+            val => {
+                error!("Value {} cannot be converted to u16", val);
+                Err(Error::InvalidValue)
+            }
         }
     }
 }
@@ -390,10 +385,10 @@ impl<'a> TryFrom<PortWriteRequest<'a>> for u32 {
     fn try_from(value: PortWriteRequest<'a>) -> Result<Self> {
         match value {
             PortWriteRequest::FourBytes(val) => Ok(u32::from_be_bytes(*val)),
-            val => Err(Error::InvalidValue(format!(
-                "Value {} cannot be converted to u32",
-                val
-            ))),
+            val => {
+                error!("Value {} cannot be converted to u32", val);
+                Err(Error::InvalidValue)
+            }
         }
     }
 }
@@ -451,10 +446,8 @@ impl<'a> TryInto<u8> for MemWriteRequest<'a> {
         if self.data.len() == 1 {
             Ok(self.data[0])
         } else {
-            Err(Error::InvalidValue(format!(
-                "Value {} cannot be converted to u8",
-                self
-            )))
+            error!("Value {} cannot be converted to u8", self);
+            Err(Error::InvalidValue)
         }
     }
 }

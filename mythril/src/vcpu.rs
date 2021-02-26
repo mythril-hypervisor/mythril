@@ -171,7 +171,7 @@ impl VCpu {
     /// Begin execution in the guest context for this core
     pub fn launch(&mut self) -> Result<!> {
         let rflags = unsafe { vmlaunch_wrapper() };
-        error::check_vm_insruction(rflags, "Failed to launch vm".into())?;
+        error::check_vm_instruction(rflags, || error!("Failed to launch vm"))?;
 
         unreachable!()
     }
@@ -511,7 +511,8 @@ impl VCpu {
                 .read_field(vmcs::VmcsField::GuestInterruptibilityInfo)?,
         )
         .ok_or_else(|| {
-            Error::InvalidValue("Invalid interruptibility state".into())
+            error!("Invalid interruptibility state");
+            Error::InvalidValue
         })?;
 
         let rflags = self.vmcs.read_field(vmcs::VmcsField::GuestRflags)?;
@@ -725,9 +726,8 @@ impl VCpu {
                         next_bsp.raw as u8,
                     )
                     .map_err(|_| {
-                        Error::DeviceError(
-                            "Failed to update console GSI mapping".into(),
-                        )
+                        error!("Failed to update console GSI mapping");
+                        Error::DeviceError
                     })?;
                 }
                 virtdev::DeviceEventResponse::GuestUartTransmitted(val) => {

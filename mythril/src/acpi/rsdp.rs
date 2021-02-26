@@ -26,6 +26,7 @@ pub const RSDP_SIGNATURE: &[u8; 8] = b"RSD PTR ";
 /// Offsets from `ACPI § 5.2.5.3`
 pub mod offsets {
     use super::*;
+
     /// Well known bytes, "RST PTR ".
     pub const SIGNATURE: Range<usize> = 0..8;
     /// Checksum of the fields defined by ACPI 1.0.
@@ -116,11 +117,8 @@ impl RSDP {
                 xsdt_addr: NativeEndian::read_u64(&bytes[offsets::XSDT_ADDR]),
             },
             _ => {
-                return Err(Error::InvalidValue(format!(
-                    "Invalid RSDP revision: {}",
-                    bytes[offsets::REVISION]
-                )))
-                .into();
+                error!("Invalid RSDP revision: {}", bytes[offsets::REVISION]);
+                return Err(Error::InvalidValue).into();
             }
         };
 
@@ -178,11 +176,14 @@ impl RSDP {
                     2 if rsdp_v2_end < range.len() => {
                         Ok(&range[i..rsdp_v2_end])
                     }
-                    _ => Err(Error::InvalidValue(format!(
-                        "Invalid RSDP revision: {} at {:p}",
-                        candidate[offsets::REVISION],
-                        candidate.as_ptr()
-                    ))),
+                    _ => {
+                        error!(
+                            "Invalid RSDP revision: {} at {:p}",
+                            candidate[offsets::REVISION],
+                            candidate.as_ptr()
+                        );
+                        Err(Error::InvalidValue)
+                    }
                 };
             }
         }
@@ -203,10 +204,10 @@ impl RSDP {
                 &bytes[..offsets::RESERVED.end],
                 offsets::EXT_CHECKSUM,
             ),
-            _ => Err(Error::InvalidValue(format!(
-                "Invalid RSDP revision: {}",
-                bytes[offsets::REVISION]
-            ))),
+            _ => {
+                error!("Invalid RSDP revision: {}", bytes[offsets::REVISION]);
+                Err(Error::InvalidValue)
+            }
         }
     }
 
