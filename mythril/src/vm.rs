@@ -548,9 +548,10 @@ impl VirtualMachine {
                         // Just ignore writes to unknown ports
                         Ok(())
                     }
-                    _ => Err(Error::MissingDevice(
-                        "Unable to dispatch event".into(),
-                    )),
+                    _ => {
+                        error!("Unable to dispatch event");
+                        Err(Error::MissingDevice)
+                    }
                 };
             }
         };

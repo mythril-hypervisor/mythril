@@ -84,6 +84,7 @@ pub enum Error {
     InvalidDevice,
     NotImplemented,
     DeviceError,
+    MissingDevice,
 }
 
 impl<T: TryFromPrimitive> From<TryFromPrimitiveError<T>> for Error {
