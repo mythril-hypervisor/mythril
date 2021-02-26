@@ -85,7 +85,7 @@ pub fn load_linux(
     let magic = LittleEndian::read_u32(&kernel[offsets::HEADER_MAGIC]);
 
     // HdrS
-    if magic != 0x53726448 {
+    if magic != HEADER_MAGIC_VALUE {
         error!("Invalid kernel image (bad magic = 0x{:x})", magic);
         return Err(Error::InvalidValue);
     }

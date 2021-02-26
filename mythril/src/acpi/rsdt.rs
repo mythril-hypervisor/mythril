@@ -375,12 +375,12 @@ impl<'a, T: Array<Item = u8>> RSDTBuilder<'a, T> {
         })?;
 
         for (i, (name, (sdt, size))) in self.map.iter().enumerate() {
-            const LEN_OF_ETC_MYTHRIL: usize = 12;
+            const ETC_MYTHRIL: &'static str = "etc/mythril/";
             const LEN_OF_NAME: usize = 4;
-            let mut table_name_bytes = [0u8; LEN_OF_ETC_MYTHRIL + LEN_OF_NAME];
-            table_name_bytes[0..LEN_OF_ETC_MYTHRIL]
-                .copy_from_slice("etc/mythril/".as_bytes());
-            table_name_bytes[LEN_OF_ETC_MYTHRIL..].copy_from_slice(name);
+            let mut table_name_bytes = [0u8; ETC_MYTHRIL.len() + LEN_OF_NAME];
+            table_name_bytes[0..ETC_MYTHRIL.len()]
+                .copy_from_slice(ETC_MYTHRIL.as_bytes());
+            table_name_bytes[ETC_MYTHRIL.len()..].copy_from_slice(name);
             let table_name = str::from_utf8(&table_name_bytes)?;
 
             table_loader.add_command(TableLoaderCommand::Allocate {
