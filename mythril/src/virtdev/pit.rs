@@ -7,10 +7,8 @@ use crate::virtdev::{
     PortWriteRequest,
 };
 
-use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::convert::TryFrom;
-use spin::RwLock;
 
 #[derive(Debug)]
 enum OperatingModeState {
@@ -61,8 +59,8 @@ pub struct Pit8254 {
 }
 
 impl Pit8254 {
-    pub fn new() -> Arc<RwLock<Self>> {
-        Arc::new(RwLock::new(Pit8254::default()))
+    pub fn new() -> Result<Self> {
+        Ok(Pit8254::default())
     }
 
     fn on_port_read(

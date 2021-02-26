@@ -1,7 +1,6 @@
 use crate::error::{Error, Result};
 use crate::memory::{GuestAddressSpaceView, GuestPhysAddr};
 use alloc::collections::btree_map::BTreeMap;
-use alloc::sync::Arc;
 use alloc::vec::Vec;
 use arrayvec::ArrayVec;
 use core::cmp::Ordering;
@@ -13,15 +12,12 @@ use spin::RwLock;
 pub mod acpi;
 pub mod com;
 pub mod debug;
-pub mod dma;
-pub mod ignore;
 pub mod ioapic;
 pub mod keyboard;
 pub mod lapic;
 pub mod pci;
 pub mod pic;
 pub mod pit;
-pub mod pos;
 pub mod qemu_fw_cfg;
 pub mod rtc;
 pub mod vga;
@@ -30,6 +26,32 @@ const MAX_EVENT_RESPONSES: usize = 8;
 pub type ResponseEventArray =
     ArrayVec<[DeviceEventResponse; MAX_EVENT_RESPONSES]>;
 pub type Port = u16;
+
+/// Dynamic virtual devices are devices that are not part of the architectural
+/// components of the guest (e.g., they are not part of the virtual chipset, etc)
+pub enum DynamicVirtualDevice {
+    DebugPort(debug::DebugPort),
+    Uart(com::Uart8250),
+    Qemu(qemu_fw_cfg::QemuFwCfg),
+}
+
+impl EmulatedDevice for DynamicVirtualDevice {
+    fn services(&self) -> Vec<DeviceRegion> {
+        match self {
+            DynamicVirtualDevice::DebugPort(port) => port.services(),
+            DynamicVirtualDevice::Uart(uart) => uart.services(),
+            DynamicVirtualDevice::Qemu(qemu) => qemu.services(),
+        }
+    }
+
+    fn on_event(&mut self, event: Event) -> Result<()> {
+        match self {
+            DynamicVirtualDevice::DebugPort(port) => port.on_event(event),
+            DynamicVirtualDevice::Uart(uart) => uart.on_event(event),
+            DynamicVirtualDevice::Qemu(qemu) => qemu.on_event(event),
+        }
+    }
+}
 
 #[derive(Debug)]
 pub enum DeviceEvent<'a> {
@@ -115,69 +137,51 @@ pub enum DeviceRegion {
 }
 
 pub trait DeviceInteraction {
-    fn find_device(
+    fn find_device<'a>(
         self,
-        map: &DeviceMap,
-    ) -> Option<&Arc<RwLock<dyn EmulatedDevice>>>;
-    fn find_device_mut(
-        self,
-        map: &mut DeviceMap,
-    ) -> Option<&mut Arc<RwLock<dyn EmulatedDevice>>>;
+        map: &DeviceMap<'a>,
+    ) -> Option<&'a RwLock<dyn EmulatedDevice>>;
 }
 
 impl DeviceInteraction for u16 {
-    fn find_device(
+    fn find_device<'a>(
         self,
-        map: &DeviceMap,
-    ) -> Option<&Arc<RwLock<dyn EmulatedDevice>>> {
+        map: &DeviceMap<'a>,
+    ) -> Option<&'a RwLock<dyn EmulatedDevice>> {
         let range = PortIoRegion(RangeInclusive::new(self, self));
-        map.portio_map.get(&range)
-    }
-    fn find_device_mut(
-        self,
-        map: &mut DeviceMap,
-    ) -> Option<&mut Arc<RwLock<dyn EmulatedDevice>>> {
-        let range = PortIoRegion(RangeInclusive::new(self, self));
-        map.portio_map.get_mut(&range)
+        map.portio_map.get(&range).map(|dev| *dev)
     }
 }
 
 impl DeviceInteraction for GuestPhysAddr {
-    fn find_device(
+    fn find_device<'a>(
         self,
-        map: &DeviceMap,
-    ) -> Option<&Arc<RwLock<dyn EmulatedDevice>>> {
+        map: &DeviceMap<'a>,
+    ) -> Option<&'a RwLock<dyn EmulatedDevice>> {
         let range = MemIoRegion(RangeInclusive::new(self, self));
-        map.memio_map.get(&range)
-    }
-    fn find_device_mut(
-        self,
-        map: &mut DeviceMap,
-    ) -> Option<&mut Arc<RwLock<dyn EmulatedDevice>>> {
-        let range = MemIoRegion(RangeInclusive::new(self, self));
-        map.memio_map.get_mut(&range)
+        map.memio_map.get(&range).map(|dev| *dev)
     }
 }
 
 /// A structure for looking up `EmulatedDevice`s by port or address
 #[derive(Default)]
-pub struct DeviceMap {
-    portio_map: BTreeMap<PortIoRegion, Arc<RwLock<dyn EmulatedDevice>>>,
-    memio_map: BTreeMap<MemIoRegion, Arc<RwLock<dyn EmulatedDevice>>>,
+pub struct DeviceMap<'a> {
+    portio_map: BTreeMap<PortIoRegion, &'a RwLock<dyn EmulatedDevice>>,
+    memio_map: BTreeMap<MemIoRegion, &'a RwLock<dyn EmulatedDevice>>,
 }
 
-impl DeviceMap {
+impl<'a> DeviceMap<'a> {
     /// Find the device that is responsible for handling an interaction
     pub fn find_device(
         &self,
         op: impl DeviceInteraction,
-    ) -> Option<&Arc<RwLock<dyn EmulatedDevice>>> {
+    ) -> Option<&RwLock<dyn EmulatedDevice>> {
         op.find_device(self)
     }
 
     pub fn register_device(
         &mut self,
-        dev: Arc<RwLock<dyn EmulatedDevice>>,
+        dev: &'a RwLock<dyn EmulatedDevice>,
     ) -> Result<()> {
         let services = dev.read().services();
         for region in services.into_iter() {
@@ -196,7 +200,7 @@ impl DeviceMap {
                             key.0.start(), key.0.end(), conflict.0.start(), conflict.0.end()
                         )));
                     }
-                    self.portio_map.insert(key, dev.clone());
+                    self.portio_map.insert(key, dev);
                 }
                 DeviceRegion::MemIo(val) => {
                     let key = MemIoRegion(val);
@@ -493,10 +497,8 @@ mod test {
     }
 
     impl DummyDevice {
-        fn new(
-            services: Vec<RangeInclusive<Port>>,
-        ) -> Arc<RwLock<dyn EmulatedDevice>> {
-            Arc::new(RwLock::new(Self { services }))
+        fn new(services: Vec<RangeInclusive<Port>>) -> Self {
+            Self { services }
         }
     }
 
@@ -512,8 +514,8 @@ mod test {
     #[test]
     fn test_device_map() {
         let mut map = DeviceMap::default();
-        let com = Uart8250::new(0);
-        map.register_device(com).unwrap();
+        let com = RwLock::new(Uart8250::new(0).unwrap());
+        map.register_device(&com).unwrap();
         let _dev = map.find_device(0u16).unwrap();
 
         assert_eq!(map.find_device(10u16).is_none(), true);
@@ -548,31 +550,31 @@ mod test {
     #[test]
     fn test_conflicting_portio_device() {
         let mut map = DeviceMap::default();
-        let com = Uart8250::new(0);
-        map.register_device(com).unwrap();
-        let com = Uart8250::new(0);
+        let com = RwLock::new(Uart8250::new(0).unwrap());
+        map.register_device(&com).unwrap();
+        let com = RwLock::new(Uart8250::new(0).unwrap());
 
-        assert!(map.register_device(com).is_err());
+        assert!(map.register_device(&com).is_err());
     }
 
     #[test]
     fn test_fully_overlapping_portio_device() {
         // region 2 fully inside region 1
         let services = vec![0..=10, 2..=8];
-        let dummy = DummyDevice::new(services);
+        let dummy = RwLock::new(DummyDevice::new(services));
         let mut map = DeviceMap::default();
 
-        assert!(map.register_device(dummy).is_err());
+        assert!(map.register_device(&dummy).is_err());
     }
 
     #[test]
     fn test_fully_encompassing_portio_device() {
         // region 1 fully inside region 2
         let services = vec![2..=8, 0..=10];
-        let dummy = DummyDevice::new(services);
+        let dummy = RwLock::new(DummyDevice::new(services));
         let mut map = DeviceMap::default();
 
-        assert!(map.register_device(dummy).is_err());
+        assert!(map.register_device(&dummy).is_err());
     }
 
     #[test]
@@ -580,10 +582,10 @@ mod test {
         // region 1 and region 2 partially overlap at the tail of region 1 and
         // the start of region 2
         let services = vec![0..=4, 3..=8];
-        let dummy = DummyDevice::new(services);
+        let dummy = RwLock::new(DummyDevice::new(services));
         let mut map = DeviceMap::default();
 
-        assert!(map.register_device(dummy).is_err());
+        assert!(map.register_device(&dummy).is_err());
     }
 
     #[test]
@@ -591,19 +593,19 @@ mod test {
         // region 1 and region 2 partially overlap at the start of region 1 and
         // the tail of region 2
         let services = vec![3..=8, 0..=4];
-        let dummy = DummyDevice::new(services);
+        let dummy = RwLock::new(DummyDevice::new(services));
         let mut map = DeviceMap::default();
 
-        assert!(map.register_device(dummy).is_err());
+        assert!(map.register_device(&dummy).is_err());
     }
 
     #[test]
     fn test_non_overlapping_portio_device() {
         // region 1 and region 2 don't overlap
         let services = vec![0..=3, 4..=8];
-        let dummy = DummyDevice::new(services);
+        let dummy = RwLock::new(DummyDevice::new(services));
         let mut map = DeviceMap::default();
 
-        assert!(map.register_device(dummy).is_ok());
+        assert!(map.register_device(&dummy).is_ok());
     }
 }

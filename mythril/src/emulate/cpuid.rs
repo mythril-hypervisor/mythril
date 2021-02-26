@@ -23,6 +23,8 @@ pub fn emulate_cpuid(
 
         // Hide TSC deadline timer
         res.ecx &= !(1 << 24);
+    } else if guest_cpu.rax as u32 == 0x0b {
+        res.edx = crate::percore::read_core_id().raw as u32;
     }
 
     guest_cpu.rax = res.eax as u64 | (guest_cpu.rax & 0xffffffff00000000);

@@ -1,6 +1,6 @@
 %include "paging.mac"
 
-%define BSP_STACK_SIZE (PAGE_SIZE*50)
+%define BSP_STACK_SIZE (PAGE_SIZE*100)
 %define PAGE_HIERARCHY_SIZE (PAGE_SIZE*7)
 
 global PAGE_HIERARCHY

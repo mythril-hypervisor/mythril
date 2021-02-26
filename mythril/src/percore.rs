@@ -61,20 +61,22 @@ pub unsafe fn init_sections(ncores: usize) -> Result<()> {
     Ok(())
 }
 
+unsafe fn percore_section_start(core_idx: u64) -> *const u8 {
+    if core_idx == 0 {
+        &PER_CORE_START as *const u8
+    } else {
+        let section_len = per_core_section_len();
+        (&AP_PER_CORE_SECTIONS[section_len * (core_idx - 1) as usize])
+            as *const u8
+    }
+}
+
 /// Initialize this core's per-core data
 ///
 /// This must be called by each AP (and the BSP) before
 /// the usage of any per-core variable
 pub unsafe fn init_segment_for_core(core_idx: u64) {
-    let fs = if core_idx == 0 {
-        &PER_CORE_START as *const u8 as u64
-    } else {
-        let section_len = per_core_section_len();
-        (&AP_PER_CORE_SECTIONS[section_len * (core_idx - 1) as usize])
-            as *const u8 as u64
-    };
-
-    msr::wrmsr(msr::IA32_FS_BASE, fs);
+    msr::wrmsr(msr::IA32_FS_BASE, percore_section_start(core_idx) as u64);
 
     RoAfterInit::init(
         crate::get_per_core_mut!(CORE_ID),
@@ -125,7 +127,9 @@ macro_rules! get_per_core {
     ($name:ident) => {
         #[allow(unused_unsafe)]
         unsafe {
-            $crate::percore::get_per_core_impl(&$name)
+            $crate::percore::get_per_core_impl(&paste::paste! {
+                [<PERCORE_ $name>]
+            })
         }
     };
 }
@@ -135,7 +139,9 @@ macro_rules! get_per_core_mut {
     ($name:ident) => {
         #[allow(unused_unsafe)]
         unsafe {
-            $crate::percore::get_per_core_mut_impl(&mut $name)
+            $crate::percore::get_per_core_mut_impl(&mut paste::paste! {
+                [<PERCORE_ $name>]
+            })
         }
     };
 }
@@ -145,14 +151,19 @@ macro_rules! get_per_core_mut {
 #[doc(hidden)]
 macro_rules! __declare_per_core_internal {
     ($(#[$attr:meta])* ($($vis:tt)*) static mut $N:ident : $T:ty = $e:expr; $($t:tt)*) => {
-        #[link_section = ".per_core"]
-        $($vis)* static mut $N: $T = $e;
+        paste::paste! {
+            #[link_section = ".per_core"]
+            $($vis)* static mut [<PERCORE_ $N>]: $T = $e;
+        }
 
         declare_per_core!($($t)*);
     };
     ($(#[$attr:meta])* ($($vis:tt)*) static $N:ident : $T:ty = $e:expr; $($t:tt)*) => {
-        #[link_section = ".per_core"]
-        $($vis)* static $N: $T = $e;
+        use paste::paste;
+        paste! {
+            #[link_section = ".per_core"]
+            $($vis)* static [<PERCORE_ $N>]: $T = $e;
+        }
 
         declare_per_core!($($t)*);
     };

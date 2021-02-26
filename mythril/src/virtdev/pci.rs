@@ -1,11 +1,9 @@
 use crate::error::{Error, Result};
 use crate::virtdev::{DeviceEvent, DeviceRegion, EmulatedDevice, Event, Port};
 use alloc::collections::btree_map::BTreeMap;
-use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::convert::TryInto;
 use num_enum::TryFromPrimitive;
-use spin::RwLock;
 use ux;
 
 #[derive(Clone, Copy, Debug, TryFromPrimitive)]
@@ -154,7 +152,7 @@ impl PciRootComplex {
     const PCI_CONFIG_DATA: Port = 0xcfc;
     const PCI_CONFIG_DATA_MAX: Port = Self::PCI_CONFIG_DATA + 3;
 
-    pub fn new() -> Arc<RwLock<Self>> {
+    pub fn new() -> Result<Self> {
         let mut devices = BTreeMap::new();
 
         let host_bridge = PciDevice {
@@ -181,10 +179,10 @@ impl PciRootComplex {
         };
         devices.insert(ich9.bdf.into(), ich9);
 
-        Arc::new(RwLock::new(Self {
+        Ok(Self {
             current_address: 0,
             devices: devices,
-        }))
+        })
     }
 }
 
@@ -275,9 +273,9 @@ mod test {
         GuestAddressSpaceView::new(GuestPhysAddr::new(0), space)
     }
 
-    fn complex_ready_for_reg_read(reg: u8) -> Arc<RwLock<PciRootComplex>> {
+    fn complex_ready_for_reg_read(reg: u8) -> PciRootComplex {
         let view = define_test_view();
-        let complex = PciRootComplex::new();
+        let mut complex = PciRootComplex::new().unwrap();
         let addr = ((reg << 2) as u32).to_be_bytes();
         let request = PortWriteRequest::try_from(&addr[..]).unwrap();
         let mut responses = ResponseEventArray::default();
@@ -287,21 +285,17 @@ mod test {
             &mut responses,
         )
         .unwrap();
-        {
-            let mut complex = complex.write();
-            complex.on_event(event).unwrap();
-        }
+        complex.on_event(event).unwrap();
         complex
     }
 
     #[test]
     fn test_full_register_read() {
         let view = define_test_view();
-        let complex = complex_ready_for_reg_read(0);
+        let mut complex = complex_ready_for_reg_read(0);
         let mut buff = [0u8; 4];
         let val = PortReadRequest::FourBytes(&mut buff);
         let mut responses = ResponseEventArray::default();
-        let mut complex = complex.write();
         let event = Event::new(
             DeviceEvent::PortRead(PciRootComplex::PCI_CONFIG_DATA, val),
             view,
@@ -316,11 +310,10 @@ mod test {
     #[test]
     fn test_half_register_read() {
         let view = define_test_view();
-        let complex = complex_ready_for_reg_read(0);
+        let mut complex = complex_ready_for_reg_read(0);
         let mut buff = [0u8; 2];
         let val = PortReadRequest::TwoBytes(&mut buff);
         let mut responses = ResponseEventArray::default();
-        let mut complex = complex.write();
         let event = Event::new(
             DeviceEvent::PortRead(PciRootComplex::PCI_CONFIG_DATA, val),
             view,
@@ -344,10 +337,9 @@ mod test {
 
     #[test]
     fn test_register_byte_read() {
-        let complex = complex_ready_for_reg_read(0);
+        let mut complex = complex_ready_for_reg_read(0);
         let mut buff = [0u8; 1];
         let mut responses = ResponseEventArray::default();
-        let mut complex = complex.write();
 
         let view = define_test_view();
         let val = PortReadRequest::OneByte(&mut buff);
