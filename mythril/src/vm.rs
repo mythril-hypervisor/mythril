@@ -387,8 +387,8 @@ impl VirtualMachineConfig {
             images: ArrayVec::new(),
             virtual_devices: ArrayVec::new(),
             host_devices: physical_devices,
-            memory: memory,
-            override_cpu_name: todo!()
+            memory,
+            override_cpu_name: true
         })
     }
 
@@ -447,6 +447,12 @@ pub struct VirtualMachine {
 
     /// The number of vcpus that are up and waiting to start
     cpus_ready: AtomicU32,
+
+
+    /// Whether to display the cpu name as "Mythril CPU" in cpuid
+    pub override_cpu_name: bool
+
+
 }
 
 impl VirtualMachine {
@@ -485,6 +491,7 @@ impl VirtualMachine {
             apic_access_page: Raw4kPage([0u8; 4096]),
             logical_apic_state: logical_apic_states,
             cpus_ready: AtomicU32::new(0),
+            override_cpu_name: config.override_cpu_name
         })
     }
 

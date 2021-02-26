@@ -95,7 +95,7 @@ impl TryFrom<u16> for ApicRegisterOffset {
                 return Err(Error::InvalidValue(format!(
                     "Invalid APIC register offset: 0x{:x}",
                     offset
-                )))
+                )));
             }
         };
 
@@ -103,15 +103,30 @@ impl TryFrom<u16> for ApicRegisterOffset {
     }
 }
 
-#[derive(Default)]
+/// CPUID only returns APIC ID values up to 8 bits.
+/// This does raise the question of what AMD are
+/// going to do when they add more cores to threadripper.
+/// And also what Xeon Phi does.
+/// Apparently it does this:
+/// "The local APIC registers have expanded fields for
+/// the APIC ID, Logical APIC ID, and APIC Destination ID. "
+/// https://www.intel.com/content/dam/www/public/us/en/
+/// documents/product-briefs/xeon-phi
+/// -coprocessor-system-software-developers-guide.pdf
+///
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub struct VirtualAPICID(pub u8);
+
 pub struct LocalApic {
     icr_destination: Option<u32>,
+    pub virtual_apic_id: VirtualAPICID,
 }
 
 impl LocalApic {
-    pub fn new() -> Self {
+    pub fn new(virtual_apic_id: VirtualAPICID) -> Self {
         LocalApic {
             icr_destination: None,
+            virtual_apic_id,
         }
     }
 
@@ -167,9 +182,9 @@ impl LocalApic {
                     if *core == percore::read_core_id() {
                         continue;
                     }
-                    vm::virtual_machines().send_msg_core(vm::VirtualMachineMsg::GuestInterrupt{
+                    vm::virtual_machines().send_msg_core(vm::VirtualMachineMsg::GuestInterrupt {
                         kind: crate::vcpu::InjectedInterruptType::ExternalInterrupt,
-                        vector: vector as u8
+                        vector: vector as u8,
                     }, *core, true)?
                 }
                 return Ok(());
@@ -190,9 +205,9 @@ impl LocalApic {
                         if *core == percore::read_core_id() {
                             continue;
                         }
-                        vm::virtual_machines().send_msg_core(vm::VirtualMachineMsg::GuestInterrupt{
+                        vm::virtual_machines().send_msg_core(vm::VirtualMachineMsg::GuestInterrupt {
                             kind: crate::vcpu::InjectedInterruptType::ExternalInterrupt,
-                            vector: vector as u8
+                            vector: vector as u8,
                         }, *core, true)?
                     }
                 }

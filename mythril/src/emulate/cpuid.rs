@@ -5,8 +5,6 @@ use arrayvec::ArrayVec;
 use bitfield::bitfield;
 use core::convert::TryInto;
 use raw_cpuid::CpuIdResult;
-use bitflags::_core::num::flt2dec::to_shortest_exp_str;
-use crate::apic::get_local_apic;
 
 const CPUID_NAME: u32 = 0;
 const CPUID_MODEL_FAMILY_STEPPING: u32 = 1;
@@ -41,7 +39,10 @@ fn get_cpu_id_result(
         CPUID_MODEL_FAMILY_STEPPING => cpuid_model_family_stepping(actual),
         INTEL_CORE_CACHE_TOPOLOGY => intel_cache_topo(actual),
         THERMAL_AND_POWER_MANAGEMENT => {
-            todo!("Portions of this output are per core, but presumably we don't support this. Additionally there is stuff about APIC timers here, also unsure if supported.")
+            todo!("Portions of this output are per core, but presumably we don't support thermal and power management.\
+             Additionally there is stuff about APIC timers here, also unsure if supported.\
+             Need reasonable defaults probably though\
+             ")
         }
         STRUCTURED_EXTENDED_FEATURE_FLAGS => {
             // nothing here seems to suspicious so just return actual:
@@ -71,15 +72,13 @@ fn get_cpu_id_result(
             edx: 0,
         },
         CPUID_BRAND_STRING_1..=CPUID_BRAND_STRING_3 => {
-            if vcpu.vm.config.override_cpu_name() {
+            if vcpu.vm.override_cpu_name {
                 todo!("CPU Brand string not implemented yet")
             }
             actual
         }
         _ => {
-            //TODO for code review. Idk how I feel about silently fallingback on real cpuid here.
-            // I would perhaps prefer to put a todo!() and explicitly implement stuff.
-            actual
+            unimplemented!("Unimplemented CPUID value: {:?}", actual);
         }
     }
 }
@@ -173,7 +172,7 @@ fn cpuid_model_family_stepping(actual: CpuIdResult) -> CpuIdResult {
 }
 
 fn cpuid_name(vcpu: &VCpu, actual: CpuIdResult) -> CpuIdResult {
-    if vcpu.vm.config.override_cpu_name() {
+    if vcpu.vm.override_cpu_name {
         let cpu_name = "MythrilCPU__";
         let bytes = cpu_name
             .chars()
@@ -193,4 +192,20 @@ fn cpuid_name(vcpu: &VCpu, actual: CpuIdResult) -> CpuIdResult {
         };
     }
     actual
+}
+
+pub fn emulate_cpuid(vcpu: &mut VCpu, guest_cpu: &mut vmexit::GuestCpuState) -> Result<()> {
+//FIXME: for now just use the actual cpuid
+    let mut res = raw_cpuid::native_cpuid::cpuid_count(
+        guest_cpu.rax as u32,
+        guest_cpu.rcx as u32,
+    );
+
+    let res = get_cpu_id_result(vcpu, guest_cpu.rax as u32, guest_cpu.rcx as u32);
+
+    guest_cpu.rax = res.eax as u64 | (guest_cpu.rax & 0xffffffff00000000);
+    guest_cpu.rbx = res.ebx as u64 | (guest_cpu.rbx & 0xffffffff00000000);
+    guest_cpu.rcx = res.ecx as u64 | (guest_cpu.rcx & 0xffffffff00000000);
+    guest_cpu.rdx = res.edx as u64 | (guest_cpu.rdx & 0xffffffff00000000);
+    Ok(())
 }
