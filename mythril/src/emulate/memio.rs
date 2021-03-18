@@ -415,7 +415,11 @@ fn process_memio_op(
 
     let efer = vcpu.vmcs.read_field(vmcs::VmcsField::GuestIa32Efer)?;
     // TODO: 16bit support
-    let mode = if efer & 0x00000100 != 0 { 64 } else { 32 };
+    let mode = if efer & (1 << 8) != 0 && efer & (1 << 10) != 0 {
+        64
+    } else {
+        32
+    };
 
     let mut decoder =
         iced_x86::Decoder::new(mode, &bytes, iced_x86::DecoderOptions::NONE);
