@@ -21,7 +21,7 @@ log = { version = "0.4.8", default-features = false }
 multiboot = "0.3.0"
 multiboot2 = "0.9.0"
 paste = "1.0"
-raw-cpuid = "8.1.1"
+raw-cpuid = "9.1.1"
 rlibc = "1.0.0"
 serde = {version = "^1", default-features = false, features = ["alloc", "derive"] }
 serde_json = {version = "^1", default-features = false, features = ["alloc"] }
